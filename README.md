@@ -2,4 +2,4 @@
 
 ## Installation
 
-    go install github.com/ditto-assistant-agentflow
+    go install github.com/ditto-assistant/agentflow@latest
