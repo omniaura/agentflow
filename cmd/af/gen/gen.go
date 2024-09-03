@@ -13,10 +13,23 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package main
+package gen
 
-import "github.com/ditto-assistant/agentflow/cmd"
+import (
+	"fmt"
 
-func main() {
-	cmd.Execute()
+	"github.com/ditto-assistant/agentflow/cmd/af/gen/prompts"
+	"github.com/spf13/cobra"
+)
+
+func CMD() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "gen",
+		Short: "",
+		Run: func(cmd *cobra.Command, args []string) {
+			fmt.Println("generate called")
+		},
+	}
+	cmd.AddCommand(prompts.CMD())
+	return cmd
 }

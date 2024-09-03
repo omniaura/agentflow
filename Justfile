@@ -1,0 +1,2 @@
+test:
+    ginkgo pkg/ast
