@@ -30,7 +30,7 @@ var _ = Describe("Ast", func() {
 			want: ast.File{
 				Prompts: []ast.Prompt{
 					{
-						TextNodes: []ast.TextNode{
+						Nodes: []ast.Node{
 							{
 								Kind:  ast.KindText,
 								Bytes: []byte("Hello World")},
@@ -51,7 +51,7 @@ Goodbye World`),
 				Prompts: []ast.Prompt{
 					{
 						Title: []byte("hello world"),
-						TextNodes: []ast.TextNode{
+						Nodes: []ast.Node{
 							{
 								Kind:  ast.KindText,
 								Bytes: []byte("Hello World"),
@@ -60,7 +60,7 @@ Goodbye World`),
 					},
 					{
 						Title: []byte("goodbye world"),
-						TextNodes: []ast.TextNode{
+						Nodes: []ast.Node{
 							{
 								Kind:  ast.KindText,
 								Bytes: []byte("Goodbye World"),
@@ -82,7 +82,7 @@ Goodbye, <!name>!`),
 				Prompts: []ast.Prompt{
 					{
 						Title: []byte("hello name"),
-						TextNodes: []ast.TextNode{
+						Nodes: []ast.Node{
 							{Kind: ast.KindText, Bytes: []byte("Hello, ")},
 							{Kind: ast.KindVar, Bytes: []byte("name")},
 							{Kind: ast.KindText, Bytes: []byte("!")},
@@ -90,7 +90,7 @@ Goodbye, <!name>!`),
 					},
 					{
 						Title: []byte("goodbye name"),
-						TextNodes: []ast.TextNode{
+						Nodes: []ast.Node{
 							{Kind: ast.KindText, Bytes: []byte("Goodbye, ")},
 							{Kind: ast.KindVar, Bytes: []byte("name")},
 							{Kind: ast.KindText, Bytes: []byte("!")},

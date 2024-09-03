@@ -14,8 +14,8 @@ type File struct {
 type Prompt struct {
 	// Title is the name of the prompt.
 	Title []byte
-	// TextNodes is the text of the prompt.
-	TextNodes []TextNode
+	// Nodes are the nodes of the prompt.
+	Nodes []Node
 }
 
 type NodeKind int
@@ -26,10 +26,10 @@ const (
 	KindVar
 )
 
-type TextNode struct {
+type Node struct {
 	Kind NodeKind
-	// NodeTypeText: text content or empty for newline
-	// NodeTypeVar: name of variable
+	// KindText: text content or empty for newline
+	// KindVar: name of variable
 	Bytes []byte
 }
 
@@ -45,15 +45,14 @@ func New(reader io.Reader) (root File, err error) {
 		if line[0] == '~' {
 			l := line[1:]
 			// log.Trace().Bytes("line", l).Msg("found rawline")
-			// append to previous node if found
-			if len(cp.TextNodes) != 0 {
-				last := len(cp.TextNodes) - 1
-				if cp.TextNodes[last].Kind == KindText {
-					cp.TextNodes[last].Bytes = append(cp.TextNodes[last].Bytes, l...)
+			if len(cp.Nodes) != 0 { // append to previous node if found
+				last := len(cp.Nodes) - 1
+				if cp.Nodes[last].Kind == KindText {
+					cp.Nodes[last].Bytes = append(cp.Nodes[last].Bytes, l...)
 				}
 
 			} else {
-				cp.TextNodes = append(cp.TextNodes, TextNode{
+				cp.Nodes = append(cp.Nodes, Node{
 					Kind:  KindText,
 					Bytes: l,
 				})
@@ -61,33 +60,32 @@ func New(reader io.Reader) (root File, err error) {
 			continue
 		}
 
-		if title := bytes.TrimPrefix(line, titleBytes); len(title) != len(line) {
+		if bytes.HasPrefix(line, titleBytes) {
 			// log.Trace().Bytes("title", title).Msg("found title")
-			// It is the next prompt if we find a new title
-			if len(cp.Title) != 0 {
+			if len(cp.Title) != 0 { // It is the next prompt if we find a new title
 				root.Prompts = append(root.Prompts, cp)
 				cp = Prompt{}
 			}
-			cp.Title = title
+			cp.Title = line[len(titleBytes):]
 			continue
 		}
 
 		for node := range getTextNodes(line) {
-			if len(cp.TextNodes) == 0 {
-				cp.TextNodes = append(cp.TextNodes, node)
+			if len(cp.Nodes) == 0 {
+				cp.Nodes = append(cp.Nodes, node)
 				continue
 			}
 			switch node.Kind {
 			case KindVar:
-				cp.TextNodes = append(cp.TextNodes, node)
+				cp.Nodes = append(cp.Nodes, node)
 
 			case KindText:
-				last := len(cp.TextNodes) - 1
-				switch cp.TextNodes[last].Kind {
+				last := len(cp.Nodes) - 1
+				switch cp.Nodes[last].Kind {
 				case KindText:
-					cp.TextNodes[last].Bytes = append(cp.TextNodes[last].Bytes, node.Bytes...)
+					cp.Nodes[last].Bytes = append(cp.Nodes[last].Bytes, node.Bytes...)
 				case KindVar:
-					cp.TextNodes = append(cp.TextNodes, node)
+					cp.Nodes = append(cp.Nodes, node)
 				}
 
 			}
@@ -97,9 +95,9 @@ func New(reader io.Reader) (root File, err error) {
 	return
 }
 
-func getTextNodes(l []byte) iter.Seq[TextNode] {
-	return func(yield func(TextNode) bool) {
-		var node TextNode
+func getTextNodes(l []byte) iter.Seq[Node] {
+	return func(yield func(Node) bool) {
+		var node Node
 		for i, b := range l {
 			switch node.Kind {
 			case KindVar:
@@ -111,7 +109,7 @@ func getTextNodes(l []byte) iter.Seq[TextNode] {
 					if !yield(node) {
 						return
 					}
-					node = TextNode{Kind: KindText}
+					node = Node{Kind: KindText}
 				default:
 					node.Bytes = append(node.Bytes, b)
 
@@ -119,14 +117,13 @@ func getTextNodes(l []byte) iter.Seq[TextNode] {
 
 			case KindText:
 				// log.Trace().Str("b", string(b)).Msg("NodeKindText")
-				// start var
 				if b == '<' &&
 					len(l) > i &&
-					l[i+1] == '!' {
+					l[i+1] == '!' { // start var
 					if !yield(node) {
 						return
 					}
-					node = TextNode{Kind: KindVar}
+					node = Node{Kind: KindVar}
 					continue
 
 				}
