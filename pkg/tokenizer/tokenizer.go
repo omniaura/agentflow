@@ -2,6 +2,20 @@ package tokenizer
 
 import "bytes"
 
+type TokenSlice []Token
+
+func (t TokenSlice) Equal(o TokenSlice) bool {
+	if len(t) != len(o) {
+		return false
+	}
+	for i, tok := range t {
+		if tok != o[i] {
+			return false
+		}
+	}
+	return true
+}
+
 type Token struct {
 	Start int
 	End   int
@@ -14,6 +28,7 @@ const (
 	KindTitle
 	KindText
 	KindVar
+	KindRawBlock
 )
 
 func (k Kind) String() string {
@@ -34,7 +49,7 @@ var (
 	cmdTitle = []byte(".title")
 )
 
-func Tokenize(input []byte) ([]Token, error) {
+func Tokenize(input []byte) (TokenSlice, error) {
 	var tokens []Token
 	var ct Token
 	startLine := true
@@ -42,16 +57,16 @@ func Tokenize(input []byte) ([]Token, error) {
 	cmdEnd := cmdStart
 	for i, b := range input {
 		if startLine {
+			startLine = false
 			switch b {
-			case '<':
-			}
-			switch b {
+			case '~':
 			case '.':
 				if ct.Kind != KindUnset {
 					ct.End = i - 1
 					tokens = append(tokens, ct)
 				}
 				cmdStart = i
+			case '<':
 			default:
 				if ct.Kind == KindUnset {
 					ct.Kind = KindText
@@ -59,6 +74,7 @@ func Tokenize(input []byte) ([]Token, error) {
 				}
 			}
 		}
+
 		if cmdStart != -1 {
 			switch b {
 			case ' ':
@@ -71,8 +87,23 @@ func Tokenize(input []byte) ([]Token, error) {
 			}
 		}
 
+		if ct.Kind == KindVar && b == '>' {
+			ct.End = i
+			tokens = append(tokens, ct)
+			ct = Token{}
+		}
+		if b == '<' && len(input) > i && input[i+1] == '!' {
+			if ct.Kind != KindUnset {
+				ct.End = i - 1
+				tokens = append(tokens, ct)
+			}
+			ct.Kind = KindVar
+			ct.Start = i + 2
+
+		}
+
 		if b == '\n' {
-			startLine = false
+			startLine = true
 			switch ct.Kind {
 			case KindTitle:
 				ct.End = i
