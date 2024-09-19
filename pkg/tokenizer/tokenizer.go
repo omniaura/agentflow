@@ -66,6 +66,10 @@ func Tokenize(input []byte) ([]Token, error) {
 				ct = Token{}
 			}
 		}
+		if i == len(input)-1 && ct.Kind != KindUnset {
+			ct.End = i
+			tokens = append(tokens, ct)
+		}
 	}
 	return tokens, nil
 }
