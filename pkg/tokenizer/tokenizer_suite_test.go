@@ -1,6 +1,7 @@
 package tokenizer_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/ditto-assistant/agentflow/pkg/tokenizer"
@@ -21,6 +22,7 @@ var _ = Describe("tokenizer", func() {
 		wantErr error
 	}
 	helloW := []byte("hello world")
+	helloMultiline := bytes.Join([][]byte{helloW, helloW, helloW}, []byte{'\n'})
 	testcases := []TestCase{
 		{
 			name:  "one line",
@@ -30,6 +32,17 @@ var _ = Describe("tokenizer", func() {
 					Kind:  tokenizer.KindText,
 					Start: 0,
 					End:   len(helloW) - 1,
+				},
+			},
+		},
+		{
+			name:  "one line",
+			input: helloMultiline,
+			want: []tokenizer.Token{
+				{
+					Kind:  tokenizer.KindText,
+					Start: 0,
+					End:   len(helloMultiline) - 1,
 				},
 			},
 		},
