@@ -16,6 +16,20 @@ const (
 	KindVar
 )
 
+func (k Kind) String() string {
+	switch k {
+	case KindTitle:
+		return "title"
+	case KindText:
+		return "text"
+	case KindVar:
+		return "var"
+	case KindUnset:
+		return "unset"
+	}
+	return "unknown"
+}
+
 var (
 	cmdTitle = []byte(".title")
 )
@@ -52,7 +66,7 @@ func Tokenize(input []byte) ([]Token, error) {
 				switch {
 				case bytes.Equal(input[cmdStart:cmdEnd], cmdTitle):
 					ct.Kind = KindTitle
-					ct.Start = i
+					ct.Start = i + 1
 				}
 			}
 		}
@@ -67,7 +81,7 @@ func Tokenize(input []byte) ([]Token, error) {
 			}
 		}
 		if i == len(input)-1 && ct.Kind != KindUnset {
-			ct.End = i
+			ct.End = i + 1
 			tokens = append(tokens, ct)
 		}
 	}
