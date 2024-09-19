@@ -144,8 +144,10 @@ func TestTitle(t *testing.T) {
 func TestVar(t *testing.T) {
 	varStart := []byte("<!")
 	varName := []byte("var1")
+	// varName2 := []byte("var2")
 	varEnd := []byte(">")
 	var1 := append(append(varStart, varName...), varEnd...)
+	// var2 := append(append(varStart, varName2...), varEnd...)
 	testcases := []TestCase{
 		{
 			name: "one var",
@@ -158,6 +160,44 @@ func TestVar(t *testing.T) {
 					},
 				}
 				return var1, want, nil
+			},
+		},
+		{
+			name: "var at start of text line",
+			def: func() ([]byte, tokenizer.TokenSlice, error) {
+				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
+				want := tokenizer.TokenSlice{
+					{
+						Kind:  tokenizer.KindVar,
+						Start: len(varStart),
+						End:   len(var1) - len(varEnd),
+					},
+					{
+						Kind:  tokenizer.KindText,
+						Start: len(var1),
+						End:   len(line),
+					},
+				}
+				return line, want, nil
+			},
+		},
+		{
+			name: "var at end of text line",
+			def: func() ([]byte, tokenizer.TokenSlice, error) {
+				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
+				want := tokenizer.TokenSlice{
+					{
+						Kind:  tokenizer.KindText,
+						Start: 0,
+						End:   len(helloW) + 1,
+					},
+					{
+						Kind:  tokenizer.KindVar,
+						Start: len(helloW) + 3,
+						End:   len(line) - 1,
+					},
+				}
+				return line, want, nil
 			},
 		},
 	}
@@ -182,7 +222,9 @@ func stringify(in []byte, tokens []tokenizer.Token) string {
 			buf.WriteString(strconv.Itoa(tok.End))
 			buf.WriteString("]")
 		} else {
+			buf.WriteString("\"")
 			buf.Write(in[tok.Start:tok.End])
+			buf.WriteString("\"")
 		}
 		if i != len(tokens)-1 {
 			buf.WriteRune('\n')

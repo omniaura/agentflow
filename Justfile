@@ -1,2 +1,2 @@
 test:
-    ginkgo pkg/ast
+    go test ./...

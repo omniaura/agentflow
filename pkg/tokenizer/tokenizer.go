@@ -1,6 +1,8 @@
 package tokenizer
 
-import "bytes"
+import (
+	"bytes"
+)
 
 type TokenSlice []Token
 
@@ -61,17 +63,13 @@ func Tokenize(input []byte) (TokenSlice, error) {
 			switch b {
 			case '~':
 			case '.':
+				cmdStart = i
 				if ct.Kind != KindUnset {
 					ct.End = i - 1
 					tokens = append(tokens, ct)
 				}
-				cmdStart = i
 			case '<':
 			default:
-				if ct.Kind == KindUnset {
-					ct.Kind = KindText
-					ct.Start = i
-				}
 			}
 		}
 
@@ -91,10 +89,11 @@ func Tokenize(input []byte) (TokenSlice, error) {
 			ct.End = i
 			tokens = append(tokens, ct)
 			ct = Token{}
+			continue
 		}
 		if b == '<' && len(input) > i && input[i+1] == '!' {
 			if ct.Kind != KindUnset {
-				ct.End = i - 1
+				ct.End = i
 				tokens = append(tokens, ct)
 			}
 			ct.Kind = KindVar
@@ -109,10 +108,16 @@ func Tokenize(input []byte) (TokenSlice, error) {
 				ct.End = i
 				tokens = append(tokens, ct)
 				ct = Token{}
+				continue
 			}
 		}
-		if i == len(input)-1 && ct.Kind != KindUnset {
+
+		if ct.Kind == KindUnset {
+			ct.Kind = KindText
+			ct.Start = i
+		} else if i == len(input)-1 && ct.Kind != KindUnset {
 			ct.End = i + 1
+			// log.Trace().Msgf("end of input, adding token: %+v", ct)
 			tokens = append(tokens, ct)
 		}
 	}
