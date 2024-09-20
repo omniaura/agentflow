@@ -4,8 +4,14 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/ditto-assistant/agentflow/pkg/ast"
 	"github.com/iancoleman/strcase"
 )
+
+func GenFile(w io.Writer, f ast.File) {
+	// for _, prompt := range f.Prompts {
+	// }
+}
 
 func FunctionHeader(w io.Writer, name string, stringVars []string) {
 	name = strcase.ToSnake(name)
