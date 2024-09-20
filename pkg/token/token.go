@@ -1,12 +1,14 @@
-package tokenizer
+package token
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
 )
 
-type TokenSlice []Token
+type Slice []T
 
-func (t TokenSlice) Equal(o TokenSlice) bool {
+func (t Slice) Equal(o Slice) bool {
 	if len(t) != len(o) {
 		return false
 	}
@@ -18,7 +20,7 @@ func (t TokenSlice) Equal(o TokenSlice) bool {
 	return true
 }
 
-type Token struct {
+type T struct {
 	Kind  Kind
 	Start int
 	End   int
@@ -51,9 +53,9 @@ var (
 	cmdTitle = []byte(".title")
 )
 
-func Tokenize(input []byte) (TokenSlice, error) {
-	var tokens []Token
-	var ct Token
+func Tokenize(input []byte) (Slice, error) {
+	var tokens []T
+	var ct T
 	startLine := true
 	cmdStart := -1
 	cmdEnd := cmdStart
@@ -88,7 +90,7 @@ func Tokenize(input []byte) (TokenSlice, error) {
 		if ct.Kind == KindVar && b == '>' {
 			ct.End = i
 			tokens = append(tokens, ct)
-			ct = Token{}
+			ct = T{}
 			continue
 		}
 		if b == '<' && len(input) > i && input[i+1] == '!' {
@@ -107,7 +109,7 @@ func Tokenize(input []byte) (TokenSlice, error) {
 			case KindTitle:
 				ct.End = i
 				tokens = append(tokens, ct)
-				ct = Token{}
+				ct = T{}
 				continue
 			case KindUnset:
 				if len(input) > i {
@@ -129,4 +131,35 @@ func Tokenize(input []byte) (TokenSlice, error) {
 		}
 	}
 	return tokens, nil
+}
+
+func (t T) Stringify(in []byte) string {
+	var buf strings.Builder
+	buf.Grow(len(in) + 100)
+	buf.WriteString(t.Kind.String())
+	buf.WriteString(":\t[")
+	buf.WriteString(strconv.Itoa(t.Start))
+	buf.WriteString(":")
+	buf.WriteString(strconv.Itoa(t.End))
+	buf.WriteString("]\t")
+	if t.Start < 0 || t.End > len(in) || t.Start > t.End {
+		buf.WriteString("INVALID BOUNDS")
+	} else {
+		buf.WriteString("\"")
+		buf.Write(in[t.Start:t.End])
+		buf.WriteString("\"")
+	}
+	return buf.String()
+}
+
+func (s Slice) Stringify(in []byte) string {
+	var buf strings.Builder
+	buf.Grow(len(in) + 100)
+	for i, tok := range s {
+		buf.WriteString(tok.Stringify(in))
+		if i != len(s)-1 {
+			buf.WriteRune('\n')
+		}
+	}
+	return buf.String()
 }
