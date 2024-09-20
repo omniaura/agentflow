@@ -77,7 +77,11 @@ func TestTokenSlice_Equal(t *testing.T) {
 	}
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, tc.a.Equal(tc.b))
+			if tc.want {
+				require.Equal(t, tc.a, tc.b)
+			} else {
+				require.NotEqual(t, tc.a, tc.b)
+			}
 		})
 	}
 }

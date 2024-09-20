@@ -153,6 +153,12 @@ func (t T) Stringify(in []byte) string {
 }
 
 func (s Slice) Stringify(in []byte) string {
+	if len(in) == 0 {
+		return "no content"
+	}
+	if len(s) == 0 {
+		return "no tokens"
+	}
 	var buf strings.Builder
 	buf.Grow(len(in) + 100)
 	for i, tok := range s {

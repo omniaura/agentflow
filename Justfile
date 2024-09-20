@@ -1,2 +1,2 @@
-test:
-    go test ./...
+test *ARGS:
+    go test ./... {{ARGS}}

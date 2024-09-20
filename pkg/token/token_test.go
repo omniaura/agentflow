@@ -26,7 +26,7 @@ func (tc TestCase) Run(t *testing.T) {
 		in, want, wantErr := tc.def()
 		got, err := token.Tokenize(in)
 		if wantErr != nil {
-			require.Equal(t, wantErr, err)
+			require.EqualErr(t, wantErr, err)
 		} else {
 			require.NoError(t, err)
 			if !want.Equal(got) {
