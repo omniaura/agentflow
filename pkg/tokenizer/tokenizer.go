@@ -19,9 +19,9 @@ func (t TokenSlice) Equal(o TokenSlice) bool {
 }
 
 type Token struct {
+	Kind  Kind
 	Start int
 	End   int
-	Kind  Kind
 }
 type Kind int
 
@@ -109,6 +109,13 @@ func Tokenize(input []byte) (TokenSlice, error) {
 				tokens = append(tokens, ct)
 				ct = Token{}
 				continue
+			case KindUnset:
+				if len(input) > i {
+					switch input[i+1] {
+					case '.':
+						continue
+					}
+				}
 			}
 		}
 
