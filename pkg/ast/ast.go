@@ -15,7 +15,21 @@ type File struct {
 }
 
 func (f File) String() string {
-	return fmt.Sprintf("File{Name: %s, Content: %.5s..., Prompts: %+v}", f.Name, f.Content, f.Prompts)
+	var sb strings.Builder
+	sb.WriteString("File{\n")
+	sb.WriteString(fmt.Sprintf("  Name: %s,\n", f.Name))
+	sb.WriteString("  Prompts: [\n")
+	for i, prompt := range f.Prompts {
+		sb.WriteString("    ")
+		sb.WriteString(prompt.Stringify(f.Content))
+		if i < len(f.Prompts)-1 {
+			sb.WriteString(",")
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("  ]\n")
+	sb.WriteRune('}')
+	return sb.String()
 }
 
 func (f1 File) Equal(f2 File) bool {
@@ -39,6 +53,21 @@ type Prompt struct {
 	Title token.T
 	// Nodes are the nodes of the prompt.
 	Nodes token.Slice
+}
+
+func (p Prompt) Stringify(content []byte) string {
+	var buf strings.Builder
+	buf.WriteString("Prompt{Title: ")
+	buf.Write(content[p.Title.Start:p.Title.End])
+	buf.WriteString(", Nodes: ")
+	for i, node := range p.Nodes {
+		buf.WriteString(node.Stringify(content))
+		if i < len(p.Nodes)-1 {
+			buf.WriteString(", ")
+		}
+	}
+	buf.WriteRune('}')
+	return buf.String()
 }
 
 func (p1 Prompt) Equal(p2 Prompt) bool {
