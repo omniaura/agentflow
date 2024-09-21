@@ -3,6 +3,7 @@ package py
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/ditto-assistant/agentflow/pkg/ast"
@@ -18,33 +19,46 @@ func GenFile(w io.Writer, f ast.File) error {
 	if len(f.Prompts) == 1 {
 		p := f.Prompts[0]
 		vars := p.Vars(f.Content)
-		var name []byte
+		var title []byte
 		if p.Title.Kind == token.KindTitle {
-			name = bytcase.ToSnake(p.Title.Get(f.Content))
+			title = bytcase.ToSnake(p.Title.Get(f.Content))
 		} else {
-			name = bytcase.ToSnake([]byte(f.Name))
+			title = bytcase.ToSnake([]byte(f.Name))
 		}
-		FunctionHeader(&buf, name, vars)
+		functionHeader(&buf, title, vars)
 		if len(vars) == 0 {
-			ReturnStringLiteral(&buf, p.Nodes, f.Content)
+			stringLiteral(&buf, p.Nodes, f.Content)
 		} else {
-			ReturnStringTemplate(&buf, p.Nodes, f.Content)
+			stringTemplate(&buf, p.Nodes, f.Content)
 		}
 
 		_, err := buf.WriteTo(w)
 		return err
 	}
-	// for _, prompt := range f.Prompts {
-	// w.Write([]byte(prompt.Stringify(f.Content)))
-	// }
+	for i, p := range f.Prompts {
+		if p.Title.Kind == token.KindUnset {
+			return fmt.Errorf("missing title for prompt #%d", i)
+		}
+		vars := p.Vars(f.Content)
+		title := p.Title.Get(f.Content)
+		functionHeader(&buf, title, vars)
+		if len(vars) == 0 {
+			stringLiteral(&buf, p.Nodes, f.Content)
+		} else {
+			stringTemplate(&buf, p.Nodes, f.Content)
+		}
+		if i < len(f.Prompts)-1 {
+			buf.WriteString("\n\n")
+		}
+	}
 	_, err := buf.WriteTo(w)
 	return err
 }
 
-func FunctionHeader(buf *bytes.Buffer, name []byte, stringVars [][]byte) {
-	name = bytcase.ToSnake(name)
+func functionHeader(buf *bytes.Buffer, title []byte, stringVars [][]byte) {
+	title = bytcase.ToSnake(title)
 	buf.WriteString("def ")
-	buf.Write(name)
+	buf.Write(title)
 	buf.WriteString("(")
 	for i := range stringVars {
 		buf.Write(stringVars[i])
@@ -56,7 +70,7 @@ func FunctionHeader(buf *bytes.Buffer, name []byte, stringVars [][]byte) {
 	buf.WriteString(") -> str:")
 }
 
-func ReturnStringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
+func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	buf.WriteRune('\n')
 	buf.WriteString(`	return f"""`)
 	for _, t := range toks {
@@ -69,7 +83,7 @@ func ReturnStringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	buf.WriteString(`"""`)
 }
 
-func ReturnStringLiteral(buf *bytes.Buffer, toks token.Slice, content []byte) {
+func stringLiteral(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	buf.WriteRune('\n')
 	buf.WriteString(`	return """`)
 	for _, t := range toks {

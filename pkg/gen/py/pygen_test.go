@@ -7,8 +7,15 @@ import (
 	"github.com/ditto-assistant/agentflow/pkg/assert/require"
 	"github.com/ditto-assistant/agentflow/pkg/ast"
 	"github.com/ditto-assistant/agentflow/pkg/gen/py"
+	"github.com/ditto-assistant/agentflow/pkg/logger"
 	"github.com/ditto-assistant/agentflow/tests/testdata"
+	"github.com/rs/zerolog"
 )
+
+func TestMain(m *testing.M) {
+	logger.SetupLevel(zerolog.TraceLevel)
+	m.Run()
+}
 
 type TestCase struct {
 	Name string
@@ -30,6 +37,15 @@ func TestGenerate(t *testing.T) {
 			Want: `def hello_user(username: str) -> str:
 	return f"""say hello to {username}"""`,
 		},
+		{
+			Name: "two prompts with titles",
+			File: testdata.File3,
+			Want: `def hello_user(username: str) -> str:
+	return f"""say hello to {username}"""
+
+def goodbye_user(username: str) -> str:
+	return f"""say goodbye to {username}"""`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.Name, func(t *testing.T) {
@@ -39,7 +55,7 @@ func TestGenerate(t *testing.T) {
 			if got != tc.Want {
 				var sb strings.Builder
 				sb.WriteRune('\n')
-				require.WantGot(&sb, tc.Want, got)
+				require.WantGotBoldQuotes(&sb, tc.Want, got)
 				t.Error(sb.String())
 			}
 		})

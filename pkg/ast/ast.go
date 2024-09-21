@@ -3,6 +3,7 @@ package ast
 import (
 	"bytes"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ditto-assistant/agentflow/pkg/token"
@@ -74,7 +75,11 @@ func (p Prompt) Vars(content []byte) [][]byte {
 	var vars [][]byte
 	for _, node := range p.Nodes {
 		if node.Kind == token.KindVar {
-			vars = append(vars, content[node.Start:node.End])
+			varname := node.Get(content)
+			if slices.ContainsFunc(vars, func(b []byte) bool { return bytes.Equal(b, varname) }) {
+				continue
+			}
+			vars = append(vars, varname)
 		}
 	}
 	return vars

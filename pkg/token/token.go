@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strconv"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Slice []T
@@ -72,6 +74,7 @@ func Tokenize(input []byte) (Slice, error) {
 	startLine := true
 	cmdStart := -1
 	cmdEnd := cmdStart
+	// lookingForEnd := false
 	for i, b := range input {
 		if startLine {
 			startLine = false
@@ -80,10 +83,19 @@ func Tokenize(input []byte) (Slice, error) {
 			case '.':
 				cmdStart = i
 				if ct.Kind != KindUnset {
-					ct.End = i - 1
+					// trim newlines before the directive
+					sub := 1
+					for input[i-sub] == '\n' {
+						sub++
+					}
+					ct.End = i - sub + 1
 					tokens = append(tokens, ct)
+					log.Trace().Msgf("command start: %+v", ct)
+				} else {
+					log.Trace().Msgf("kind was previously set: %+v", ct)
 				}
 			case '<':
+			case '\n':
 			default:
 			}
 		}
@@ -119,6 +131,10 @@ func Tokenize(input []byte) (Slice, error) {
 		if b == '\n' {
 			startLine = true
 			switch ct.Kind {
+			case KindText:
+				// lookingForEnd = true
+				// log.Trace().Msgf("end of input, adding token: %+v", ct)
+
 			case KindTitle:
 				ct.End = i
 				tokens = append(tokens, ct)
@@ -137,9 +153,10 @@ func Tokenize(input []byte) (Slice, error) {
 		if ct.Kind == KindUnset {
 			ct.Kind = KindText
 			ct.Start = i
+			// log.Trace().Msgf("we are adding a text node: %+v", ct)
 		} else if i == len(input)-1 && ct.Kind != KindUnset {
 			ct.End = i + 1
-			// log.Trace().Msgf("end of input, adding token: %+v", ct)
+			log.Trace().Msgf("end of input, adding token: %+v", ct)
 			tokens = append(tokens, ct)
 		}
 	}

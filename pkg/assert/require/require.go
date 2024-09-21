@@ -55,3 +55,22 @@ func WantGot(sb *strings.Builder, want, got any) {
 		sb.WriteString(fmt.Sprintf("%+v", got))
 	}
 }
+
+func WantGotBoldQuotes(sb *strings.Builder, want, got any) {
+	sb.WriteString("\x1b[1mWANT:\x1b[0m\n")
+	sb.WriteString("\x1b[1m|\x1b[0m")
+	if s, ok := want.(fmt.Stringer); ok {
+		sb.WriteString(s.String())
+	} else {
+		sb.WriteString(fmt.Sprintf("%+v", want))
+	}
+	sb.WriteString("\x1b[1m|\x1b[0m")
+	sb.WriteString("\n\x1b[1mGOT:\x1b[0m\n")
+	sb.WriteString("\x1b[1m|\x1b[0m")
+	if s, ok := got.(fmt.Stringer); ok {
+		sb.WriteString(s.String())
+	} else {
+		sb.WriteString(fmt.Sprintf("%+v", got))
+	}
+	sb.WriteString("\x1b[1m|\x1b[0m")
+}
