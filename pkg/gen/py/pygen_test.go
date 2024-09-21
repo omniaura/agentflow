@@ -1,6 +1,7 @@
 package py_test
 
 import (
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -9,11 +10,10 @@ import (
 	"github.com/ditto-assistant/agentflow/pkg/gen/py"
 	"github.com/ditto-assistant/agentflow/pkg/logger"
 	"github.com/ditto-assistant/agentflow/tests/testdata"
-	"github.com/rs/zerolog"
 )
 
 func TestMain(m *testing.M) {
-	logger.SetupLevel(zerolog.TraceLevel)
+	logger.SetupLevel(slog.LevelDebug)
 	m.Run()
 }
 
