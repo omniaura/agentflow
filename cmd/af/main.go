@@ -35,7 +35,7 @@ var Root = &cobra.Command{
 }
 
 func main() {
-	Root.PersistentFlags().StringVar(&cfg.LogLevel, "log", "trace", "Log level")
+	Root.PersistentFlags().StringVar(&cfg.LogLevel, "log", "debug", "Log level")
 
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)

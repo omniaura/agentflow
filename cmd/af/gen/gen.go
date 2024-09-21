@@ -16,8 +16,6 @@ limitations under the License.
 package gen
 
 import (
-	"fmt"
-
 	"github.com/ditto-assistant/agentflow/cmd/af/gen/prompts"
 	"github.com/spf13/cobra"
 )
@@ -26,9 +24,6 @@ func CMD() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen",
 		Short: "",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("generate called")
-		},
 	}
 	cmd.AddCommand(prompts.CMD())
 	return cmd

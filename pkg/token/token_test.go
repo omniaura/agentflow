@@ -2,17 +2,17 @@ package token_test
 
 import (
 	"bytes"
+	"log/slog"
 	"strings"
 	"testing"
 
 	"github.com/ditto-assistant/agentflow/pkg/assert/require"
 	"github.com/ditto-assistant/agentflow/pkg/logger"
 	"github.com/ditto-assistant/agentflow/pkg/token"
-	"github.com/rs/zerolog"
 )
 
 func TestMain(m *testing.M) {
-	logger.SetupLevel(zerolog.TraceLevel)
+	logger.SetupLevel(slog.LevelDebug)
 	m.Run()
 }
 

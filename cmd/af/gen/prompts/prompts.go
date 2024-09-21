@@ -4,12 +4,15 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package prompts
 
 import (
+	"fmt"
 	"io"
+	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/ditto-assistant/agentflow/pkg/assert"
-	"github.com/ditto-assistant/agentflow/pkg/iterfs"
-	"github.com/rs/zerolog/log"
+	"github.com/ditto-assistant/agentflow/pkg/ast"
+	"github.com/ditto-assistant/agentflow/pkg/gen/py"
 	"github.com/spf13/cobra"
 )
 
@@ -37,17 +40,38 @@ func CMD() *cobra.Command {
 			inFile, err := os.Open(DirInput)
 			assert.NoError(err)
 			defer inFile.Close()
+
+			// Create output directory if it doesn't exist
+			err = os.MkdirAll(DirOutput, os.ModePerm)
 			assert.NoError(err)
-			for name := range iterfs.NewDir(inFile) {
+
+			files, err := filepath.Glob(filepath.Join(DirInput, "*.af"))
+			assert.NoError(err)
+			for _, name := range files {
 				file, err := os.Open(name)
 				assert.NoError(err)
 				defer file.Close()
 				f, err := io.ReadAll(file)
 				assert.NoError(err)
-				log.Debug().
-					Bytes("file", f).
-					Str("name", name).
-					Msg("Opened file")
+
+				fName := filepath.Base(file.Name())
+				ff, err := ast.NewFile(fName, f)
+				assert.NoError(err)
+
+				for _, lang := range Langs {
+					switch lang {
+					case "py":
+						outFileName := fmt.Sprintf("%s.py", ff.Name)
+						outFilePath := filepath.Join(DirOutput, outFileName)
+						outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+						assert.NoError(err)
+						defer outFile.Close()
+
+						err = py.GenFile(outFile, ff)
+						assert.NoError(err)
+						slog.Info("Generated", "file", outFilePath)
+					}
+				}
 			}
 		},
 	}

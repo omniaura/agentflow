@@ -102,6 +102,9 @@ func NewFile(name string, content []byte) (f File, err error) {
 	if err != nil {
 		return
 	}
+	if !strings.HasSuffix(name, ".af") {
+		return File{}, fmt.Errorf("file does not have .af extension: %s", name)
+	}
 	f.Name = strings.TrimSuffix(name, ".af")
 	f.Content = content
 	f.Prompts, err = newPrompts(tokens)
