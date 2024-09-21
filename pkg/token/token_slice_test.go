@@ -1,37 +1,37 @@
-package tokenizer_test
+package token_test
 
 import (
 	"testing"
 
-	"github.com/ditto-assistant/agentflow/pkg/tokenizer"
-	"github.com/stretchr/testify/require"
+	"github.com/ditto-assistant/agentflow/pkg/assert/require"
+	"github.com/ditto-assistant/agentflow/pkg/token"
 )
 
 func TestTokenSlice_Equal(t *testing.T) {
 	testcases := []struct {
 		name string
-		a    tokenizer.TokenSlice
-		b    tokenizer.TokenSlice
+		a    token.Slice
+		b    token.Slice
 		want bool
 	}{
 		{
 			name: "empty",
-			a:    tokenizer.TokenSlice{},
-			b:    tokenizer.TokenSlice{},
+			a:    token.Slice{},
+			b:    token.Slice{},
 			want: true,
 		},
 		{
 			name: "equal",
-			a: tokenizer.TokenSlice{
+			a: token.Slice{
 				{
-					Kind:  tokenizer.KindTitle,
+					Kind:  token.KindTitle,
 					Start: 0,
 					End:   10,
 				},
 			},
-			b: tokenizer.TokenSlice{
+			b: token.Slice{
 				{
-					Kind:  tokenizer.KindTitle,
+					Kind:  token.KindTitle,
 					Start: 0,
 					End:   10,
 				},
@@ -40,16 +40,16 @@ func TestTokenSlice_Equal(t *testing.T) {
 		},
 		{
 			name: "not equal",
-			a: tokenizer.TokenSlice{
+			a: token.Slice{
 				{
-					Kind:  tokenizer.KindTitle,
+					Kind:  token.KindTitle,
 					Start: 0,
 					End:   10,
 				},
 			},
-			b: tokenizer.TokenSlice{
+			b: token.Slice{
 				{
-					Kind:  tokenizer.KindTitle,
+					Kind:  token.KindTitle,
 					Start: 0,
 					End:   11,
 				},
@@ -58,16 +58,16 @@ func TestTokenSlice_Equal(t *testing.T) {
 		},
 		{
 			name: "not equal kind",
-			a: tokenizer.TokenSlice{
+			a: token.Slice{
 				{
-					Kind:  tokenizer.KindTitle,
+					Kind:  token.KindTitle,
 					Start: 0,
 					End:   10,
 				},
 			},
-			b: tokenizer.TokenSlice{
+			b: token.Slice{
 				{
-					Kind:  tokenizer.KindText,
+					Kind:  token.KindText,
 					Start: 0,
 					End:   10,
 				},
@@ -77,7 +77,11 @@ func TestTokenSlice_Equal(t *testing.T) {
 	}
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, tc.a.Equal(tc.b))
+			if tc.want {
+				require.Equal(t, tc.a, tc.b)
+			} else {
+				require.NotEqual(t, tc.a, tc.b)
+			}
 		})
 	}
 }

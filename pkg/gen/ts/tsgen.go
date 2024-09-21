@@ -1,4 +1,4 @@
-package tsgen
+package ts
 
 import (
 	"fmt"
@@ -6,8 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ditto-assistant/agentflow/pkg/varmatcher"
-	"github.com/iancoleman/strcase"
+	"github.com/peyton-spencer/caseconv/strcase"
 )
 
 func FunctionHeader(w io.Writer, name string, stringVars []string) {
@@ -23,7 +22,7 @@ func FunctionHeader(w io.Writer, name string, stringVars []string) {
 func ReturnStringTemplate(w io.Writer, lines []string) {
 	fmt.Fprint(w, "  return `")
 	for _, line := range lines {
-		line = varmatcher.Regex.ReplaceAllString(line, "${$1}")
+		// line = varmatcher.Regex.ReplaceAllString(line, "${$1}")
 		fmt.Fprintln(w, line)
 	}
 	fmt.Fprintln(w, "`;")

@@ -1,15 +1,14 @@
-package tokenizer_test
+package token_test
 
 import (
 	"bytes"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/ditto-assistant/agentflow/pkg/assert/require"
 	"github.com/ditto-assistant/agentflow/pkg/logger"
-	"github.com/ditto-assistant/agentflow/pkg/tokenizer"
+	"github.com/ditto-assistant/agentflow/pkg/token"
 	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/require"
 )
 
 func TestMain(m *testing.M) {
@@ -19,26 +18,26 @@ func TestMain(m *testing.M) {
 
 type TestCase struct {
 	name string
-	def  func() (in []byte, want tokenizer.TokenSlice, wantErr error)
+	def  func() (in []byte, want token.Slice, wantErr error)
 }
 
 func (tc TestCase) Run(t *testing.T) {
 	t.Run(tc.name, func(t *testing.T) {
 		in, want, wantErr := tc.def()
-		tokens, err := tokenizer.Tokenize(in)
+		got, err := token.Tokenize(in)
 		if wantErr != nil {
-			require.Equal(t, wantErr, err)
+			require.EqualErr(t, wantErr, err)
 		} else {
 			require.NoError(t, err)
-			if !want.Equal(tokens) {
+			if !want.Equal(got) {
 				var sb strings.Builder
 				sb.WriteString("tokens not equal\n")
 				sb.WriteString("\x1b[1;37mINPUT:\x1b[0m\n")
 				sb.Write(in)
 				sb.WriteString("\n\x1b[1;37mWANT:\x1b[0m\n")
-				sb.WriteString(stringify(in, want))
+				sb.WriteString(want.Stringify(in))
 				sb.WriteString("\n\x1b[1;37mGOT:\x1b[0m\n")
-				sb.WriteString(stringify(in, tokens))
+				sb.WriteString(got.Stringify(in))
 				t.Error(sb.String())
 			}
 		}
@@ -54,10 +53,10 @@ func TestText(t *testing.T) {
 	testcases := []TestCase{
 		{
 			name: "one line",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
-				want := tokenizer.TokenSlice{
+			def: func() ([]byte, token.Slice, error) {
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: 0,
 						End:   len(helloW),
 					},
@@ -67,10 +66,10 @@ func TestText(t *testing.T) {
 		},
 		{
 			name: "multi line",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
-				want := tokenizer.TokenSlice{
+			def: func() ([]byte, token.Slice, error) {
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: 0,
 						End:   len(helloMultiline),
 					},
@@ -87,20 +86,20 @@ func TestTitle(t *testing.T) {
 	testcases := []TestCase{
 		{
 			name: "one title",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				tCmd := []byte(".title ")
 				title := []byte("hey prompt")
 				line1 := append(tCmd, title...)
 				line2 := helloW
 				input := joinLines(line1, line2, line2)
-				want := []tokenizer.Token{
+				want := []token.T{
 					{
-						Kind:  tokenizer.KindTitle,
+						Kind:  token.KindTitle,
 						Start: len(tCmd),
 						End:   len(tCmd) + len(title),
 					},
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: len(tCmd) + len(title) + 1, // newline omitted
 						End:   len(input),
 					},
@@ -110,31 +109,31 @@ func TestTitle(t *testing.T) {
 		},
 		{
 			name: "two titles",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				tCmd := []byte(".title ")
 				title1 := []byte("hey prompt")
 				title2 := []byte("hey prompt 2")
 				line1 := append(tCmd, title1...)
 				line2 := append(tCmd, title2...)
 				input := joinLines(line1, helloW, line2, helloW)
-				want := []tokenizer.Token{
+				want := []token.T{
 					{
-						Kind:  tokenizer.KindTitle,
+						Kind:  token.KindTitle,
 						Start: len(tCmd),
 						End:   len(tCmd) + len(title1),
 					},
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: len(line1) + 1, // +1 for newline
 						End:   len(line1) + 1 + len(helloW),
 					},
 					{
-						Kind:  tokenizer.KindTitle,
+						Kind:  token.KindTitle,
 						Start: len(line1) + 1 + len(helloW) + 1 + len(tCmd), // +1 for newline
 						End:   len(line1) + 1 + len(helloW) + 1 + len(tCmd) + len(title2),
 					},
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: len(line1) + 1 + len(helloW) + 1 + len(line2) + 1, // +1 for newline
 						End:   len(input),
 					},
@@ -159,10 +158,10 @@ func TestVar(t *testing.T) {
 	testcases := []TestCase{
 		{
 			name: "one",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
-				want := tokenizer.TokenSlice{
+			def: func() ([]byte, token.Slice, error) {
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
@@ -172,16 +171,16 @@ func TestVar(t *testing.T) {
 		},
 		{
 			name: "start of text line",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
-				want := tokenizer.TokenSlice{
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: len(var1),
 						End:   len(line),
 					},
@@ -191,16 +190,16 @@ func TestVar(t *testing.T) {
 		},
 		{
 			name: "end of text line",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
-				want := tokenizer.TokenSlice{
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: 0,
 						End:   len(helloW) + 1,
 					},
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(helloW) + 3,
 						End:   len(line) - 1,
 					},
@@ -210,16 +209,16 @@ func TestVar(t *testing.T) {
 		},
 		{
 			name: "start of multiline text",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
-				want := tokenizer.TokenSlice{
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: len(var1),
 						End:   len(line),
 					},
@@ -229,16 +228,16 @@ func TestVar(t *testing.T) {
 		},
 		{
 			name: "end of multiline text",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
-				want := tokenizer.TokenSlice{
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: 0,
 						End:   len(helloW) + 1,
 					},
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(helloW) + 3,
 						End:   len(line) - 1,
 					},
@@ -248,21 +247,21 @@ func TestVar(t *testing.T) {
 		},
 		{
 			name: "start and end of multiline text",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				line := bytes.Join([][]byte{var1, helloW, var2}, []byte{' '})
-				want := tokenizer.TokenSlice{
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: len(var1),
 						End:   len(line) - len(var1),
 					},
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(line) - len(var1) + 2,
 						End:   len(line) - 1,
 					},
@@ -292,22 +291,22 @@ func TestCombined(t *testing.T) {
 	testcases := []TestCase{
 		{
 			name: "title and var",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				line2 := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				line := joinLines(line1, line2)
-				want := tokenizer.TokenSlice{
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindTitle,
+						Kind:  token.KindTitle,
 						Start: 7,
 						End:   len(line1),
 					},
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(line1) + 3,
 						End:   len(line1) + 3 + len(varName),
 					},
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: len(line1) + 3 + len(varName) + 1,
 						End:   len(line),
 					},
@@ -317,35 +316,35 @@ func TestCombined(t *testing.T) {
 		},
 		{
 			name: "two titles and var",
-			def: func() ([]byte, tokenizer.TokenSlice, error) {
+			def: func() ([]byte, token.Slice, error) {
 				line2 := bytes.Join([][]byte{var1, helloW, var2}, []byte{' '})
 				line3 := []byte(".title hey prompt 3")
 				line4 := []byte("<!camelVar1> say hello to the user")
 				line := joinLines(line1, line2, line3, line4)
-				want := tokenizer.TokenSlice{
+				want := token.Slice{
 					{
-						Kind:  tokenizer.KindTitle,
+						Kind:  token.KindTitle,
 						Start: 7,
 						End:   len(line1),
 					},
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(line1) + 3,
 						End:   len(line1) + 3 + len(varName),
 					},
 					{
-						Kind:  tokenizer.KindText,
+						Kind:  token.KindText,
 						Start: len(line1) + 3 + len(varName) + 1,
 						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2,
 					},
 					{
-						Kind:  tokenizer.KindVar,
+						Kind:  token.KindVar,
 						Start: len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2,
 						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2 + len(varName2),
 					},
-					{tokenizer.KindTitle, 53, 65},
-					{tokenizer.KindVar, 68, 77},
-					{tokenizer.KindText, 78, 100},
+					{token.KindTitle, 53, 65},
+					{token.KindVar, 68, 77},
+					{token.KindText, 78, 100},
 				}
 				return line, want, nil
 			},
@@ -358,28 +357,4 @@ func TestCombined(t *testing.T) {
 
 func joinLines(in ...[]byte) []byte {
 	return bytes.Join(in, []byte{'\n'})
-}
-
-func stringify(in []byte, tokens []tokenizer.Token) string {
-	var buf strings.Builder
-	buf.Grow(len(in) + 100)
-	for i, tok := range tokens {
-		buf.WriteString(tok.Kind.String())
-		buf.WriteString(":\t[")
-		buf.WriteString(strconv.Itoa(tok.Start))
-		buf.WriteString(":")
-		buf.WriteString(strconv.Itoa(tok.End))
-		buf.WriteString("]\t")
-		if tok.Start < 0 || tok.End > len(in) || tok.Start > tok.End {
-			buf.WriteString("INVALID BOUNDS")
-		} else {
-			buf.WriteString("\"")
-			buf.Write(in[tok.Start:tok.End])
-			buf.WriteString("\"")
-		}
-		if i != len(tokens)-1 {
-			buf.WriteRune('\n')
-		}
-	}
-	return buf.String()
 }
