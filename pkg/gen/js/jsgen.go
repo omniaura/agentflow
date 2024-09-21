@@ -1,4 +1,4 @@
-package py
+package js
 
 import (
 	"bytes"
@@ -20,9 +20,9 @@ func GenFile(w io.Writer, f ast.File) error {
 		vars := p.Vars(f.Content)
 		var title []byte
 		if p.Title.Kind == token.KindTitle {
-			title = bytcase.ToSnake(p.Title.Get(f.Content))
+			title = bytcase.ToCamel(p.Title.Get(f.Content))
 		} else {
-			title = bytcase.ToSnake([]byte(f.Name))
+			title = bytcase.ToCamel([]byte(f.Name))
 		}
 		functionHeader(&buf, title, vars)
 		if len(vars) == 0 {
@@ -52,6 +52,10 @@ func GenFile(w io.Writer, f ast.File) error {
 	}
 	_, err := buf.WriteTo(w)
 	return err
+}
+
+func jsDoc(buf *bytes.Buffer, title []byte, stringVars [][]byte) {
+	buf.WriteString("/*")
 }
 
 func functionHeader(buf *bytes.Buffer, title []byte, stringVars [][]byte) {
