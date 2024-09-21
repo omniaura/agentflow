@@ -6,11 +6,11 @@ import (
 )
 
 var (
-	LogLevel  string
+	FlagLogLevel string
 )
 
-func SlogLevel() slog.Level {
-	switch strings.ToUpper(LogLevel) {
+func LogLevel() slog.Level {
+	switch strings.ToUpper(FlagLogLevel) {
 	case "DEBUG":
 		return slog.LevelDebug
 	case "INFO":

@@ -23,7 +23,7 @@ import (
 func CMD() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "gen",
-		Short: "",
+		Short: "Generate code from .af files",
 	}
 	cmd.AddCommand(prompts.CMD())
 	return cmd

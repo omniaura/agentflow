@@ -35,7 +35,9 @@ func flags(cmd *cobra.Command) *cobra.Command {
 func CMD() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prompts",
-		Short: "A brief description of your command",
+		Short: "Generate prompts for specified languages",
+		Long: `Generate prompts for specified languages from .af files in the input directory.
+The generated prompts will be written to the output directory.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			inFile, err := os.Open(DirInput)
 			assert.NoError(err)

@@ -27,15 +27,15 @@ import (
 
 // Root represents the base command when called without any subcommands
 var Root = &cobra.Command{
-	Version:          "0.0.1",
-	Use:              "agentflow",
-	Short:            "agentflow",
-	Long:             "agentflow",
+	Version:          "0.1.1",
+	Use:              "af",
+	Short:            "AgentFlow CLI",
+	Long:             "AgentFlow is a CLI for bootstrapping AI agents.",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) { logger.Setup() },
 }
 
 func main() {
-	Root.PersistentFlags().StringVar(&cfg.LogLevel, "log", "debug", "Log level")
+	Root.PersistentFlags().StringVar(&cfg.FlagLogLevel, "log", "debug", "Log level")
 
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
