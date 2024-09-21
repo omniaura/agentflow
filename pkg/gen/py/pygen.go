@@ -1,44 +1,83 @@
 package py
 
 import (
-	"fmt"
+	"bytes"
+	"errors"
 	"io"
 
 	"github.com/ditto-assistant/agentflow/pkg/ast"
-	"github.com/iancoleman/strcase"
+	"github.com/ditto-assistant/agentflow/pkg/token"
+	"github.com/peyton-spencer/caseconv/bytcase"
 )
 
-func GenFile(w io.Writer, f ast.File) {
-	// for _, prompt := range f.Prompts {
-	// }
-}
-
-func FunctionHeader(w io.Writer, name string, stringVars []string) {
-	name = strcase.ToSnake(name)
-	fmt.Fprintln(w, "def "+name+"(")
-	for i := range stringVars {
-		fmt.Fprint(w, "  "+stringVars[i]+": str")
-		if i < len(stringVars)-1 {
-			fmt.Fprint(w, ",")
+func GenFile(w io.Writer, f ast.File) error {
+	var buf bytes.Buffer
+	if len(f.Prompts) == 0 {
+		return errors.New("file has 0 prompts")
+	}
+	if len(f.Prompts) == 1 {
+		p := f.Prompts[0]
+		vars := p.Vars(f.Content)
+		var name []byte
+		if p.Title.Kind == token.KindTitle {
+			name = bytcase.ToSnake(p.Title.Get(f.Content))
+		} else {
+			name = bytcase.ToSnake([]byte(f.Name))
 		}
-		fmt.Fprintln(w)
+		FunctionHeader(&buf, name, vars)
+		if len(vars) == 0 {
+			ReturnStringLiteral(&buf, p.Nodes, f.Content)
+		} else {
+			ReturnStringTemplate(&buf, p.Nodes, f.Content)
+		}
+
+		_, err := buf.WriteTo(w)
+		return err
 	}
-	fmt.Fprintln(w, ") -> str:")
+	// for _, prompt := range f.Prompts {
+	// w.Write([]byte(prompt.Stringify(f.Content)))
+	// }
+	_, err := buf.WriteTo(w)
+	return err
 }
 
-func ReturnStringTemplate(w io.Writer, lines []string) {
-	fmt.Fprint(w, `    return f"""`)
-	for _, line := range lines {
-		// line = varmatcher.Regex.ReplaceAllString(line, "{${1}}")
-		fmt.Fprintln(w, line)
+func FunctionHeader(buf *bytes.Buffer, name []byte, stringVars [][]byte) {
+	name = bytcase.ToSnake(name)
+	buf.WriteString("def ")
+	buf.Write(name)
+	buf.WriteString("(")
+	for i := range stringVars {
+		buf.Write(stringVars[i])
+		if i < len(stringVars)-1 {
+			buf.WriteString(",")
+		}
+		buf.WriteString(": str")
 	}
-	fmt.Fprintln(w, `"""`)
+	buf.WriteString(") -> str:")
 }
 
-func ReturnStringLiteral(w io.Writer, lines []string) {
-	fmt.Fprint(w, `    return """`)
-	for _, line := range lines {
-		fmt.Fprintln(w, line)
+func ReturnStringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
+	buf.WriteRune('\n')
+	buf.WriteString(`	return f"""`)
+	for _, t := range toks {
+		if t.Kind == token.KindVar {
+			buf.Write(t.GetWrap(content, '{', '}'))
+		} else {
+			buf.Write(t.Get(content))
+		}
 	}
-	fmt.Fprintln(w, `"""`)
+	buf.WriteString(`"""`)
+}
+
+func ReturnStringLiteral(buf *bytes.Buffer, toks token.Slice, content []byte) {
+	buf.WriteRune('\n')
+	buf.WriteString(`	return """`)
+	for _, t := range toks {
+		if t.Kind == token.KindVar {
+			buf.Write(t.GetWrap(content, '{', '}'))
+		} else {
+			buf.Write(t.Get(content))
+		}
+	}
+	buf.WriteString(`"""`)
 }

@@ -3,7 +3,7 @@ module github.com/ditto-assistant/agentflow
 go 1.23
 
 require (
-	github.com/iancoleman/strcase v0.3.0
+	github.com/peyton-spencer/caseconv v0.1.0
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cobra v1.8.1
 )

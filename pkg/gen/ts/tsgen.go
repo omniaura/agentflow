@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/iancoleman/strcase"
+	"github.com/peyton-spencer/caseconv/strcase"
 )
 
 func FunctionHeader(w io.Writer, name string, stringVars []string) {

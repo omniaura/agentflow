@@ -70,8 +70,26 @@ func (p Prompt) Stringify(content []byte) string {
 	return buf.String()
 }
 
+func (p Prompt) Vars(content []byte) [][]byte {
+	var vars [][]byte
+	for _, node := range p.Nodes {
+		if node.Kind == token.KindVar {
+			vars = append(vars, content[node.Start:node.End])
+		}
+	}
+	return vars
+}
+
 func (p1 Prompt) Equal(p2 Prompt) bool {
 	return p1.Title == p2.Title && p1.Nodes.Equal(p2.Nodes)
+}
+
+func MustFile(name string, content []byte) File {
+	f, err := NewFile(name, content)
+	if err != nil {
+		panic(err)
+	}
+	return f
 }
 
 func NewFile(name string, content []byte) (f File, err error) {
