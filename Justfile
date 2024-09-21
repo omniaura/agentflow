@@ -9,3 +9,7 @@ test *ARGS:
 # Install the agentflow binary
 install:
     cd cmd/af && go install .
+
+# Run gofmt with -s (simplify)
+fmt:
+    gofmt -s -w ./..
