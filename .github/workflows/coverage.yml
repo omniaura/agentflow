@@ -1,0 +1,12 @@
+name: Go Coverage
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Update coverage report
+      uses: ncruces/go-coverage-report@main
