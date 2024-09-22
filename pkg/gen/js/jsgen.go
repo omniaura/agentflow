@@ -77,7 +77,7 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	buf.WriteString("	return `")
 	for _, t := range toks {
 		if t.Kind == token.KindVar {
-			buf.Write(t.GetWrapLL(content, leftW, '}'))
+			buf.Write(t.GetJSFmtVar(content))
 		} else {
 			buf.Write(t.Get(content))
 		}

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strconv"
 	"strings"
+
+	"github.com/peyton-spencer/caseconv/bytcase"
 )
 
 type Slice []T
@@ -43,6 +45,14 @@ func (t T) GetWrapLL(in []byte, left []byte, right byte) []byte {
 	out = append(out, left...)
 	out = append(out, in[t.Start:t.End]...)
 	out = append(out, right)
+	return out
+}
+
+func (t T) GetJSFmtVar(in []byte) []byte {
+	out := make([]byte, len(in)+3)
+	out = append(out, '$', '{')
+	out = append(out, bytcase.ToLowerCamel(in[t.Start:t.End])...)
+	out = append(out, '}')
 	return out
 }
 
