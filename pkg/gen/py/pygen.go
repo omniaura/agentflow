@@ -7,6 +7,7 @@ import (
 	"github.com/ditto-assistant/agentflow/pkg/ast"
 	"github.com/ditto-assistant/agentflow/pkg/gen"
 	"github.com/ditto-assistant/agentflow/pkg/token"
+	"github.com/peyton-spencer/caseconv"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
 
@@ -17,7 +18,7 @@ func GenFile(w io.Writer, f ast.File) error {
 	}
 	if len(f.Prompts) == 1 {
 		p := f.Prompts[0]
-		vars := p.Vars(f.Content)
+		vars := p.Vars(f.Content, caseconv.CaseSnake)
 		var title []byte
 		if p.Title.Kind == token.KindTitle {
 			title = bytcase.ToSnake(p.Title.Get(f.Content))
@@ -38,7 +39,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		if p.Title.Kind == token.KindUnset {
 			return gen.ErrMissingTitle.F("index: %d", i)
 		}
-		vars := p.Vars(f.Content)
+		vars := p.Vars(f.Content, caseconv.CaseSnake)
 		title := p.Title.Get(f.Content)
 		functionHeader(&buf, title, vars)
 		if len(vars) == 0 {

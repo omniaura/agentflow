@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/ditto-assistant/agentflow/pkg/token"
+	"github.com/peyton-spencer/caseconv"
+	"github.com/peyton-spencer/caseconv/bytcase"
 )
 
 type File struct {
@@ -71,15 +73,21 @@ func (p Prompt) Stringify(content []byte) string {
 	return buf.String()
 }
 
-func (p Prompt) Vars(content []byte) [][]byte {
+func (p Prompt) Vars(content []byte, c caseconv.Case) [][]byte {
 	var vars [][]byte
 	for _, node := range p.Nodes {
 		if node.Kind == token.KindVar {
-			varname := node.Get(content)
-			if slices.ContainsFunc(vars, func(b []byte) bool { return bytes.Equal(b, varname) }) {
+			name := node.Get(content)
+			if slices.ContainsFunc(vars, func(b []byte) bool { return bytes.Equal(b, name) }) {
 				continue
 			}
-			vars = append(vars, varname)
+			switch c {
+			case caseconv.CaseCamel:
+				name = bytcase.ToLowerCamel(name)
+			case caseconv.CaseSnake:
+				name = bytcase.ToSnake(name)
+			}
+			vars = append(vars, name)
 		}
 	}
 	return vars

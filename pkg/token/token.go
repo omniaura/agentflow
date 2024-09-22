@@ -38,6 +38,14 @@ func (t T) GetWrap(in []byte, left, right byte) []byte {
 	return out
 }
 
+func (t T) GetWrapLL(in []byte, left []byte, right byte) []byte {
+	out := make([]byte, 0, len(in)+len(left)+1)
+	out = append(out, left...)
+	out = append(out, in[t.Start:t.End]...)
+	out = append(out, right)
+	return out
+}
+
 type Kind int
 
 // TODO: add KindDoc, KindVarDoc
