@@ -49,7 +49,7 @@ func (t T) GetWrapLL(in []byte, left []byte, right byte) []byte {
 }
 
 func (t T) GetJSFmtVar(in []byte) []byte {
-	out := make([]byte, len(in)+3)
+	out := make([]byte, 0, len(in)+3)
 	out = append(out, '$', '{')
 	out = append(out, bytcase.ToLowerCamel(in[t.Start:t.End])...)
 	out = append(out, '}')

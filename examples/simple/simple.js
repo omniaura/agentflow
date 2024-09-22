@@ -23,7 +23,7 @@ title: `;
  */
 export function chat(previousMessages) {
 	return `Please respond to the chat thread below:
-${previous_messages}
+${previousMessages}
 Ditto: 
 `;
 }
