@@ -12,6 +12,7 @@ import (
 
 	"github.com/ditto-assistant/agentflow/pkg/assert"
 	"github.com/ditto-assistant/agentflow/pkg/ast"
+	"github.com/ditto-assistant/agentflow/pkg/gen/js"
 	"github.com/ditto-assistant/agentflow/pkg/gen/py"
 	"github.com/spf13/cobra"
 )
@@ -70,6 +71,16 @@ The generated prompts will be written to the output directory.`,
 						defer outFile.Close()
 
 						err = py.GenFile(outFile, ff)
+						assert.NoError(err)
+						slog.Info("Generated", "file", outFilePath)
+					case "js":
+						outFileName := fmt.Sprintf("%s.js", ff.Name)
+						outFilePath := filepath.Join(DirOutput, outFileName)
+						outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+						assert.NoError(err)
+						defer outFile.Close()
+
+						err = js.GenFile(outFile, ff)
 						assert.NoError(err)
 						slog.Info("Generated", "file", outFilePath)
 					}
