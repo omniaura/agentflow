@@ -26,7 +26,7 @@ import (
 )
 
 var Root = &cobra.Command{
-	Version:          "v0.1.8", // This line will be updated by the sync-version script
+	Version:          "0.1.9", // This line will be updated by the sync-version script
 	Use:              "af",
 	Short:            "AgentFlow CLI",
 	Long:             "AgentFlow is a CLI for bootstrapping AI agents.",
