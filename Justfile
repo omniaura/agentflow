@@ -19,7 +19,7 @@ version:
 
 create-version TAG:
     #!/usr/bin/env bash
-    git tag {{TAG}}
     sed -i '' "s/Version:.*\".*\"/Version:          \"{{TAG}}\"/" cmd/af/main.go
+    git add .
     echo "Updated version in main.go to {{TAG}}"
-    git push origin {{TAG}}
+    git tag {{TAG}}
