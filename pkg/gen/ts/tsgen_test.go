@@ -16,10 +16,10 @@ limitations under the License.
 package ts_test
 
 import (
-	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen/ts"
@@ -28,7 +28,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	logger.SetupLevel(slog.LevelDebug)
+	cfg.TestMode()
+	logger.Setup()
 	m.Run()
 }
 

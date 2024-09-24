@@ -26,3 +26,8 @@ func LogLevel() slog.Level {
 		return slog.LevelInfo
 	}
 }
+
+func TestMode() {
+	MaxLineLen = 80
+	FlagLogLevel = "DEBUG"
+}

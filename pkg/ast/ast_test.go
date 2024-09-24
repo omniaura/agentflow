@@ -18,12 +18,19 @@ package ast_test
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"testing"
 
+	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/token"
 )
+
+func TestMain(m *testing.M) {
+	cfg.TestMode()
+	os.Exit(m.Run())
+}
 
 type FileTestCase struct {
 	filename string
