@@ -1,5 +1,5 @@
 /*
-Copyright © 2024 Ditto AI peyton@heyditto.ai
+Copyright © 2024 Omni Aura peyton@omniaura.co
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ limitations under the License.
 package gen
 
 import (
-	"github.com/ditto-assistant/agentflow/cmd/af/gen/prompts"
+	"github.com/omniaura/agentflow/cmd/af/gen/prompts"
 	"github.com/spf13/cobra"
 )
 

@@ -1,7 +1,23 @@
+/*
+Copyright © 2024 Omni Aura peyton@omniaura.co
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package token
 
 import (
 	"bytes"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -130,11 +146,20 @@ func Tokenize(input []byte) (Slice, error) {
 				cmdStart = i
 				if ct.Kind != KindUnset {
 					// trim newlines before the directive
-					sub := 1
-					for input[i-sub] == '\n' {
-						sub++
+					// sub := 1
+					// for input[i-sub] == '\n' {
+					// 	sub++
+					// }
+					// ct.End = i - sub + 1
+					if input[i-1] == '\n' {
+						if input[i-2] == '\n' {
+							ct.End = i - 2
+						} else {
+							ct.End = i - 1
+						}
+					} else {
+						ct.End = i
 					}
-					ct.End = i - sub + 1
 					tokens = append(tokens, ct)
 					// log.Trace().Msgf("command start: %+v", ct)
 				} else {
@@ -185,9 +210,10 @@ func Tokenize(input []byte) (Slice, error) {
 				ct = T{}
 				continue
 			case KindUnset:
-				if len(input) > i {
+				if len(input) > i+1 {
 					switch input[i+1] {
 					case '.':
+						slog.Debug("ignoring text node", "token", ct.Stringify(input))
 						continue
 					}
 				}
@@ -197,10 +223,12 @@ func Tokenize(input []byte) (Slice, error) {
 		if ct.Kind == KindUnset {
 			ct.Kind = KindText
 			ct.Start = i
-			// log.Trace().Msgf("we are adding a text node: %+v", ct)
-		} else if i == len(input)-1 && ct.Kind != KindUnset {
+		}
+
+		if i == len(input)-1 && ct.Kind != KindUnset {
 			ct.End = i + 1
-			// log.Trace().Msgf("end of input, adding token: %+v", ct)
+			// slog.Debug("end of input, adding token", "token", ct.Stringify(input))
+
 			tokens = append(tokens, ct)
 		}
 	}
