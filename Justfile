@@ -17,8 +17,9 @@ fmt:
 version:
     git fetch --tags && git describe --tags --abbrev=0
 
-create-tag TAG:
+create-version TAG:
     #!/usr/bin/env bash
     git tag {{TAG}}
     sed -i '' "s/Version:.*\".*\"/Version:          \"{{TAG}}\"/" cmd/af/main.go
     echo "Updated version in main.go to {{TAG}}"
+    git push origin {{TAG}}
