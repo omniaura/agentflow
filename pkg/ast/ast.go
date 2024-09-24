@@ -89,20 +89,22 @@ func (p Prompt) Stringify(content []byte) string {
 }
 
 func (p Prompt) Vars(content []byte, c caseconv.Case) [][]byte {
-	var vars [][]byte
+	vars := make([][]byte, 0, len(p.Nodes))
 	for _, node := range p.Nodes {
 		if node.Kind == token.KindVar {
 			name := node.Get(content)
 			if slices.ContainsFunc(vars, func(b []byte) bool { return bytes.Equal(b, name) }) {
 				continue
 			}
-			switch c {
-			case caseconv.CaseCamel:
-				name = bytcase.ToLowerCamel(name)
-			case caseconv.CaseSnake:
-				name = bytcase.ToSnake(name)
-			}
 			vars = append(vars, name)
+		}
+	}
+	for i := range vars {
+		switch c {
+		case caseconv.CaseCamel:
+			vars[i] = bytcase.ToLowerCamel(vars[i])
+		case caseconv.CaseSnake:
+			vars[i] = bytcase.ToSnake(vars[i])
 		}
 	}
 	return vars
