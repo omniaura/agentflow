@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package py_test
+package ts_test
 
 import (
 	"log/slog"
@@ -22,7 +22,7 @@ import (
 
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/ast"
-	"github.com/omniaura/agentflow/pkg/gen/py"
+	"github.com/omniaura/agentflow/pkg/gen/ts"
 	"github.com/omniaura/agentflow/pkg/logger"
 	"github.com/omniaura/agentflow/tests/testdata"
 )
@@ -45,37 +45,32 @@ func TestGenerate(t *testing.T) {
 			Name:     "no vars no title",
 			Filename: "no_vars_no_title.af",
 			Content:  testdata.NoVarsNoTitle,
-			Want: `def no_vars_no_title() -> str:
-	return """say hello to the user!"""
-`,
+			Want: "export function noVarsNoTitle(): string {\n" +
+				"\treturn `say hello to the user!`;\n}\n",
 		},
 		{
 			Name:     "single prompt",
 			Filename: "hello1.af",
 			Content:  testdata.OneVarNoTitle,
-			Want: `def hello_1(username: str) -> str:
-	return f"""say hello to {username}"""
-`,
+			Want: "export function hello1(username: string): string {\n" +
+				"\treturn `say hello to ${username}`;\n}\n",
 		},
 		{
 			Name:     "single prompt with title",
 			Filename: "hello2.af",
 			Content:  testdata.OneVarWithTitle,
-			Want: `def hello_user(username: str) -> str:
-	return f"""say hello to {username}"""
-`,
+			Want: "export function helloUser(username: string): string {\n" +
+				"\treturn `say hello to ${username}`;\n}\n",
 		},
 		{
 			Name:     "two prompts with titles",
 			Filename: "hello3.af",
 			Content:  testdata.TwoPromptsWithVars,
-			Want: `def hello_user(username: str) -> str:
-	return f"""say hello to {username}"""
-
-
-def goodbye_user(username: str) -> str:
-	return f"""say goodbye to {username}"""
-`,
+			Want: "export function helloUser(username: string): string {\n" +
+				"\treturn `say hello to ${username}`;\n}\n" +
+				"\n" +
+				"export function goodbyeUser(username: string): string {\n" +
+				"\treturn `say goodbye to ${username}`;\n}\n",
 		},
 	}
 	for _, tc := range cases {
@@ -83,7 +78,7 @@ def goodbye_user(username: str) -> str:
 			file, err := ast.NewFile(tc.Filename, []byte(tc.Content))
 			require.NoError(t, err)
 			var buf strings.Builder
-			py.GenFile(&buf, file)
+			ts.GenFile(&buf, file)
 			got := buf.String()
 			if got != tc.Want {
 				var sb strings.Builder

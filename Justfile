@@ -13,3 +13,12 @@ install:
 # Run gofmt with -s (simplify)
 fmt:
     gofmt -s -w ./..
+
+version:
+    git fetch --tags && git describe --tags --abbrev=0
+
+create-tag TAG:
+    #!/usr/bin/env bash
+    git tag {{TAG}}
+    sed -i '' "s/Version:.*\".*\"/Version:          \"{{TAG}}\"/" cmd/af/main.go
+    echo "Updated version in main.go to {{TAG}}"

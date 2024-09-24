@@ -1,3 +1,18 @@
+/*
+Copyright © 2024 Omni Aura peyton@omniaura.co
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
 package js_test
 
 import (
@@ -5,11 +20,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ditto-assistant/agentflow/pkg/assert/require"
-	"github.com/ditto-assistant/agentflow/pkg/ast"
-	"github.com/ditto-assistant/agentflow/pkg/gen/js"
-	"github.com/ditto-assistant/agentflow/pkg/logger"
-	"github.com/ditto-assistant/agentflow/tests/testdata"
+	"github.com/omniaura/agentflow/pkg/assert/require"
+	"github.com/omniaura/agentflow/pkg/ast"
+	"github.com/omniaura/agentflow/pkg/gen/js"
+	"github.com/omniaura/agentflow/pkg/logger"
+	"github.com/omniaura/agentflow/tests/testdata"
 )
 
 func TestMain(m *testing.M) {
@@ -62,11 +77,6 @@ func TestGenerate(t *testing.T) {
 			Name:     "two prompts with titles",
 			Filename: "hello3.af",
 			Content:  testdata.TwoPromptsWithVars,
-			// 			Want: `def hello_user(username: str) -> str:
-			// 	return f"""say hello to {username}"""
-			//
-			// def goodbye_user(username: str) -> str:
-			// 	return f"""say goodbye to {username}"""`,
 			Want: "/**\n" +
 				" * @param {string} username\n" +
 				" * @returns {string}\n" +
@@ -80,6 +90,24 @@ func TestGenerate(t *testing.T) {
 				" */\n" +
 				"export function goodbyeUser(username) {\n" +
 				"	return `say goodbye to ${username}`;\n}\n",
+		},
+		{
+			Name:     "two prompts with extra newline",
+			Filename: "hello4.af",
+			Content:  testdata.TwoPromptsExtraNewline,
+			Want: "/**\n" +
+				" * @param {string} username\n" +
+				" * @returns {string}\n" +
+				" */\n" +
+				"export function helloUser(username) {\n" +
+				"	return `say hello to ${username}\n`;\n}\n" +
+				"\n" +
+				"/**\n" +
+				" * @param {string} username\n" +
+				" * @returns {string}\n" +
+				" */\n" +
+				"export function goodbyeUser(username) {\n" +
+				"	return `say goodbye to ${username}\n`;\n}\n",
 		},
 	}
 	for _, tc := range cases {

@@ -1,5 +1,5 @@
 /*
-Copyright © 2024 Ditto AI peyton@heyditto.ai
+Copyright © 2024 Omni Aura peyton@omniaura.co
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,16 +18,15 @@ package main
 import (
 	"context"
 
-	"github.com/ditto-assistant/agentflow/cfg"
-	"github.com/ditto-assistant/agentflow/cmd/af/gen"
-	"github.com/ditto-assistant/agentflow/pkg/assert"
-	"github.com/ditto-assistant/agentflow/pkg/logger"
+	"github.com/omniaura/agentflow/cfg"
+	"github.com/omniaura/agentflow/cmd/af/gen"
+	"github.com/omniaura/agentflow/pkg/assert"
+	"github.com/omniaura/agentflow/pkg/logger"
 	"github.com/spf13/cobra"
 )
 
-// Root represents the base command when called without any subcommands
 var Root = &cobra.Command{
-	Version:          "0.1.1",
+	Version:          "0.1.5", // This line will be updated by the sync-version script
 	Use:              "af",
 	Short:            "AgentFlow CLI",
 	Long:             "AgentFlow is a CLI for bootstrapping AI agents.",

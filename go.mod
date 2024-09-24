@@ -1,10 +1,11 @@
-module github.com/ditto-assistant/agentflow
+module github.com/omniaura/agentflow
 
 go 1.23
 
 require (
 	github.com/peyton-spencer/caseconv v0.1.1
 	github.com/spf13/cobra v1.8.1
+	golang.org/x/sync v0.8.0
 )
 
 require (
