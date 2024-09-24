@@ -16,6 +16,7 @@ limitations under the License.
 package gen
 
 import (
+	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/cmd/af/gen/prompts"
 	"github.com/spf13/cobra"
 )
@@ -25,6 +26,7 @@ func CMD() *cobra.Command {
 		Use:   "gen",
 		Short: "Generate code from .af files",
 	}
+	cmd.PersistentFlags().IntVar(&cfg.MaxLineLen, "max-line-len", 80, "Maximum line length")
 	cmd.AddCommand(prompts.CMD())
 	return cmd
 }

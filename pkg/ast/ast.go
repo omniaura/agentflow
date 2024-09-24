@@ -88,8 +88,8 @@ func (p Prompt) Stringify(content []byte) string {
 	return buf.String()
 }
 
-func (p Prompt) Vars(content []byte, c caseconv.Case) [][]byte {
-	vars := make([][]byte, 0, len(p.Nodes))
+func (p Prompt) Vars(content []byte, c caseconv.Case) (vars [][]byte, length int) {
+	vars = make([][]byte, 0, len(p.Nodes))
 	for _, node := range p.Nodes {
 		if node.Kind == token.KindVar {
 			name := node.Get(content)
@@ -106,8 +106,9 @@ func (p Prompt) Vars(content []byte, c caseconv.Case) [][]byte {
 		case caseconv.CaseSnake:
 			vars[i] = bytcase.ToSnake(vars[i])
 		}
+		length += len(vars[i])
 	}
-	return vars
+	return
 }
 
 func (p1 Prompt) Equal(p2 Prompt) bool {

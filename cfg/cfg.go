@@ -7,6 +7,9 @@ import (
 
 var (
 	FlagLogLevel string
+	// MaxLineLen is the maximum line length for code generation.
+	// Prompt bodies are not wrapped.
+	MaxLineLen int
 )
 
 func LogLevel() slog.Level {

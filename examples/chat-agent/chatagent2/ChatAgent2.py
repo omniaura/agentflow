@@ -15,5 +15,23 @@ title:
 def chat_with_user(ai_name: str, message_thread: str) -> str:
 	return f"""You are an AI named {ai_name}. Please respond to the chat thread below:
 {message_thread}
-{ai_name}:
-"""
+{ai_name}:"""
+
+
+def example_with_many_variables(
+	user_name: str,
+	message_thread: str,
+	ai_name: str,
+	title: str,
+	max_line_len: str,
+	more_variables: str,
+) -> str:
+	return f"""{user_name}
+{message_thread}
+{ai_name}
+{title}
+As the title says, the user is {user_name} and the AI is {ai_name}.
+The default max line length is 80 characters. It is currently {max_line_len}.
+Sometimes, {more_variables} are needed.
+When the max line length is surpassed, AgentFlow will wrap the line.
+This only applies to function headers. Prompt bodies are not wrapped."""

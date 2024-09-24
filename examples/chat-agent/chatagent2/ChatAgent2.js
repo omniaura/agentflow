@@ -28,6 +28,33 @@ title:
 export function chatWithUser(aiName, messageThread) {
 	return `You are an AI named ${aiName}. Please respond to the chat thread below:
 ${messageThread}
-${aiName}:
-`;
+${aiName}:`;
+}
+
+/**
+ * @param {string} userName
+ * @param {string} messageThread
+ * @param {string} aiName
+ * @param {string} title
+ * @param {string} maxLineLen
+ * @param {string} moreVariables
+ * @returns {string}
+ */
+export function exampleWithManyVariables(
+	userName,
+	messageThread,
+	aiName,
+	title,
+	maxLineLen,
+	moreVariables,
+) {
+	return `${userName}
+${messageThread}
+${aiName}
+${title}
+As the title says, the user is ${userName} and the AI is ${aiName}.
+The default max line length is 80 characters. It is currently ${maxLineLen}.
+Sometimes, ${moreVariables} are needed.
+When the max line length is surpassed, AgentFlow will wrap the line.
+This only applies to function headers. Prompt bodies are not wrapped.`;
 }

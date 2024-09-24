@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"io"
 
+	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen"
 	"github.com/omniaura/agentflow/pkg/token"
@@ -33,14 +34,14 @@ func GenFile(w io.Writer, f ast.File) error {
 	}
 	if len(f.Prompts) == 1 {
 		p := f.Prompts[0]
-		vars := p.Vars(f.Content, caseconv.CaseSnake)
+		vars, length := p.Vars(f.Content, caseconv.CaseSnake)
 		var title []byte
 		if p.Title.Kind == token.KindTitle {
 			title = bytcase.ToSnake(p.Title.Get(f.Content))
 		} else {
 			title = bytcase.ToSnake([]byte(f.Name))
 		}
-		functionHeader(&buf, title, vars)
+		functionHeader(&buf, title, vars, length)
 		if len(vars) == 0 {
 			stringLiteral(&buf, p.Nodes, f.Content)
 		} else {
@@ -54,9 +55,9 @@ func GenFile(w io.Writer, f ast.File) error {
 		if p.Title.Kind == token.KindUnset {
 			return gen.ErrMissingTitle.F("index: %d", i)
 		}
-		vars := p.Vars(f.Content, caseconv.CaseSnake)
+		vars, length := p.Vars(f.Content, caseconv.CaseSnake)
 		title := p.Title.Get(f.Content)
-		functionHeader(&buf, title, vars)
+		functionHeader(&buf, title, vars, length)
 		if len(vars) == 0 {
 			stringLiteral(&buf, p.Nodes, f.Content)
 		} else {
@@ -70,16 +71,27 @@ func GenFile(w io.Writer, f ast.File) error {
 	return err
 }
 
-func functionHeader(buf *bytes.Buffer, title []byte, stringVars [][]byte) {
+func functionHeader(buf *bytes.Buffer, title []byte, stringVars [][]byte, length int) {
 	title = bytcase.ToSnake(title)
 	buf.WriteString("def ")
 	buf.Write(title)
-	buf.WriteString("(")
-	for i := range stringVars {
-		buf.Write(stringVars[i])
-		buf.WriteString(": str")
-		if i < len(stringVars)-1 {
-			buf.WriteString(", ")
+	buf.WriteRune('(')
+	if len(title)+length+10 > cfg.MaxLineLen {
+		for i := range stringVars {
+			if i == 0 {
+				buf.WriteRune('\n')
+			}
+			buf.WriteRune('\t')
+			buf.Write(stringVars[i])
+			buf.WriteString(": str,\n")
+		}
+	} else {
+		for i := range stringVars {
+			buf.Write(stringVars[i])
+			buf.WriteString(": str")
+			if i < len(stringVars)-1 {
+				buf.WriteString(", ")
+			}
 		}
 	}
 	buf.WriteString(") -> str:")
