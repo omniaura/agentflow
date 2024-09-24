@@ -18,6 +18,7 @@ package prompts
 import (
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -49,11 +50,22 @@ func CMD() *cobra.Command {
 		Use:   "prompts",
 		Short: "Generate prompts for specified languages",
 		Long: `Generate prompts for specified languages from .af files in the input directory.
-The generated prompts will be written to the output directory.`,
+The generated prompts will be written next to their corresponding .af files.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
-			files, err := filepath.Glob(filepath.Join(Dir, "*.af"))
+			// Use filepath.Walk to recursively find all .af files
+			var files []string
+			err := filepath.WalkDir(Dir, func(path string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if !d.IsDir() && filepath.Ext(path) == ".af" {
+					files = append(files, path)
+				}
+				return nil
+			})
 			assert.NoError(err)
+
 			group, _ := errgroup.WithContext(ctx)
 			for _, name := range files {
 				group.Go(func() error {
@@ -73,50 +85,31 @@ The generated prompts will be written to the output directory.`,
 						return err
 					}
 
+					// Generate the output file in the same directory as the input file
+					outFileName := fmt.Sprintf("%s.%s", ff.Name, Lang)
+					outFilePath := filepath.Join(filepath.Dir(name), outFileName)
+					outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+					if err != nil {
+						return err
+					}
+					defer outFile.Close()
+
+					var genErr error
 					switch Lang {
 					case "py":
-						outFileName := fmt.Sprintf("%s.py", ff.Name)
-						outFilePath := filepath.Join(Dir, outFileName)
-						outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-						if err != nil {
-							return err
-						}
-						defer outFile.Close()
-
-						err = py.GenFile(outFile, ff)
-						if err != nil {
-							return err
-						}
-						slog.Info("Generated", "file", outFilePath)
+						genErr = py.GenFile(outFile, ff)
 					case "js":
-						outFileName := fmt.Sprintf("%s.js", ff.Name)
-						outFilePath := filepath.Join(Dir, outFileName)
-						outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-						if err != nil {
-							return err
-						}
-						defer outFile.Close()
-
-						err = js.GenFile(outFile, ff)
-						if err != nil {
-							return err
-						}
-						slog.Info("Generated", "file", outFilePath)
+						genErr = js.GenFile(outFile, ff)
 					case "ts":
-						outFileName := fmt.Sprintf("%s.ts", ff.Name)
-						outFilePath := filepath.Join(Dir, outFileName)
-						outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-						if err != nil {
-							return err
-						}
-						defer outFile.Close()
-
-						err = ts.GenFile(outFile, ff)
-						if err != nil {
-							return err
-						}
-						slog.Info("Generated", "file", outFilePath)
+						genErr = ts.GenFile(outFile, ff)
+					default:
+						return fmt.Errorf("unsupported language: %s", Lang)
 					}
+
+					if genErr != nil {
+						return genErr
+					}
+					slog.Info("Generated", "file", outFilePath)
 					return nil
 				})
 			}

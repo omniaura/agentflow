@@ -14,9 +14,11 @@ install:
 fmt:
     gofmt -s -w ./..
 
+# Get the latest tag
 version:
     git fetch --tags && git describe --tags --abbrev=0
 
+# Create a tag, update the version in the main.go file and push it to the remote repository
 create-version TAG:
     #!/usr/bin/env bash
     TAGVAR={{TAG}}

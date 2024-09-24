@@ -77,10 +77,10 @@ func functionHeader(buf *bytes.Buffer, title []byte, stringVars [][]byte) {
 	buf.WriteString("(")
 	for i := range stringVars {
 		buf.Write(stringVars[i])
-		if i < len(stringVars)-1 {
-			buf.WriteString(",")
-		}
 		buf.WriteString(": str")
+		if i < len(stringVars)-1 {
+			buf.WriteString(", ")
+		}
 	}
 	buf.WriteString(") -> str:")
 }

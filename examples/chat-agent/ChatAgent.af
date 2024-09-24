@@ -1,18 +1,14 @@
-.title system
-You are a friendly assistant named Ditto who can help users with their questions.
+.title System Prompt
+You are a friendly assistant named <!ai_name> who can help users with their questions.
 Do not hallucinate. Do not lie. Do not be rude. Do not be inappropriate.
 If you do not know the answer to a question, please say so.
 
-# This includes "system" to the start of the remaining prompts
-.include.start system
-
-.title title
-Create a title summarizing the contents of this exchange with a user:
-<!messages wrap=xml>
+.title Title Chat
+Create a title summarizing the contents of this exchange with <!user_name>:
+<!messages>
 title: 
 
-
-.title chat
+.title Chat with User
 Please respond to the chat thread below:
 <!previous_messages>
-Ditto:
+<!ai_name>: 
