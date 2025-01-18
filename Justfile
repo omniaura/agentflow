@@ -1,3 +1,5 @@
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+
 # Run the agentflow for development
 go *ARGS:
     go run cmd/af/main.go {{ARGS}}
