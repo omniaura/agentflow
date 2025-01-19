@@ -1,10 +1,13 @@
 /**
+ * @param {string} aiName
  * @returns {string}
  */
-export function systemPrompt() {
-	return `You are a friendly assistant named Ditto who can help users with their questions.
+export function systemPrompt(aiName) {
+	return `You are a friendly assistant named ${aiName} who can help users with their questions.
 Do not hallucinate. Do not lie. Do not be rude. Do not be inappropriate.
 If you do not know the answer to a question, please say so.
+2 newlines will produce a newline in the output at the end of the prompt.
+This prompt uses the technique.
 `;
 }
 
@@ -16,8 +19,7 @@ If you do not know the answer to a question, please say so.
 export function createTitle(userName, messageThread) {
 	return `Create a title summarizing the contents of this exchange with ${userName}:
 ${messageThread}
-title: 
-`;
+title: `;
 }
 
 /**
@@ -28,7 +30,7 @@ title:
 export function chatWithUser(aiName, messageThread) {
 	return `You are an AI named ${aiName}. Please respond to the chat thread below:
 ${messageThread}
-${aiName}:`;
+${aiName}: `;
 }
 
 /**
