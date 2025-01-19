@@ -1,5 +1,5 @@
-def system_prompt(ai_name: str) -> str:
-	return f"""You are a friendly assistant named {ai_name} who can help users with their questions.
+def system_prompt() -> str:
+	return """You are a friendly assistant named Bob who can help users with their questions.
 Do not hallucinate. Do not lie. Do not be rude. Do not be inappropriate.
 If you do not know the answer to a question, please say so."""
 

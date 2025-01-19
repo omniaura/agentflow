@@ -25,6 +25,7 @@ import (
 
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/ast"
+	"github.com/omniaura/agentflow/pkg/gen/gogen"
 	"github.com/omniaura/agentflow/pkg/gen/js"
 	"github.com/omniaura/agentflow/pkg/gen/py"
 	"github.com/omniaura/agentflow/pkg/gen/ts"
@@ -85,9 +86,15 @@ The generated prompts will be written next to their corresponding .af files.`,
 						return err
 					}
 
-					// Generate the output file in the same directory as the input file
-					outFileName := fmt.Sprintf("%s.%s", ff.Name, Lang)
-					outFilePath := filepath.Join(filepath.Dir(name), outFileName)
+					// Create a subdirectory for all languages
+					pkgDir := filepath.Join(filepath.Dir(name), ff.Name)
+					if err := os.MkdirAll(pkgDir, 0755); err != nil {
+						return fmt.Errorf("failed to create package directory: %w", err)
+					}
+
+					// Generate the output file in the subdirectory
+					outFileName := ff.Name + "." + Lang
+					outFilePath := filepath.Join(pkgDir, outFileName)
 					outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 					if err != nil {
 						return err
@@ -102,6 +109,8 @@ The generated prompts will be written next to their corresponding .af files.`,
 						genErr = js.GenFile(outFile, ff)
 					case "ts":
 						genErr = ts.GenFile(outFile, ff)
+					case "go":
+						genErr = gogen.GenFile(outFile, ff)
 					default:
 						return fmt.Errorf("unsupported language: %s", Lang)
 					}
