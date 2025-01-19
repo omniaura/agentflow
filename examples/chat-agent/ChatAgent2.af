@@ -26,3 +26,20 @@ The default max line length is 80 characters. It is currently <!max_line_len>.
 Sometimes, <!more_variables> are needed.
 When the max line length is surpassed, AgentFlow will wrap the line.
 This only applies to function headers. Prompt bodies are not wrapped.
+
+.title Conditional Prompting
+This prompt demonstrates conditional prompting using optionals.
+<?user.email>
+The user's email is <!user.email>.
+</user.email>
+
+.title Conditional With Else
+.var user.premium bool
+.var user.subscription.tier int
+Here's an example with else syntax:
+<?user.premium>
+Welcome premium user! You have access to all features.
+Your subscription tier is level <!user.subscription.tier>.
+<else>
+Welcome! You're using the basic version. Upgrade to premium for more features.
+</user.premium>
