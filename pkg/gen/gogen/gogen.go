@@ -133,23 +133,31 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	// Calculate total length for Grow
 	buf.WriteString("\tb.Grow(")
 	textLen := 0
-	for i, t := range toks {
+	hasWrittenLen := false
+	for _, t := range toks {
 		if t.Kind == token.KindVar {
+			if hasWrittenLen && textLen > 0 {
+				buf.WriteString(" + ")
+			}
+			if textLen > 0 {
+				buf.WriteString(strconv.Itoa(textLen))
+				buf.WriteString(" + ")
+				textLen = 0
+			}
 			buf.WriteString("len(")
-			// Convert to camelCase in the function body
 			varName := bytcase.ToLowerCamel(t.Get(content))
 			buf.Write(varName)
 			buf.WriteString(")")
+			hasWrittenLen = true
 		} else {
-			length := len(t.Get(content))
-			textLen += length
-			if length > 0 { // Only write non-empty lengths
-				buf.WriteString(strconv.Itoa(length))
-			}
+			textLen += len(t.Get(content))
 		}
-		if i < len(toks)-1 {
+	}
+	if textLen > 0 {
+		if hasWrittenLen {
 			buf.WriteString(" + ")
 		}
+		buf.WriteString(strconv.Itoa(textLen))
 	}
 	buf.WriteString(")\n")
 
@@ -157,7 +165,6 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	for _, t := range toks {
 		if t.Kind == token.KindVar {
 			buf.WriteString("\tb.WriteString(")
-			// Convert to camelCase in the function body
 			varName := bytcase.ToLowerCamel(t.Get(content))
 			buf.Write(varName)
 			buf.WriteString(")\n")

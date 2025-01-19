@@ -46,7 +46,7 @@ func TestGenerate(t *testing.T) {
 			Name:     "no vars no title",
 			Filename: "no_vars_no_title.af",
 			Content:  testdata.NoVarsNoTitle,
-			Want: "package novarstitle\n\n" +
+			Want: "package novarsnotitle\n\n" +
 				"func NoVarsNoTitle() string {\n" +
 				"\treturn `say hello to the user!`\n}\n",
 		},
