@@ -374,3 +374,129 @@ func TestCombined(t *testing.T) {
 func joinLines(in ...[]byte) []byte {
 	return bytes.Join(in, []byte{'\n'})
 }
+
+func TestOptionalBlock(t *testing.T) {
+	testcases := []TestCase{
+		{
+			name: "simple optional block",
+			def: func() ([]byte, token.Slice, error) {
+				start := []byte("<?optional>")
+				text := []byte("some optional text")
+				end := []byte("</optional>")
+				input := bytes.Join([][]byte{start, text, end}, []byte{'\n'})
+				want := token.Slice{
+					{
+						Kind:  kind.OptionalBlock,
+						Start: 2,
+						End:   10,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 11,
+						End:   31,
+					},
+					{
+						Kind:  kind.EndTag,
+						Start: 33,
+						End:   41,
+					},
+				}
+				return input, want, nil
+			},
+		},
+		{
+			name: "optional block with variable",
+			def: func() ([]byte, token.Slice, error) {
+				start := []byte("<?block>")
+				text1 := []byte("Hello")
+				varStart := []byte("<!name>")
+				text2 := []byte(" how are you?")
+				end := []byte("</block>")
+				input := bytes.Join([][]byte{start, text1, varStart, text2, end}, []byte{' '})
+				want := token.Slice{
+					{
+						Kind:  kind.OptionalBlock,
+						Start: 2,
+						End:   7,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 8,
+						End:   15,
+					},
+					{
+						Kind:  kind.Var,
+						Start: 17,
+						End:   21,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 22,
+						End:   37,
+					},
+					{
+						Kind:  kind.EndTag,
+						Start: 39,
+						End:   44,
+					},
+				}
+				return input, want, nil
+			},
+		},
+		{
+			name: "nested optional blocks",
+			def: func() ([]byte, token.Slice, error) {
+				outer := []byte("<?outer>")
+				text1 := []byte("start")
+				inner := []byte("<?inner>")
+				text2 := []byte("inner text")
+				innerEnd := []byte("</inner>")
+				text3 := []byte("end")
+				outerEnd := []byte("</outer>")
+				input := bytes.Join([][]byte{outer, text1, inner, text2, innerEnd, text3, outerEnd}, []byte{'\n'})
+				want := token.Slice{
+					{
+						Kind:  kind.OptionalBlock,
+						Start: 2,
+						End:   7,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 8,
+						End:   15,
+					},
+					{
+						Kind:  kind.OptionalBlock,
+						Start: 17,
+						End:   22,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 23,
+						End:   35,
+					},
+					{
+						Kind:  kind.EndTag,
+						Start: 37,
+						End:   42,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 43,
+						End:   48,
+					},
+					{
+						Kind:  kind.EndTag,
+						Start: 50,
+						End:   55,
+					},
+				}
+				return input, want, nil
+			},
+		},
+	}
+
+	for _, tc := range testcases {
+		tc.Run(t)
+	}
+}

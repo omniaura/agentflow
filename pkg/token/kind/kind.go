@@ -62,3 +62,14 @@ func (k Kind) String() string {
 	}
 	return "Unknown"
 }
+
+func (k Kind) IsTag() bool {
+	switch k {
+	case
+		Var,
+		OptionalBlock,
+		EndTag:
+		return true
+	}
+	return false
+}

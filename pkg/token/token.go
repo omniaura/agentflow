@@ -129,20 +129,26 @@ func Tokenize(input []byte) (Slice, error) {
 			}
 		}
 
-		if ct.Kind == kind.Var && b == '>' {
+		if b == '>' && ct.Kind.IsTag() {
 			ct.End = i
 			tokens = append(tokens, ct)
 			ct = T{}
 			continue
 		}
-		if b == '<' && len(input) > i && input[i+1] == '!' {
+		if b == '<' && len(input) > i {
 			if ct.Kind != kind.Unset {
 				ct.End = i
 				tokens = append(tokens, ct)
 			}
-			ct.Kind = kind.Var
+			switch input[i+1] {
+			case '!':
+				ct.Kind = kind.Var
+			case '?':
+				ct.Kind = kind.OptionalBlock
+			case '/':
+				ct.Kind = kind.EndTag
+			}
 			ct.Start = i + 2
-
 		}
 
 		if b == '\n' {
