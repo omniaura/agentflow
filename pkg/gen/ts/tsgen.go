@@ -23,6 +23,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen"
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
@@ -36,7 +37,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		p := f.Prompts[0]
 		vars, length := p.Vars(f.Content, caseconv.CaseCamel)
 		var title []byte
-		if p.Title.Kind == token.KindTitle {
+		if p.Title.Kind == kind.Title {
 			title = bytcase.ToLowerCamel(p.Title.Get(f.Content))
 		} else {
 			title = bytcase.ToLowerCamel([]byte(f.Name))
@@ -47,7 +48,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		return err
 	}
 	for i, p := range f.Prompts {
-		if p.Title.Kind == token.KindUnset {
+		if p.Title.Kind == kind.Unset {
 			return gen.ErrMissingTitle.F("index: %d", i)
 		}
 		vars, length := p.Vars(f.Content, caseconv.CaseCamel)
@@ -91,7 +92,7 @@ func functionHeader(buf *bytes.Buffer, title []byte, stringVars [][]byte, length
 func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	buf.WriteString("\treturn `")
 	for _, t := range toks {
-		if t.Kind == token.KindVar {
+		if t.Kind == kind.Var {
 			buf.Write(t.GetJSFmtVar(content))
 		} else {
 			buf.Write(t.Get(content))

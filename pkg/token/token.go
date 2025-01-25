@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
 
@@ -39,7 +40,7 @@ func (t Slice) Equal(o Slice) bool {
 }
 
 type T struct {
-	Kind  Kind
+	Kind  kind.Kind
 	Start int
 	End   int
 }
@@ -72,61 +73,6 @@ func (t T) GetJSFmtVar(in []byte) []byte {
 	return out
 }
 
-type Kind int
-
-// TODO: add KindDoc, KindVarDoc
-// TODO: add .var var predeclare optional; sets the types
-// example:
-//
-// .title say hello to your new friends
-// .var names string list join="\n"
-// Please say hello to:
-// <!names>
-//
-// INPUT:
-// Joe,Mary,Jane
-//
-// OUTPUT:
-// Please say hello to:
-// Joe
-// Mary
-// Jane
-
-const (
-	KindUnset = iota
-	KindTitle
-	KindText
-	// TODO: add var parameters
-	// such as:
-	// <!name string>
-	// <!age int>
-	// <!is_admin bool>
-	// <!created_at datetime>
-	// <!meeting_time time>
-	// <!meeting_date date>
-	// <!any_data any>
-	// <!todos string list join="\n">
-	// <!weights float32 list join=",">
-	// <!flags bool list join="," start="[" end="]">
-	// <!names join="\n">
-	KindVar
-	KindRawBlock
-)
-
-func (k Kind) String() string {
-	switch k {
-	case KindTitle:
-		return "title"
-	case KindText:
-		return "text"
-	case KindVar:
-		return "var"
-	case KindUnset:
-		return "unset"
-	}
-	return "unknown"
-}
-
 var (
 	cmdTitle = []byte(".title")
 )
@@ -144,7 +90,7 @@ func Tokenize(input []byte) (Slice, error) {
 			case '~':
 			case '.':
 				cmdStart = i
-				if ct.Kind != KindUnset {
+				if ct.Kind != kind.Unset {
 					// trim newlines before the directive
 					// sub := 1
 					// for input[i-sub] == '\n' {
@@ -177,24 +123,24 @@ func Tokenize(input []byte) (Slice, error) {
 				cmdEnd = i
 				switch {
 				case bytes.Equal(input[cmdStart:cmdEnd], cmdTitle):
-					ct.Kind = KindTitle
+					ct.Kind = kind.Title
 					ct.Start = i + 1
 				}
 			}
 		}
 
-		if ct.Kind == KindVar && b == '>' {
+		if ct.Kind == kind.Var && b == '>' {
 			ct.End = i
 			tokens = append(tokens, ct)
 			ct = T{}
 			continue
 		}
 		if b == '<' && len(input) > i && input[i+1] == '!' {
-			if ct.Kind != KindUnset {
+			if ct.Kind != kind.Unset {
 				ct.End = i
 				tokens = append(tokens, ct)
 			}
-			ct.Kind = KindVar
+			ct.Kind = kind.Var
 			ct.Start = i + 2
 
 		}
@@ -202,14 +148,14 @@ func Tokenize(input []byte) (Slice, error) {
 		if b == '\n' {
 			startLine = true
 			switch ct.Kind {
-			case KindText:
+			case kind.Text:
 
-			case KindTitle:
+			case kind.Title:
 				ct.End = i
 				tokens = append(tokens, ct)
 				ct = T{}
 				continue
-			case KindUnset:
+			case kind.Unset:
 				if len(input) > i+1 {
 					switch input[i+1] {
 					case '.':
@@ -220,12 +166,12 @@ func Tokenize(input []byte) (Slice, error) {
 			}
 		}
 
-		if ct.Kind == KindUnset {
-			ct.Kind = KindText
+		if ct.Kind == kind.Unset {
+			ct.Kind = kind.Text
 			ct.Start = i
 		}
 
-		if i == len(input)-1 && ct.Kind != KindUnset {
+		if i == len(input)-1 && ct.Kind != kind.Unset {
 			ct.End = i + 1
 			// slog.Debug("end of input, adding token", "token", ct.Stringify(input))
 

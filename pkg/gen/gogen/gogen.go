@@ -25,6 +25,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen"
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
@@ -55,7 +56,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		p := f.Prompts[0]
 		vars, length := p.Vars(f.Content, caseconv.CaseCamel)
 		var title []byte
-		if p.Title.Kind == token.KindTitle {
+		if p.Title.Kind == kind.Title {
 			title = bytcase.ToCamel(p.Title.Get(f.Content))
 		} else {
 			title = bytcase.ToCamel([]byte(f.Name))
@@ -66,7 +67,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		return err
 	}
 	for i, p := range f.Prompts {
-		if p.Title.Kind == token.KindUnset {
+		if p.Title.Kind == kind.Unset {
 			return gen.ErrMissingTitle.F("index: %d", i)
 		}
 		vars, length := p.Vars(f.Content, caseconv.CaseCamel)
@@ -111,7 +112,7 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	// Check if there are any variables
 	hasVars := false
 	for _, t := range toks {
-		if t.Kind == token.KindVar {
+		if t.Kind == kind.Var {
 			hasVars = true
 			break
 		}
@@ -135,7 +136,7 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	textLen := 0
 	hasWrittenLen := false
 	for _, t := range toks {
-		if t.Kind == token.KindVar {
+		if t.Kind == kind.Var {
 			if hasWrittenLen && textLen > 0 {
 				buf.WriteString(" + ")
 			}
@@ -163,7 +164,7 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 
 	// Write the string parts
 	for _, t := range toks {
-		if t.Kind == token.KindVar {
+		if t.Kind == kind.Var {
 			buf.WriteString("\tb.WriteString(")
 			varName := bytcase.ToLowerCamel(t.Get(content))
 			buf.Write(varName)

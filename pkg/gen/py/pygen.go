@@ -23,6 +23,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen"
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
@@ -36,7 +37,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		p := f.Prompts[0]
 		vars, length := p.Vars(f.Content, caseconv.CaseSnake)
 		var title []byte
-		if p.Title.Kind == token.KindTitle {
+		if p.Title.Kind == kind.Title {
 			title = bytcase.ToSnake(p.Title.Get(f.Content))
 		} else {
 			title = bytcase.ToSnake([]byte(f.Name))
@@ -52,7 +53,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		return err
 	}
 	for i, p := range f.Prompts {
-		if p.Title.Kind == token.KindUnset {
+		if p.Title.Kind == kind.Unset {
 			return gen.ErrMissingTitle.F("index: %d", i)
 		}
 		vars, length := p.Vars(f.Content, caseconv.CaseSnake)
@@ -101,7 +102,7 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	buf.WriteRune('\n')
 	buf.WriteString(`	return f"""`)
 	for _, t := range toks {
-		if t.Kind == token.KindVar {
+		if t.Kind == kind.Var {
 			buf.Write(t.GetWrap(content, '{', '}'))
 		} else {
 			buf.Write(t.Get(content))
@@ -115,7 +116,7 @@ func stringLiteral(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	buf.WriteRune('\n')
 	buf.WriteString(`	return """`)
 	for _, t := range toks {
-		if t.Kind == token.KindVar {
+		if t.Kind == kind.Var {
 			buf.Write(t.GetWrap(content, '{', '}'))
 		} else {
 			buf.Write(t.Get(content))

@@ -80,3 +80,33 @@ When the max line length is surpassed, AgentFlow will wrap the line.
 This only applies to function headers. Prompt bodies are not wrapped.`)
 	return b.String()
 }
+
+func ConditionalPrompting(userEmail string) string {
+	var b strings.Builder
+	b.Grow(98 + len(userEmail) + 15)
+	b.WriteString(`This prompt demonstrates conditional prompting using optionals.
+<?user.email>
+The user's email is `)
+	b.WriteString(userEmail)
+	b.WriteString(`.
+</user.email>`)
+	return b.String()
+}
+
+func ConditionalWithElse(userSubscriptionTier string) string {
+	var b strings.Builder
+	b.Grow(216 + len(userSubscriptionTier) + 103)
+	b.WriteString(`.var user.premium bool`)
+	b.WriteString(`.var user.premium bool
+.var user.subscription.tier int
+Here's an example with else syntax:
+<?user.premium>
+Welcome premium user! You have access to all features.
+Your subscription tier is level `)
+	b.WriteString(userSubscriptionTier)
+	b.WriteString(`.
+<else>
+Welcome! You're using the basic version. Upgrade to premium for more features.
+</user.premium>`)
+	return b.String()
+}

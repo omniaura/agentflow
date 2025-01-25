@@ -20,6 +20,7 @@ import (
 
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 )
 
 func TestTokenSlice_Equal(t *testing.T) {
@@ -39,14 +40,14 @@ func TestTokenSlice_Equal(t *testing.T) {
 			name: "equal",
 			a: token.Slice{
 				{
-					Kind:  token.KindTitle,
+					Kind:  kind.Title,
 					Start: 0,
 					End:   10,
 				},
 			},
 			b: token.Slice{
 				{
-					Kind:  token.KindTitle,
+					Kind:  kind.Title,
 					Start: 0,
 					End:   10,
 				},
@@ -57,14 +58,14 @@ func TestTokenSlice_Equal(t *testing.T) {
 			name: "not equal",
 			a: token.Slice{
 				{
-					Kind:  token.KindTitle,
+					Kind:  kind.Title,
 					Start: 0,
 					End:   10,
 				},
 			},
 			b: token.Slice{
 				{
-					Kind:  token.KindTitle,
+					Kind:  kind.Title,
 					Start: 0,
 					End:   11,
 				},
@@ -75,14 +76,14 @@ func TestTokenSlice_Equal(t *testing.T) {
 			name: "not equal kind",
 			a: token.Slice{
 				{
-					Kind:  token.KindTitle,
+					Kind:  kind.Title,
 					Start: 0,
 					End:   10,
 				},
 			},
 			b: token.Slice{
 				{
-					Kind:  token.KindText,
+					Kind:  kind.Text,
 					Start: 0,
 					End:   10,
 				},

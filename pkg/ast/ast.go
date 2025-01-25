@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
@@ -91,7 +92,7 @@ func (p Prompt) Stringify(content []byte) string {
 func (p Prompt) Vars(content []byte, c caseconv.Case) (vars [][]byte, length int) {
 	vars = make([][]byte, 0, len(p.Nodes))
 	for _, node := range p.Nodes {
-		if node.Kind == token.KindVar {
+		if node.Kind == kind.Var {
 			name := node.Get(content)
 			if slices.ContainsFunc(vars, func(b []byte) bool { return bytes.Equal(b, name) }) {
 				continue
@@ -115,21 +116,14 @@ func (p1 Prompt) Equal(p2 Prompt) bool {
 	return p1.Title == p2.Title && p1.Nodes.Equal(p2.Nodes)
 }
 
-func MustFile(name string, content []byte) File {
-	f, err := NewFile(name, content)
-	if err != nil {
-		panic(err)
-	}
-	return f
-}
-
 func NewFile(name string, content []byte) (f File, err error) {
 	tokens, err := token.Tokenize(content)
 	if err != nil {
 		return
 	}
 	if !strings.HasSuffix(name, ".af") {
-		return File{}, fmt.Errorf("file does not have .af extension: %s", name)
+		err = fmt.Errorf("file does not have .af extension: %s", name)
+		return
 	}
 	f.Name = strings.TrimSuffix(name, ".af")
 	f.Content = content
@@ -139,7 +133,7 @@ func NewFile(name string, content []byte) (f File, err error) {
 
 func newPrompts(tokens token.Slice) (prompts []Prompt, err error) {
 	for _, t := range tokens {
-		if t.Kind == token.KindTitle {
+		if t.Kind == kind.Title {
 			prompts = append(prompts, Prompt{Title: t})
 		} else if len(prompts) == 0 {
 			prompts = append(prompts, Prompt{Nodes: token.Slice{t}})

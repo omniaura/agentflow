@@ -25,6 +25,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 )
 
 func TestMain(m *testing.M) {
@@ -80,7 +81,7 @@ func TestNewFile(t *testing.T) {
 					Prompts: []ast.Prompt{
 						{
 							Nodes: token.Slice{
-								{Kind: token.KindText, Start: 0, End: len(singlePrompt)},
+								{Kind: kind.Text, Start: 0, End: len(singlePrompt)},
 							},
 						},
 					},
@@ -100,15 +101,15 @@ func TestNewFile(t *testing.T) {
 					Content: content,
 					Prompts: []ast.Prompt{
 						{
-							Title: token.T{Kind: token.KindTitle, Start: 7, End: 15},
+							Title: token.T{Kind: kind.Title, Start: 7, End: 15},
 							Nodes: token.Slice{
-								{Kind: token.KindText, Start: 16, End: 25},
+								{Kind: kind.Text, Start: 16, End: 25},
 							},
 						},
 						{
-							Title: token.T{Kind: token.KindTitle, Start: 33, End: 41},
+							Title: token.T{Kind: kind.Title, Start: 33, End: 41},
 							Nodes: token.Slice{
-								{Kind: token.KindText, Start: 42, End: 51},
+								{Kind: kind.Text, Start: 42, End: 51},
 							},
 						},
 					},

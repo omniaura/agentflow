@@ -24,6 +24,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/logger"
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 )
 
 func TestMain(m *testing.M) {
@@ -71,7 +72,7 @@ func TestText(t *testing.T) {
 			def: func() ([]byte, token.Slice, error) {
 				want := token.Slice{
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: 0,
 						End:   len(helloW),
 					},
@@ -84,7 +85,7 @@ func TestText(t *testing.T) {
 			def: func() ([]byte, token.Slice, error) {
 				want := token.Slice{
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: 0,
 						End:   len(helloMultiline),
 					},
@@ -109,12 +110,12 @@ func TestTitle(t *testing.T) {
 				input := joinLines(line1, line2, line2)
 				want := []token.T{
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: len(tCmd),
 						End:   len(tCmd) + len(title),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(tCmd) + len(title) + 1, // newline omitted
 						End:   len(input),
 					},
@@ -133,22 +134,22 @@ func TestTitle(t *testing.T) {
 				input := joinLines(line1, helloW, line2, helloW)
 				want := []token.T{
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: len(tCmd),
 						End:   len(tCmd) + len(title1),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(line1) + 1, // +1 for newline
 						End:   len(line1) + 1 + len(helloW),
 					},
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: len(line1) + 1 + len(helloW) + 1 + len(tCmd), // +1 for newline
 						End:   len(line1) + 1 + len(helloW) + 1 + len(tCmd) + len(title2),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(line1) + 1 + len(helloW) + 1 + len(line2) + 1, // +1 for newline
 						End:   len(input),
 					},
@@ -176,7 +177,7 @@ func TestVar(t *testing.T) {
 			def: func() ([]byte, token.Slice, error) {
 				want := token.Slice{
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
@@ -190,12 +191,12 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(var1),
 						End:   len(line),
 					},
@@ -209,12 +210,12 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: 0,
 						End:   len(helloW) + 1,
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(helloW) + 3,
 						End:   len(line) - 1,
 					},
@@ -228,12 +229,12 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(var1),
 						End:   len(line),
 					},
@@ -247,12 +248,12 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: 0,
 						End:   len(helloW) + 1,
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(helloW) + 3,
 						End:   len(line) - 1,
 					},
@@ -266,17 +267,17 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW, var2}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(var1),
 						End:   len(line) - len(var1),
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(line) - len(var1) + 2,
 						End:   len(line) - 1,
 					},
@@ -311,17 +312,17 @@ func TestCombined(t *testing.T) {
 				line := joinLines(line1, line2)
 				want := token.Slice{
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: 7,
 						End:   len(line1),
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(line1) + 3,
 						End:   len(line1) + 3 + len(varName),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(line1) + 3 + len(varName) + 1,
 						End:   len(line),
 					},
@@ -338,28 +339,28 @@ func TestCombined(t *testing.T) {
 				line := joinLines(line1, line2, line3, line4)
 				want := token.Slice{
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: 7,
 						End:   len(line1),
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(line1) + 3,
 						End:   len(line1) + 3 + len(varName),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(line1) + 3 + len(varName) + 1,
 						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2,
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2,
 						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2 + len(varName2),
 					},
-					{token.KindTitle, 53, 65},
-					{token.KindVar, 68, 77},
-					{token.KindText, 78, 100},
+					{kind.Title, 53, 65},
+					{kind.Var, 68, 77},
+					{kind.Text, 78, 100},
 				}
 				return line, want, nil
 			},
