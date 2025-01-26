@@ -18,6 +18,7 @@ package ast
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -112,17 +113,139 @@ func (p Prompt) Vars(content []byte, c caseconv.Case) (vars [][]byte, length int
 	return
 }
 
+type InputStruct struct {
+	TopLevel []InputNode
+}
+
+func (i1 InputStruct) Equal(i2 InputStruct) bool {
+	if len(i1.TopLevel) != len(i2.TopLevel) {
+		return false
+	}
+	for i := range i1.TopLevel {
+		if !i1.TopLevel[i].Equal(i2.TopLevel[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func (i1 InputNode) Equal(i2 InputNode) bool {
+	if !bytes.Equal(i1.Name, i2.Name) {
+		return false
+	}
+	if len(i1.Subnodes) != len(i2.Subnodes) {
+		return false
+	}
+	for i := range i1.Subnodes {
+		if !i1.Subnodes[i].Equal(i2.Subnodes[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func (ii InputStruct) String() string {
+	var buf strings.Builder
+	buf.WriteString("type Input struct {\n")
+	for _, n := range ii.TopLevel {
+		buf.WriteString("    ")
+		buf.Write(n.Name)
+		buf.WriteString(" ")
+		buf.WriteString(n.String())
+		buf.WriteString("\n")
+	}
+	buf.WriteString("}")
+	return buf.String()
+}
+
+type InputNode struct {
+	Name     []byte
+	Subnodes []InputNode
+}
+
+func (n InputNode) String() string {
+	var buf strings.Builder
+	if len(n.Subnodes) == 0 {
+		buf.WriteString("string")
+		return buf.String()
+	}
+
+	buf.WriteString("struct {\n")
+	for _, sub := range n.Subnodes {
+		buf.WriteString("        ")
+		buf.Write(sub.Name)
+		buf.WriteString(" ")
+		buf.WriteString(sub.String())
+		buf.WriteString("\n")
+	}
+	buf.WriteString("    }")
+	return buf.String()
+}
+
+func (ii *InputStruct) insertVar(node token.T, content []byte, c caseconv.Case) {
+	name := bytes.Split(node.Get(content), []byte{'.'})
+	if len(name) == 1 {
+		nn := c.BytCase(name[0])
+		ii.TopLevel = append(ii.TopLevel, InputNode{
+			Name: nn,
+		})
+		return
+	}
+	nn := c.BytCase(name[0])
+	idx := slices.IndexFunc(ii.TopLevel, func(n InputNode) bool {
+		return bytes.Equal(n.Name, nn)
+	})
+	if idx == -1 {
+		ii.TopLevel = append(ii.TopLevel, InputNode{
+			Name: nn,
+		})
+		idx = len(ii.TopLevel) - 1
+	}
+	ii.TopLevel[idx].insertMultiLevelVar(name[1:], c)
+}
+
+func (n *InputNode) insertMultiLevelVar(name [][]byte, c caseconv.Case) {
+	if len(name) == 0 {
+		slog.Debug("0 len name reached")
+		return
+	}
+	nn := c.BytCase(name[0])
+	idx := slices.IndexFunc(n.Subnodes, func(n InputNode) bool {
+		return bytes.Equal(n.Name, nn)
+	})
+	if idx == -1 {
+		n.Subnodes = append(n.Subnodes, InputNode{
+			Name: nn,
+		})
+		idx = len(n.Subnodes) - 1
+	}
+	if len(name) == 1 {
+		return
+	}
+	n.Subnodes[idx].insertMultiLevelVar(name[1:], c)
+}
+
+func (p Prompt) GetInputs(content []byte, c caseconv.Case) (ii InputStruct, err error) {
+	for _, node := range p.Nodes {
+		switch node.Kind {
+		case kind.Var, kind.OptionalBlock:
+			ii.insertVar(node, content, c)
+		}
+	}
+	return
+}
+
 func (p1 Prompt) Equal(p2 Prompt) bool {
 	return p1.Title == p2.Title && p1.Nodes.Equal(p2.Nodes)
 }
 
 func NewFile(name string, content []byte) (f File, err error) {
-	tokens, err := token.Tokenize(content)
-	if err != nil {
-		return
-	}
 	if !strings.HasSuffix(name, ".af") {
 		err = fmt.Errorf("file does not have .af extension: %s", name)
+		return
+	}
+	tokens, err := token.Tokenize(content)
+	if err != nil {
 		return
 	}
 	f.Name = strings.TrimSuffix(name, ".af")
