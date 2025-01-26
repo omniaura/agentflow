@@ -2,47 +2,66 @@ package ditto
 
 import "strings"
 
-func SystemPrompt() string {
+type SystemPrompt struct {
+}
+
+func (input *SystemPrompt) String() string {
 	return `You are a friendly AI named Ditto here to help the user who is your best friend.`
 }
 
-func MainChatTemplate(
-	tools string,
-	examples string,
-	memoryLong string,
-	memoryShort string,
-	scriptName string,
-	scriptType string,
-	userName string,
-	currentTime string,
-	userPrompt string,
-) string {
+type MainChatTemplate struct {
+	Tools string
+	Examples string
+	Memory struct {
+		Long string
+		Short string
+	}
+	Script struct {
+		Name string
+		Type string
+	}
+	User struct {
+		Name string
+		Prompt string
+	}
+	CurrentTime string
+}
+
+func (input *MainChatTemplate) String() string {
 	var b strings.Builder
-	b.Grow(233 + len(tools) + 89 + len(examples) + 287 + len(memoryLong) + 276 + len(memoryShort) + 59 + len(scriptName) + 74 + len(scriptType) + 92 + len(scriptType) + 171 + len(userName) + 34 + len(currentTime) + 16 + len(userPrompt) + 8)
+	b.Grow(230 + len(input.Tools) + 83 + len(input.Examples) + 284 + len(input.Memory.Long) + 276 + len(input.Memory.Short) + 56 + len(input.Script.Name) + 74 + len(input.Script.Type) + 92 + len(input.Script.Type) + 168 + len(input.User.Name) + 34 + len(input.CurrentTime) + 16 + len(input.User.Prompt) + 8)
 	b.WriteString(`The following is a conversation between an AI named Ditto and a human that are best friends. Ditto is helpful and answers factual questions correctly but maintains a friendly relationship with the human.
 
-<?tools>
+`)
+	b.WriteString(`tools`)
+	b.WriteString(`
 ## Available Tools
 `)
-	b.WriteString(tools)
+	b.WriteString(input.Tools)
 	b.WriteString(`
-</tools>
+`)
+	b.WriteString(`tools`)
+	b.WriteString(`
 
-<?examples>
+`)
+	b.WriteString(`examples`)
+	b.WriteString(`
 ## Examples of User Prompts that need tools:
 -- Begin Examples --
 `)
-	b.WriteString(examples)
+	b.WriteString(input.Examples)
 	b.WriteString(`
 -- End Examples --
-</examples>
+`)
+	b.WriteString(`examples`)
+	b.WriteString(`
 
 ## Long Term Memory
 - Relevant prompt/response pairs from the user's prompt history are indexed using cosine similarity and are shown below as Long Term Memory. 
 Long Term Memory Buffer (most relevant prompt/response pairs):
 -- Begin Long Term Memory --
 `)
-	b.WriteString(memoryLong)
+	b.WriteString(input.Memory.Long)
 	b.WriteString(`
 -- End Long Term Memory --
 
@@ -51,30 +70,34 @@ Long Term Memory Buffer (most relevant prompt/response pairs):
 Short Term Memory Buffer (most recent prompt/response pairs):
 -- Begin Short Term Memory --
 `)
-	b.WriteString(memoryShort)
+	b.WriteString(input.Memory.Short)
 	b.WriteString(`
 -- End Short Term Memory --
 
-<?script>
+`)
+	b.WriteString(`script`)
+	b.WriteString(`
 ## Current Script: `)
-	b.WriteString(scriptName)
+	b.WriteString(input.Script.Name)
 	b.WriteString(`
 - If you are reading this, that means the user is currently working on a `)
-	b.WriteString(scriptType)
+	b.WriteString(input.Script.Type)
 	b.WriteString(` script. Please send any requests from the user to the respective agent/tool for the user's `)
-	b.WriteString(scriptType)
+	b.WriteString(input.Script.Type)
 	b.WriteString(` script.
 - Don't send a user's prompt to the tool if they are obviously asking you something off topic to the current script or chatting with you.
-</script>
+`)
+	b.WriteString(`script`)
+	b.WriteString(`
 
 User's Name: `)
-	b.WriteString(userName)
+	b.WriteString(input.User.Name)
 	b.WriteString(`
 Current Time in User's Timezone: `)
-	b.WriteString(currentTime)
+	b.WriteString(input.CurrentTime)
 	b.WriteString(`
 User's Prompt: `)
-	b.WriteString(userPrompt)
+	b.WriteString(input.User.Prompt)
 	b.WriteString(`
 Ditto:
 `)

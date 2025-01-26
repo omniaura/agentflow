@@ -117,37 +117,14 @@ type InputStruct struct {
 	TopLevel []InputNode
 }
 
-func (i1 InputStruct) Equal(i2 InputStruct) bool {
-	if len(i1.TopLevel) != len(i2.TopLevel) {
-		return false
-	}
-	for i := range i1.TopLevel {
-		if !i1.TopLevel[i].Equal(i2.TopLevel[i]) {
-			return false
-		}
-	}
-	return true
+func (i InputStruct) Equal(other InputStruct) bool {
+	return slices.EqualFunc(i.TopLevel, other.TopLevel, InputNode.Equal)
 }
 
-func (i1 InputNode) Equal(i2 InputNode) bool {
-	if !bytes.Equal(i1.Name, i2.Name) {
-		return false
-	}
-	if len(i1.Subnodes) != len(i2.Subnodes) {
-		return false
-	}
-	for i := range i1.Subnodes {
-		if !i1.Subnodes[i].Equal(i2.Subnodes[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-func (ii InputStruct) String() string {
+func (i InputStruct) String() string {
 	var buf strings.Builder
 	buf.WriteString("type Input struct {\n")
-	for _, n := range ii.TopLevel {
+	for _, n := range i.TopLevel {
 		buf.WriteString("    ")
 		buf.Write(n.Name)
 		buf.WriteString(" ")
@@ -163,13 +140,16 @@ type InputNode struct {
 	Subnodes []InputNode
 }
 
+func (n InputNode) Equal(other InputNode) bool {
+	return bytes.Equal(n.Name, other.Name) && slices.EqualFunc(n.Subnodes, other.Subnodes, InputNode.Equal)
+}
+
 func (n InputNode) String() string {
-	var buf strings.Builder
 	if len(n.Subnodes) == 0 {
-		buf.WriteString("string")
-		return buf.String()
+		return "string"
 	}
 
+	var buf strings.Builder
 	buf.WriteString("struct {\n")
 	for _, sub := range n.Subnodes {
 		buf.WriteString("        ")
@@ -184,13 +164,6 @@ func (n InputNode) String() string {
 
 func (ii *InputStruct) insertVar(node token.T, content []byte, c caseconv.Case) {
 	name := bytes.Split(node.Get(content), []byte{'.'})
-	if len(name) == 1 {
-		nn := c.BytCase(name[0])
-		ii.TopLevel = append(ii.TopLevel, InputNode{
-			Name: nn,
-		})
-		return
-	}
 	nn := c.BytCase(name[0])
 	idx := slices.IndexFunc(ii.TopLevel, func(n InputNode) bool {
 		return bytes.Equal(n.Name, nn)
@@ -200,6 +173,9 @@ func (ii *InputStruct) insertVar(node token.T, content []byte, c caseconv.Case) 
 			Name: nn,
 		})
 		idx = len(ii.TopLevel) - 1
+	}
+	if len(name) == 1 {
+		return
 	}
 	ii.TopLevel[idx].insertMultiLevelVar(name[1:], c)
 }

@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen"
 	"github.com/omniaura/agentflow/pkg/token"
@@ -31,6 +30,86 @@ import (
 )
 
 var replacerPackageName = strings.NewReplacer(" ", "", "-", "", "_", "")
+
+func GenInputStructs(w io.Writer, f ast.File) error {
+	var buf bytes.Buffer
+
+	// Track generated struct names to avoid duplicates
+	generatedStructs := make(map[string]bool)
+
+	for _, p := range f.Prompts {
+		inputs, err := p.GetInputs(f.Content, caseconv.CaseCamel)
+		if err != nil {
+			return err
+		}
+
+		// Generate embedded structs first
+		for _, node := range inputs.TopLevel {
+			if len(node.Subnodes) > 0 {
+				structName := string(node.Name)
+				if !generatedStructs[structName] {
+					generateEmbeddedStruct(&buf, node)
+					buf.WriteRune('\n')
+					generatedStructs[structName] = true
+				}
+			}
+		}
+
+		// Generate the main input struct if it has any fields
+		if len(inputs.TopLevel) > 0 {
+			var title string
+			if p.Title.Kind == kind.Title {
+				title = string(bytcase.ToCamel(p.Title.Get(f.Content))) + "Input"
+			} else {
+				title = "Input"
+			}
+
+			if !generatedStructs[title] {
+				buf.WriteString("type ")
+				buf.WriteString(title)
+				buf.WriteString(" struct {\n")
+
+				for _, node := range inputs.TopLevel {
+					buf.WriteString("\t")
+					buf.Write(node.Name)
+					buf.WriteString(" ")
+					if len(node.Subnodes) > 0 {
+						buf.Write(node.Name) // Use the type name we generated
+					} else {
+						buf.WriteString("string")
+					}
+					buf.WriteString("\n")
+				}
+
+				buf.WriteString("}\n\n")
+				generatedStructs[title] = true
+			}
+		}
+	}
+
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+func generateEmbeddedStruct(buf *bytes.Buffer, node ast.InputNode) {
+	buf.WriteString("type ")
+	buf.Write(node.Name)
+	buf.WriteString(" struct {\n")
+
+	for _, subnode := range node.Subnodes {
+		buf.WriteString("\t")
+		buf.Write(subnode.Name)
+		buf.WriteString(" ")
+		if len(subnode.Subnodes) > 0 {
+			buf.Write(subnode.Name)
+		} else {
+			buf.WriteString("string")
+		}
+		buf.WriteString("\n")
+	}
+
+	buf.WriteString("}\n")
+}
 
 func GenFile(w io.Writer, f ast.File) error {
 	var buf bytes.Buffer
@@ -52,82 +131,100 @@ func GenFile(w io.Writer, f ast.File) error {
 	if len(f.Prompts) == 0 {
 		return gen.ErrNoPrompts
 	}
-	if len(f.Prompts) == 1 {
-		p := f.Prompts[0]
-		vars, length := p.Vars(f.Content, caseconv.CaseCamel)
-		var title []byte
-		if p.Title.Kind == kind.Title {
-			title = bytcase.ToCamel(p.Title.Get(f.Content))
-		} else {
-			title = bytcase.ToCamel([]byte(f.Name))
-		}
-		functionHeader(&buf, title, vars, length)
-		stringTemplate(&buf, p.Nodes, f.Content)
-		_, err := buf.WriteTo(w)
-		return err
-	}
+
+	// Generate all prompts
 	for i, p := range f.Prompts {
-		if p.Title.Kind == kind.Unset {
+		if p.Title.Kind == kind.Unset && len(f.Prompts) > 1 {
 			return gen.ErrMissingTitle.F("index: %d", i)
 		}
-		vars, length := p.Vars(f.Content, caseconv.CaseCamel)
-		title := p.Title.Get(f.Content)
-		title = bytcase.ToCamel(title)
-		functionHeader(&buf, title, vars, length)
-		stringTemplate(&buf, p.Nodes, f.Content)
+
+		// Get the struct name
+		var structName []byte
+		if p.Title.Kind == kind.Title {
+			structName = bytcase.ToCamel(p.Title.Get(f.Content))
+		} else {
+			structName = bytcase.ToCamel([]byte(f.Name))
+		}
+
+		// Generate the struct
+		buf.WriteString("type ")
+		buf.Write(structName)
+		buf.WriteString(" struct {\n")
+
+		// Get inputs and generate struct fields with embedded structs
+		inputs, err := p.GetInputs(f.Content, caseconv.CaseCamel)
+		if err != nil {
+			return err
+		}
+
+		for _, node := range inputs.TopLevel {
+			if len(node.Subnodes) > 0 {
+				// Generate the embedded struct inline
+				buf.WriteString("\t")
+				buf.Write(node.Name)
+				buf.WriteString(" struct {\n")
+				generateStructFields(&buf, node.Subnodes, 2)
+				buf.WriteString("\t}\n")
+			} else {
+				buf.WriteString("\t")
+				buf.Write(node.Name)
+				buf.WriteString(" string\n")
+			}
+		}
+		buf.WriteString("}\n\n")
+
+		// Generate the String method
+		buf.WriteString("func (input *")
+		buf.Write(structName)
+		buf.WriteString(") String() string {\n")
+
+		// Check if prompt has variables
+		vars, _ := p.Vars(f.Content, caseconv.CaseCamel)
+		if len(vars) > 0 {
+			stringTemplateWithStruct(&buf, p.Nodes, f.Content)
+		} else {
+			stringTemplate(&buf, p.Nodes, f.Content)
+		}
+
 		if i < len(f.Prompts)-1 {
 			buf.WriteRune('\n')
 		}
 	}
+
 	_, err := buf.WriteTo(w)
 	return err
 }
 
-func functionHeader(buf *bytes.Buffer, title []byte, stringVars [][]byte, length int) {
-	buf.WriteString("func ")
-	buf.Write(title)
-	buf.WriteRune('(')
-	if len(title)+length+19 > cfg.MaxLineLen {
-		for i := range stringVars {
-			if i == 0 {
-				buf.WriteRune('\n')
-			}
-			buf.WriteRune('\t')
-			buf.Write(stringVars[i])
-			buf.WriteString(" string,\n")
+func generateStructFields(buf *bytes.Buffer, nodes []ast.InputNode, indent int) {
+	for _, node := range nodes {
+		for i := 0; i < indent; i++ {
+			buf.WriteString("\t")
 		}
-	} else {
-		for i := range stringVars {
-			buf.Write(stringVars[i])
-			buf.WriteString(" string")
-			if i < len(stringVars)-1 {
-				buf.WriteString(", ")
+		buf.Write(node.Name)
+		buf.WriteString(" ")
+		if len(node.Subnodes) > 0 {
+			buf.WriteString("struct {\n")
+			generateStructFields(buf, node.Subnodes, indent+1)
+			for i := 0; i < indent; i++ {
+				buf.WriteString("\t")
 			}
+			buf.WriteString("}")
+		} else {
+			buf.WriteString("string")
 		}
+		buf.WriteString("\n")
 	}
-	buf.WriteString(") string {\n")
 }
 
 func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
-	// Check if there are any variables
-	hasVars := false
+	buf.WriteString("\treturn `")
 	for _, t := range toks {
-		if t.Kind == kind.Var {
-			hasVars = true
-			break
-		}
+		buf.Write(t.Get(content))
 	}
+	buf.WriteString("`\n}\n")
+}
 
-	if !hasVars {
-		// For no variables, return the string literal directly
-		buf.WriteString("\treturn `")
-		for _, t := range toks {
-			buf.Write(t.Get(content))
-		}
-		buf.WriteString("`\n}\n")
-		return
-	}
-
+func stringTemplateWithStruct(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	// For strings with variables, use strings.Builder
 	buf.WriteString("\tvar b strings.Builder\n")
 
@@ -146,8 +243,15 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 				textLen = 0
 			}
 			buf.WriteString("len(")
-			varName := bytcase.ToLowerCamel(t.Get(content))
-			buf.Write(varName)
+			// Convert dot notation to struct field access
+			parts := bytes.Split(t.Get(content), []byte{'.'})
+			buf.WriteString("input.")
+			for i, part := range parts {
+				buf.Write(bytcase.ToCamel(part))
+				if i < len(parts)-1 {
+					buf.WriteRune('.')
+				}
+			}
 			buf.WriteString(")")
 			hasWrittenLen = true
 		} else {
@@ -166,8 +270,15 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	for _, t := range toks {
 		if t.Kind == kind.Var {
 			buf.WriteString("\tb.WriteString(")
-			varName := bytcase.ToLowerCamel(t.Get(content))
-			buf.Write(varName)
+			// Convert dot notation to struct field access
+			parts := bytes.Split(t.Get(content), []byte{'.'})
+			buf.WriteString("input.")
+			for i, part := range parts {
+				buf.Write(bytcase.ToCamel(part))
+				if i < len(parts)-1 {
+					buf.WriteRune('.')
+				}
+			}
 			buf.WriteString(")\n")
 		} else {
 			content := t.Get(content)
