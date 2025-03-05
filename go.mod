@@ -1,11 +1,10 @@
 module github.com/omniaura/agentflow
 
 go 1.23
-
 require (
 	github.com/peyton-spencer/caseconv v0.1.1
 	github.com/spf13/cobra v1.8.1
-	golang.org/x/sync v0.10.0
+	golang.org/x/sync v0.12.0
 )
 
 require (
