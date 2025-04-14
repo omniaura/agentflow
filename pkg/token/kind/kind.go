@@ -1,5 +1,7 @@
 package kind
 
+//go:generate stringer -type=Kind
+
 type Kind int
 
 // TODO: add KindDoc, KindVarDoc
@@ -42,26 +44,6 @@ const (
 	Var
 	RawBlock
 )
-
-func (k Kind) String() string {
-	switch k {
-	case EndTag:
-		return "EndTag"
-	case OptionalBlock:
-		return "OptionalBlock"
-	case Title:
-		return "Title"
-	case Text:
-		return "Text"
-	case Var:
-		return "Var"
-	case RawBlock:
-		return "RawBlock"
-	case Unset:
-		return "Unset"
-	}
-	return "Unknown"
-}
 
 func (k Kind) IsTag() bool {
 	switch k {
