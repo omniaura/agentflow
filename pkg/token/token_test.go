@@ -24,6 +24,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/logger"
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 )
 
 func TestMain(m *testing.M) {
@@ -71,7 +72,7 @@ func TestText(t *testing.T) {
 			def: func() ([]byte, token.Slice, error) {
 				want := token.Slice{
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: 0,
 						End:   len(helloW),
 					},
@@ -84,7 +85,7 @@ func TestText(t *testing.T) {
 			def: func() ([]byte, token.Slice, error) {
 				want := token.Slice{
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: 0,
 						End:   len(helloMultiline),
 					},
@@ -109,12 +110,12 @@ func TestTitle(t *testing.T) {
 				input := joinLines(line1, line2, line2)
 				want := []token.T{
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: len(tCmd),
 						End:   len(tCmd) + len(title),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(tCmd) + len(title) + 1, // newline omitted
 						End:   len(input),
 					},
@@ -133,22 +134,22 @@ func TestTitle(t *testing.T) {
 				input := joinLines(line1, helloW, line2, helloW)
 				want := []token.T{
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: len(tCmd),
 						End:   len(tCmd) + len(title1),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(line1) + 1, // +1 for newline
 						End:   len(line1) + 1 + len(helloW),
 					},
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: len(line1) + 1 + len(helloW) + 1 + len(tCmd), // +1 for newline
 						End:   len(line1) + 1 + len(helloW) + 1 + len(tCmd) + len(title2),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(line1) + 1 + len(helloW) + 1 + len(line2) + 1, // +1 for newline
 						End:   len(input),
 					},
@@ -176,7 +177,7 @@ func TestVar(t *testing.T) {
 			def: func() ([]byte, token.Slice, error) {
 				want := token.Slice{
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
@@ -190,12 +191,12 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(var1),
 						End:   len(line),
 					},
@@ -209,12 +210,12 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: 0,
 						End:   len(helloW) + 1,
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(helloW) + 3,
 						End:   len(line) - 1,
 					},
@@ -228,12 +229,12 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(var1),
 						End:   len(line),
 					},
@@ -247,12 +248,12 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: 0,
 						End:   len(helloW) + 1,
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(helloW) + 3,
 						End:   len(line) - 1,
 					},
@@ -266,17 +267,17 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW, var2}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(var1),
 						End:   len(line) - len(var1),
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(line) - len(var1) + 2,
 						End:   len(line) - 1,
 					},
@@ -311,17 +312,17 @@ func TestCombined(t *testing.T) {
 				line := joinLines(line1, line2)
 				want := token.Slice{
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: 7,
 						End:   len(line1),
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(line1) + 3,
 						End:   len(line1) + 3 + len(varName),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(line1) + 3 + len(varName) + 1,
 						End:   len(line),
 					},
@@ -338,28 +339,28 @@ func TestCombined(t *testing.T) {
 				line := joinLines(line1, line2, line3, line4)
 				want := token.Slice{
 					{
-						Kind:  token.KindTitle,
+						Kind:  kind.Title,
 						Start: 7,
 						End:   len(line1),
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(line1) + 3,
 						End:   len(line1) + 3 + len(varName),
 					},
 					{
-						Kind:  token.KindText,
+						Kind:  kind.Text,
 						Start: len(line1) + 3 + len(varName) + 1,
 						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2,
 					},
 					{
-						Kind:  token.KindVar,
+						Kind:  kind.Var,
 						Start: len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2,
 						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2 + len(varName2),
 					},
-					{token.KindTitle, 53, 65},
-					{token.KindVar, 68, 77},
-					{token.KindText, 78, 100},
+					{kind.Title, 53, 65},
+					{kind.Var, 68, 77},
+					{kind.Text, 78, 100},
 				}
 				return line, want, nil
 			},
@@ -372,4 +373,130 @@ func TestCombined(t *testing.T) {
 
 func joinLines(in ...[]byte) []byte {
 	return bytes.Join(in, []byte{'\n'})
+}
+
+func TestOptionalBlock(t *testing.T) {
+	testcases := []TestCase{
+		{
+			name: "simple optional block",
+			def: func() ([]byte, token.Slice, error) {
+				start := []byte("<?optional>")
+				text := []byte("some optional text")
+				end := []byte("</optional>")
+				input := bytes.Join([][]byte{start, text, end}, []byte{'\n'})
+				want := token.Slice{
+					{
+						Kind:  kind.OptionalBlock,
+						Start: 2,
+						End:   10,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 11,
+						End:   31,
+					},
+					{
+						Kind:  kind.EndTag,
+						Start: 33,
+						End:   41,
+					},
+				}
+				return input, want, nil
+			},
+		},
+		{
+			name: "optional block with variable",
+			def: func() ([]byte, token.Slice, error) {
+				start := []byte("<?block>")
+				text1 := []byte("Hello")
+				varStart := []byte("<!name>")
+				text2 := []byte(" how are you?")
+				end := []byte("</block>")
+				input := bytes.Join([][]byte{start, text1, varStart, text2, end}, []byte{' '})
+				want := token.Slice{
+					{
+						Kind:  kind.OptionalBlock,
+						Start: 2,
+						End:   7,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 8,
+						End:   15,
+					},
+					{
+						Kind:  kind.Var,
+						Start: 17,
+						End:   21,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 22,
+						End:   37,
+					},
+					{
+						Kind:  kind.EndTag,
+						Start: 39,
+						End:   44,
+					},
+				}
+				return input, want, nil
+			},
+		},
+		{
+			name: "nested optional blocks",
+			def: func() ([]byte, token.Slice, error) {
+				outer := []byte("<?outer>")
+				text1 := []byte("start")
+				inner := []byte("<?inner>")
+				text2 := []byte("inner text")
+				innerEnd := []byte("</inner>")
+				text3 := []byte("end")
+				outerEnd := []byte("</outer>")
+				input := bytes.Join([][]byte{outer, text1, inner, text2, innerEnd, text3, outerEnd}, []byte{'\n'})
+				want := token.Slice{
+					{
+						Kind:  kind.OptionalBlock,
+						Start: 2,
+						End:   7,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 8,
+						End:   15,
+					},
+					{
+						Kind:  kind.OptionalBlock,
+						Start: 17,
+						End:   22,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 23,
+						End:   35,
+					},
+					{
+						Kind:  kind.EndTag,
+						Start: 37,
+						End:   42,
+					},
+					{
+						Kind:  kind.Text,
+						Start: 43,
+						End:   48,
+					},
+					{
+						Kind:  kind.EndTag,
+						Start: 50,
+						End:   55,
+					},
+				}
+				return input, want, nil
+			},
+		},
+	}
+
+	for _, tc := range testcases {
+		tc.Run(t)
+	}
 }

@@ -18,10 +18,12 @@ package ast
 import (
 	"bytes"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
@@ -91,7 +93,7 @@ func (p Prompt) Stringify(content []byte) string {
 func (p Prompt) Vars(content []byte, c caseconv.Case) (vars [][]byte, length int) {
 	vars = make([][]byte, 0, len(p.Nodes))
 	for _, node := range p.Nodes {
-		if node.Kind == token.KindVar {
+		if node.Kind == kind.Var {
 			name := node.Get(content)
 			if slices.ContainsFunc(vars, func(b []byte) bool { return bytes.Equal(b, name) }) {
 				continue
@@ -111,25 +113,116 @@ func (p Prompt) Vars(content []byte, c caseconv.Case) (vars [][]byte, length int
 	return
 }
 
+type InputStruct struct {
+	TopLevel []InputNode
+}
+
+func (i InputStruct) Equal(other InputStruct) bool {
+	return slices.EqualFunc(i.TopLevel, other.TopLevel, InputNode.Equal)
+}
+
+func (i InputStruct) String() string {
+	var buf strings.Builder
+	buf.WriteString("type Input struct {\n")
+	for _, n := range i.TopLevel {
+		buf.WriteString("    ")
+		buf.Write(n.Name)
+		buf.WriteString(" ")
+		buf.WriteString(n.String())
+		buf.WriteString("\n")
+	}
+	buf.WriteString("}")
+	return buf.String()
+}
+
+type InputNode struct {
+	Name     []byte
+	Subnodes []InputNode
+}
+
+func (n InputNode) Equal(other InputNode) bool {
+	return bytes.Equal(n.Name, other.Name) && slices.EqualFunc(n.Subnodes, other.Subnodes, InputNode.Equal)
+}
+
+func (n InputNode) String() string {
+	if len(n.Subnodes) == 0 {
+		return "string"
+	}
+
+	var buf strings.Builder
+	buf.WriteString("struct {\n")
+	for _, sub := range n.Subnodes {
+		buf.WriteString("        ")
+		buf.Write(sub.Name)
+		buf.WriteString(" ")
+		buf.WriteString(sub.String())
+		buf.WriteString("\n")
+	}
+	buf.WriteString("    }")
+	return buf.String()
+}
+
+func (ii *InputStruct) insertVar(node token.T, content []byte, c caseconv.Case) {
+	name := bytes.Split(node.Get(content), []byte{'.'})
+	nn := c.BytCase(name[0])
+	idx := slices.IndexFunc(ii.TopLevel, func(n InputNode) bool {
+		return bytes.Equal(n.Name, nn)
+	})
+	if idx == -1 {
+		ii.TopLevel = append(ii.TopLevel, InputNode{
+			Name: nn,
+		})
+		idx = len(ii.TopLevel) - 1
+	}
+	if len(name) == 1 {
+		return
+	}
+	ii.TopLevel[idx].insertMultiLevelVar(name[1:], c)
+}
+
+func (n *InputNode) insertMultiLevelVar(name [][]byte, c caseconv.Case) {
+	if len(name) == 0 {
+		slog.Debug("0 len name reached")
+		return
+	}
+	nn := c.BytCase(name[0])
+	idx := slices.IndexFunc(n.Subnodes, func(n InputNode) bool {
+		return bytes.Equal(n.Name, nn)
+	})
+	if idx == -1 {
+		n.Subnodes = append(n.Subnodes, InputNode{
+			Name: nn,
+		})
+		idx = len(n.Subnodes) - 1
+	}
+	if len(name) == 1 {
+		return
+	}
+	n.Subnodes[idx].insertMultiLevelVar(name[1:], c)
+}
+
+func (p Prompt) GetInputs(content []byte, c caseconv.Case) (ii InputStruct, err error) {
+	for _, node := range p.Nodes {
+		switch node.Kind {
+		case kind.Var, kind.OptionalBlock:
+			ii.insertVar(node, content, c)
+		}
+	}
+	return
+}
+
 func (p1 Prompt) Equal(p2 Prompt) bool {
 	return p1.Title == p2.Title && p1.Nodes.Equal(p2.Nodes)
 }
 
-func MustFile(name string, content []byte) File {
-	f, err := NewFile(name, content)
-	if err != nil {
-		panic(err)
-	}
-	return f
-}
-
 func NewFile(name string, content []byte) (f File, err error) {
+	if !strings.HasSuffix(name, ".af") {
+		err = fmt.Errorf("file does not have .af extension: %s", name)
+		return
+	}
 	tokens, err := token.Tokenize(content)
 	if err != nil {
 		return
-	}
-	if !strings.HasSuffix(name, ".af") {
-		return File{}, fmt.Errorf("file does not have .af extension: %s", name)
 	}
 	f.Name = strings.TrimSuffix(name, ".af")
 	f.Content = content
@@ -139,7 +232,7 @@ func NewFile(name string, content []byte) (f File, err error) {
 
 func newPrompts(tokens token.Slice) (prompts []Prompt, err error) {
 	for _, t := range tokens {
-		if t.Kind == token.KindTitle {
+		if t.Kind == kind.Title {
 			prompts = append(prompts, Prompt{Title: t})
 		} else if len(prompts) == 0 {
 			prompts = append(prompts, Prompt{Nodes: token.Slice{t}})

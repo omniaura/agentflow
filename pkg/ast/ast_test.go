@@ -25,6 +25,8 @@ import (
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/token"
+	"github.com/omniaura/agentflow/pkg/token/kind"
+	"github.com/peyton-spencer/caseconv"
 )
 
 func TestMain(m *testing.M) {
@@ -80,7 +82,7 @@ func TestNewFile(t *testing.T) {
 					Prompts: []ast.Prompt{
 						{
 							Nodes: token.Slice{
-								{Kind: token.KindText, Start: 0, End: len(singlePrompt)},
+								{Kind: kind.Text, Start: 0, End: len(singlePrompt)},
 							},
 						},
 					},
@@ -100,15 +102,15 @@ func TestNewFile(t *testing.T) {
 					Content: content,
 					Prompts: []ast.Prompt{
 						{
-							Title: token.T{Kind: token.KindTitle, Start: 7, End: 15},
+							Title: token.T{Kind: kind.Title, Start: 7, End: 15},
 							Nodes: token.Slice{
-								{Kind: token.KindText, Start: 16, End: 25},
+								{Kind: kind.Text, Start: 16, End: 25},
 							},
 						},
 						{
-							Title: token.T{Kind: token.KindTitle, Start: 33, End: 41},
+							Title: token.T{Kind: kind.Title, Start: 33, End: 41},
 							Nodes: token.Slice{
-								{Kind: token.KindText, Start: 42, End: 51},
+								{Kind: kind.Text, Start: 42, End: 51},
 							},
 						},
 					},
@@ -123,4 +125,50 @@ func TestNewFile(t *testing.T) {
 
 func joinLines(in ...[]byte) []byte {
 	return bytes.Join(in, []byte{'\n'})
+}
+
+func TestGetInputs(t *testing.T) {
+	type InputTestCase struct {
+		name    string
+		want    ast.InputStruct
+		wantErr error
+		content []byte
+		c       caseconv.Case
+	}
+
+	tcases := []InputTestCase{
+		{
+			name: "UserVariables.af",
+			want: ast.InputStruct{
+				TopLevel: []ast.InputNode{
+					{
+						Name: []byte("User"),
+						Subnodes: []ast.InputNode{
+							{Name: []byte("Name")},
+							{Name: []byte("Email")},
+							{Name: []byte("Age")},
+							{Name: []byte("Subscription"), Subnodes: []ast.InputNode{
+								{Name: []byte("Plan")},
+								{Name: []byte("Status")},
+							}},
+						},
+					},
+					{Name: []byte("Message")},
+				},
+			},
+			content: []byte("<!user.name> <!user.email> <!user.age> <!message> <!user.subscription.plan> <!user.subscription.status>"),
+			c:       caseconv.CaseCamel,
+		},
+	}
+
+	for _, tc := range tcases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := ast.NewFile(tc.name, tc.content)
+			require.NoError(t, err)
+			ii, err := f.Prompts[0].GetInputs(tc.content, tc.c)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, ii)
+			t.Logf("got:\n%s", ii.String())
+		})
+	}
 }
