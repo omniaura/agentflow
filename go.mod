@@ -1,7 +1,6 @@
 module github.com/omniaura/agentflow
 
-go 1.23
-toolchain go1.24.1
+go 1.24
 
 require (
 	github.com/peyton-spencer/caseconv v0.2.0
