@@ -24,6 +24,7 @@ alias v := version
 # Create a tag, update the version in the main.go file, push it to the remote repository and create a GitHub release
 create-version TAG:
     #!/usr/bin/env bash
+    set -e
     TAGVAR={{TAG}}
     TAGTRIM=${TAGVAR#v}
     sed -i '' "s/Version:.*\".*\"/Version:          \"$TAGTRIM\"/" cmd/af/main.go
