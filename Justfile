@@ -32,6 +32,7 @@ create-version TAG:
     git tag -a {{TAG}} -m "Release {{TAG}}"
     git push origin {{TAG}}
     gh release create {{TAG}} --generate-notes
+alias cv := create-version
 
 merge-dependabot:
 	./scripts/github/merge_dependabot.sh
