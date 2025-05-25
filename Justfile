@@ -17,8 +17,9 @@ fmt:
     gofmt -s -w ./..
 
 # Get the latest tag
-version:
+@version:
     git fetch --tags && git describe --tags --abbrev=0
+alias v := version
 
 # Create a tag, update the version in the main.go file, push it to the remote repository and create a GitHub release
 create-version TAG:
