@@ -7,6 +7,12 @@
 
     go install github.com/omniaura/agentflow/cmd/af@latest
 
+As of go 1.24 you can now use `af` as a go tool:
+
+    go get -tool github.com/omniaura/agentflow/cmd/af@latest
+
+This installs `af` scoped to your go project and you call it using `go tool af`
+
 ## Usage
 
     af gen prompts examples/simple
