@@ -46,8 +46,8 @@ func flags(cmd *cobra.Command) *cobra.Command {
 func CMD() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prompts",
-		Short: "Generate Go prompts",
-		Long: `Generate Go prompts from .af files in the input directory.
+		Short: "Generate prompts",
+		Long: `Generate prompts from .af files in the input directory.
 The generated prompts will be written next to their corresponding .af files.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
