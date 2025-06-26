@@ -4,7 +4,7 @@ package chatagent
 
 import "strings"
 
-type SystemPrompt struct {}
+type SystemPrompt struct{}
 
 func (input *SystemPrompt) String() string {
 	return `You are a friendly assistant named Bob who can help users with their questions.
@@ -32,7 +32,7 @@ title: `)
 
 type ChatWithUser struct {
 	PreviousMessages string
-	AiName string
+	AiName           string
 }
 
 func (input *ChatWithUser) String() string {

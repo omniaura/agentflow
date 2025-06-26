@@ -12,9 +12,9 @@ test *ARGS:
 install:
     cd cmd/af && go install .
 
-# Run gofmt with -s (simplify)
 fmt:
-    gofmt -s -w ./..
+    go fmt ./...
+    go vet ./...
 
 # Get the latest tag
 @version:

@@ -63,10 +63,13 @@ func GenInputStructs(w io.Writer, f ast.File) error {
 func generateEmbeddedStruct(buf *bytes.Buffer, node ast.InputNode) {
 	buf.WriteString("type ")
 	buf.Write(node.Name)
-	buf.WriteString(" struct {")
-	if len(node.Subnodes) > 0 {
+	if len(node.Subnodes) == 0 {
+		buf.WriteString(" struct{}")
 		buf.WriteString("\n")
+		return
 	}
+
+	buf.WriteString(" struct {\n")
 	for _, subnode := range node.Subnodes {
 		buf.WriteString("\t")
 		buf.Write(subnode.Name)
@@ -119,34 +122,12 @@ func GenFile(w io.Writer, f ast.File) error {
 		}
 
 		// Generate the struct
-		buf.WriteString("type ")
-		buf.Write(structName)
-		buf.WriteString(" struct {")
-
 		// Get inputs and generate struct fields with embedded structs
 		inputs, err := p.GetInputs(f.Content, caseconv.CaseCamel)
 		if err != nil {
 			return err
 		}
-		if len(inputs.TopLevel) > 0 {
-			buf.WriteString("\n")
-		}
-
-		for _, node := range inputs.TopLevel {
-			if len(node.Subnodes) > 0 {
-				// Generate the embedded struct inline
-				buf.WriteString("\t")
-				buf.Write(node.Name)
-				buf.WriteString(" struct {\n")
-				generateStructFields(&buf, node.Subnodes, 2)
-				buf.WriteString("\t}\n")
-			} else {
-				buf.WriteString("\t")
-				buf.Write(node.Name)
-				buf.WriteString(" string\n")
-			}
-		}
-		buf.WriteString("}\n\n")
+		writeRootStruct(&buf, structName, inputs)
 
 		// Generate the String method
 		buf.WriteString("func (input *")
@@ -170,9 +151,35 @@ func GenFile(w io.Writer, f ast.File) error {
 	return err
 }
 
+func writeRootStruct(buf *bytes.Buffer, structName []byte, inputs ast.InputStruct) {
+	buf.WriteString("type ")
+	buf.Write(structName)
+	if len(inputs.TopLevel) == 0 {
+		buf.WriteString(" struct{}\n\n")
+		return
+	}
+	buf.WriteString(" struct {\n")
+
+	for _, node := range inputs.TopLevel {
+		if len(node.Subnodes) > 0 {
+			// Generate the embedded struct inline
+			buf.WriteString("\t")
+			buf.Write(node.Name)
+			buf.WriteString(" struct {\n")
+			generateStructFields(buf, node.Subnodes, 2)
+			buf.WriteString("\t}\n")
+		} else {
+			buf.WriteString("\t")
+			buf.Write(node.Name)
+			buf.WriteString(" string\n")
+		}
+	}
+	buf.WriteString("}\n\n")
+}
+
 func generateStructFields(buf *bytes.Buffer, nodes []ast.InputNode, indent int) {
 	for _, node := range nodes {
-		for i := 0; i < indent; i++ {
+		for range indent {
 			buf.WriteString("\t")
 		}
 		buf.Write(node.Name)
@@ -180,7 +187,7 @@ func generateStructFields(buf *bytes.Buffer, nodes []ast.InputNode, indent int) 
 		if len(node.Subnodes) > 0 {
 			buf.WriteString("struct {\n")
 			generateStructFields(buf, node.Subnodes, indent+1)
-			for i := 0; i < indent; i++ {
+			for range indent {
 				buf.WriteString("\t")
 			}
 			buf.WriteString("}")
