@@ -30,6 +30,21 @@ type MainChatTemplate struct {
 	CurrentTime string
 }
 
+func (input *MainChatTemplate) isMemoryZero() bool {
+	return input.Memory.Long == "" &&
+		input.Memory.Short == ""
+}
+
+func (input *MainChatTemplate) isScriptZero() bool {
+	return input.Script.Name == "" &&
+		input.Script.Type == ""
+}
+
+func (input *MainChatTemplate) isUserZero() bool {
+	return input.User.Name == "" &&
+		input.User.Prompt == ""
+}
+
 func (input *MainChatTemplate) String() string {
 	var b strings.Builder
 	length := 0

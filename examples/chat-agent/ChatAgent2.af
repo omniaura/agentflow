@@ -38,6 +38,7 @@ Here's an example with else syntax:
 <?user.premium bool>
 Welcome premium user! You have access to all features.
 Your subscription tier is level <!user.subscription.tier int>.
+Once again, that tier number is <!user.subscription.tier>.
 <else>
 Welcome! You're using the basic version. Upgrade to premium for more features.
 </user.premium>

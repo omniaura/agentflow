@@ -166,49 +166,53 @@ func (n InputNode) String() string {
 	return buf.String()
 }
 
-// Helper to parse variable path and type from a tag like "user.subscription.tier int"
-func parseVarAndType(tag []byte) (path [][]byte, typ string) {
-	parts := bytes.Fields(tag)
-	if len(parts) == 0 {
-		return nil, ""
+func (ii *InputStruct) insertVar(node token.T, content []byte, c caseconv.Case, typeCache map[string]string) {
+	varInfo := node.GetVar(content, typeCache)
+	if len(varInfo.Path) == 0 {
+		return
 	}
-	path = bytes.Split(parts[0], []byte{'.'})
-	if len(parts) > 1 {
-		typ = string(parts[1])
-	}
-	return
+
+	// Insert all path parts and set their types based on the cache
+	ii.insertVarWithCache(varInfo.Path, varInfo.Type, c, typeCache)
 }
 
-func (ii *InputStruct) insertVar(node token.T, content []byte, c caseconv.Case) {
-	path, typ := parseVarAndType(node.Get(content))
+func (ii *InputStruct) insertVarWithCache(path [][]byte, typ string, c caseconv.Case, typeCache map[string]string) {
 	if len(path) == 0 {
 		return
 	}
+
 	nn := c.BytCase(path[0])
 	idx := slices.IndexFunc(ii.TopLevel, func(n InputNode) bool {
 		return bytes.Equal(n.Name, nn)
 	})
 	if idx == -1 {
 		newNode := InputNode{Name: nn}
-		if len(path) == 1 {
-			newNode.Type = typ
-		}
 		ii.TopLevel = append(ii.TopLevel, newNode)
 		idx = len(ii.TopLevel) - 1
 	}
+
 	if len(path) == 1 {
-		// Set type if not struct
-		ii.TopLevel[idx].Type = typ
-		// If not struct, clear subnodes
-		if typ != "struct" {
-			ii.TopLevel[idx].Subnodes = nil
+		// This is a leaf node, set its type from the cache
+		pathKey := string(bytes.Join(path, []byte(".")))
+		if cachedType, exists := typeCache[pathKey]; exists && cachedType != "" {
+			ii.TopLevel[idx].Type = cachedType
+		} else if ii.TopLevel[idx].Type == "" {
+			ii.TopLevel[idx].Type = typ
 		}
 		return
 	}
-	ii.TopLevel[idx].insertMultiLevelVar(path[1:], typ, c)
+
+	// Check if this intermediate node should be a struct
+	pathKey := string(bytes.Join(path[:1], []byte(".")))
+	if cachedType, exists := typeCache[pathKey]; exists && cachedType == "struct" {
+		ii.TopLevel[idx].Type = "struct"
+	}
+
+	// We're adding nested fields
+	ii.TopLevel[idx].insertMultiLevelVarWithCache(path[1:], typ, c, typeCache, path[:1])
 }
 
-func (n *InputNode) insertMultiLevelVar(path [][]byte, typ string, c caseconv.Case) {
+func (n *InputNode) insertMultiLevelVarWithCache(path [][]byte, typ string, c caseconv.Case, typeCache map[string]string, parentPath [][]byte) {
 	if len(path) == 0 {
 		slog.Debug("0 len name reached")
 		return
@@ -219,30 +223,108 @@ func (n *InputNode) insertMultiLevelVar(path [][]byte, typ string, c caseconv.Ca
 	})
 	if idx == -1 {
 		newNode := InputNode{Name: nn}
-		if len(path) == 1 {
-			newNode.Type = typ
-		}
 		n.Subnodes = append(n.Subnodes, newNode)
 		idx = len(n.Subnodes) - 1
 	}
+
+	// Build full path for cache lookup
+	fullPath := make([][]byte, len(parentPath)+1)
+	copy(fullPath, parentPath)
+	fullPath[len(parentPath)] = path[0]
+
 	if len(path) == 1 {
-		n.Subnodes[idx].Type = typ
-		if typ != "struct" {
-			n.Subnodes[idx].Subnodes = nil
+		// This is a leaf node, set its type from the cache or the provided type
+		pathKey := string(bytes.Join(fullPath, []byte(".")))
+		if cachedType, exists := typeCache[pathKey]; exists && cachedType != "" {
+			n.Subnodes[idx].Type = cachedType
+		} else if n.Subnodes[idx].Type == "" {
+			n.Subnodes[idx].Type = typ
 		}
 		return
 	}
-	n.Subnodes[idx].insertMultiLevelVar(path[1:], typ, c)
+
+	// Check if this intermediate node should be a struct
+	pathKey := string(bytes.Join(fullPath, []byte(".")))
+	if cachedType, exists := typeCache[pathKey]; exists && cachedType == "struct" {
+		n.Subnodes[idx].Type = "struct"
+	}
+
+	// We're adding nested fields
+	n.Subnodes[idx].insertMultiLevelVarWithCache(path[1:], typ, c, typeCache, fullPath)
 }
 
 func (p Prompt) GetInputs(content []byte, c caseconv.Case) (ii InputStruct, err error) {
+	typeCache := make(map[string]string)
+	allPaths := make(map[string]bool)
+
+	// First pass: collect all variable paths to understand the complete structure
 	for _, node := range p.Nodes {
 		switch node.Kind {
 		case kind.Var, kind.OptionalBlock:
-			ii.insertVar(node, content, c)
+			varInfo := node.GetVar(content, typeCache)
+			if len(varInfo.Path) > 0 {
+				pathKey := string(bytes.Join(varInfo.Path, []byte(".")))
+				allPaths[pathKey] = true
+
+				// Store explicit type information
+				if varInfo.Type != "" && varInfo.Type != "string" {
+					typeCache[pathKey] = varInfo.Type
+				}
+			}
 		}
 	}
+
+	// Analyze paths to determine which should be structs
+	inferStructTypes(allPaths, typeCache)
+
+	// Second pass: build the struct with complete type information
+	for _, node := range p.Nodes {
+		switch node.Kind {
+		case kind.Var, kind.OptionalBlock:
+			ii.insertVar(node, content, c, typeCache)
+		}
+	}
+
+	// Post-process: set type to "struct" for nodes that have subnodes
+	for i := range ii.TopLevel {
+		ii.TopLevel[i].setStructTypes()
+	}
+
 	return
+}
+
+// inferStructTypes analyzes all variable paths to determine which should be struct types
+// A path should be a struct if there are other paths that are extensions of it
+func inferStructTypes(allPaths map[string]bool, typeCache map[string]string) {
+	for path := range allPaths {
+		// Check if this path has any children (i.e., other paths that start with this path + ".")
+		hasChildren := false
+		pathPrefix := path + "."
+
+		for otherPath := range allPaths {
+			if otherPath != path && strings.HasPrefix(otherPath, pathPrefix) {
+				hasChildren = true
+				break
+			}
+		}
+
+		// If this path has children and doesn't already have a non-struct type, mark it as struct
+		if hasChildren {
+			if existingType, exists := typeCache[path]; !exists || existingType == "" || existingType == "string" {
+				typeCache[path] = "struct"
+			}
+		}
+	}
+}
+
+// setStructTypes recursively sets the type to "struct" for nodes that have subnodes
+func (n *InputNode) setStructTypes() {
+	if len(n.Subnodes) > 0 {
+		n.Type = "struct"
+	}
+	for i := range n.Subnodes {
+		n.Subnodes[i].setStructTypes()
+	}
 }
 
 func (p1 Prompt) Equal(p2 Prompt) bool {

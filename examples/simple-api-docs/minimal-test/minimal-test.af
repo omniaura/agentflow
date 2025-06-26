@@ -1,0 +1,25 @@
+.title Test Basic
+Simple test with backticks: `<!name>`
+
+.title Test Conditional
+<?user.premium bool>
+Premium user with `backticks`
+<else>
+Regular user with `backticks`
+</user.premium>
+
+.title Test Nested
+<?outer>
+Outer start
+<?inner>
+Inner content
+</inner>
+Outer end
+</outer>
+
+.title Test Comparison
+<?age int gte 18>
+You are an adult (age: <!age>)
+<else>
+You are a minor (age: <!age>)
+</age> 

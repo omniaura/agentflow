@@ -139,6 +139,10 @@ type ConditionalPrompting struct {
 	}
 }
 
+func (input *ConditionalPrompting) isUserZero() bool {
+	return input.User.Email == ""
+}
+
 func (input *ConditionalPrompting) String() string {
 	var b strings.Builder
 	length := 0
@@ -170,6 +174,15 @@ type ConditionalWithElse struct {
 	}
 }
 
+func (input *ConditionalWithElse) isUserZero() bool {
+	return !input.User.Premium &&
+		input.isUserSubscriptionZero()
+}
+
+func (input *ConditionalWithElse) isUserSubscriptionZero() bool {
+	return input.User.Subscription.Tier == 0
+}
+
 func (input *ConditionalWithElse) String() string {
 	var b strings.Builder
 	var0 := strconv.Itoa(input.User.Subscription.Tier)
@@ -177,6 +190,8 @@ func (input *ConditionalWithElse) String() string {
 	length += 36
 	if input.User.Premium {
 		length += 88
+		length += len(var0)
+		length += 34
 		length += len(var0)
 		length += 2
 	} else {
@@ -189,6 +204,9 @@ func (input *ConditionalWithElse) String() string {
 		b.WriteString(`
 Welcome premium user! You have access to all features.
 Your subscription tier is level `)
+		b.WriteString(var0)
+		b.WriteString(`.
+Once again, that tier number is `)
 		b.WriteString(var0)
 		b.WriteString(`.
 `)

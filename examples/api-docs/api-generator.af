@@ -1,0 +1,438 @@
+.title API Documentation Generator
+You are APIDocBot, an intelligent documentation generator that creates comprehensive, up-to-date API documentation with interactive examples, versioning support, and developer-friendly formatting.
+
+.title API Overview
+# 📡 <!api.name> API Documentation
+
+**Version**: <!api.version>
+**Base URL**: `<!api.base_url>`
+**Protocol**: <!api.protocol>
+**Authentication**: <!api.auth_type>
+
+<?api.deprecated bool>
+⚠️ **DEPRECATED API**: This API version is deprecated. Please migrate to version <!api.replacement_version>.
+**Sunset Date**: <!api.sunset_date>
+</api.deprecated>
+
+<?api.beta bool>
+🧪 **BETA API**: This API is in beta. Features may change without notice.
+**Stability**: <!api.stability_level>/5
+</api.beta>
+
+## 🌟 What's New in v<!api.version>
+
+<?changelog.has_breaking_changes bool>
+### 💥 Breaking Changes
+<!changelog.breaking_changes>
+
+⚠️ **Migration Required**: See our [migration guide](<!docs.migration_url>) for upgrade instructions.
+</changelog.has_breaking_changes>
+
+<?changelog.new_features>
+### ✨ New Features
+<!changelog.new_features>
+</changelog.new_features>
+
+<?changelog.improvements>
+### 🚀 Improvements
+<!changelog.improvements>
+</changelog.improvements>
+
+<?changelog.bug_fixes>
+### 🐛 Bug Fixes
+<!changelog.bug_fixes>
+</changelog.bug_fixes>
+
+## 🔐 Authentication
+
+**Type**: <!auth.type>
+**Required**: <!auth.required bool>
+
+<?auth.type eq "bearer">
+### Bearer Token Authentication
+Include your API key in the Authorization header:
+
+```http
+Authorization: Bearer YOUR_API_KEY
+```
+
+**Get your API key**: [Developer Dashboard](<!auth.dashboard_url>)
+</auth.type>
+
+<?auth.type eq "oauth2">
+### OAuth 2.0 Authentication
+**Flow**: <!auth.oauth_flow>
+**Scopes**: <!auth.scopes>
+
+**Authorization URL**: `<!auth.auth_url>`
+**Token URL**: `<!auth.token_url>`
+
+#### Required Scopes:
+<?auth.scope_count int>
+<!auth.scope_list>
+</auth.scope_count>
+</auth.type>
+
+<?auth.type eq "apikey">
+### API Key Authentication
+**Header**: `<!auth.header_name>`
+**Query Parameter**: `<!auth.query_param>` (alternative)
+
+```http
+<!auth.header_name>: YOUR_API_KEY
+```
+</auth.type>
+
+<?auth.rate_limits bool>
+## 📊 Rate Limits
+
+**Standard Tier**: <!rate_limits.standard_requests int> requests/<!rate_limits.standard_window>
+**Premium Tier**: <!rate_limits.premium_requests int> requests/<!rate_limits.premium_window>
+
+**Rate Limit Headers**:
+- `X-RateLimit-Limit`: Total requests allowed
+- `X-RateLimit-Remaining`: Requests remaining
+- `X-RateLimit-Reset`: Time when limit resets
+
+<?rate_limits.has_burst bool>
+**Burst Allowance**: <!rate_limits.burst_requests int> requests in <!rate_limits.burst_window> seconds
+</rate_limits.has_burst>
+</auth.rate_limits>
+
+.title Endpoint Documentation
+<?endpoints.count int>
+## 📚 Available Endpoints (<!endpoints.count> total)
+
+<?endpoints.has_categories bool>
+### Endpoint Categories:
+<?endpoints.user_management bool>
+- **👤 User Management**: <!endpoints.user_count int> endpoints
+</endpoints.user_management>
+<?endpoints.data_operations bool>
+- **💾 Data Operations**: <!endpoints.data_count int> endpoints  
+</endpoints.data_operations>
+<?endpoints.analytics bool>
+- **📊 Analytics**: <!endpoints.analytics_count int> endpoints
+</endpoints.analytics>
+<?endpoints.webhooks bool>
+- **🔗 Webhooks**: <!endpoints.webhook_count int> endpoints
+</endpoints.webhooks>
+</endpoints.has_categories>
+</endpoints.count>
+
+<?endpoint.featured bool>
+## 🌟 Featured Endpoint: <!endpoint.name>
+
+**Method**: `<!endpoint.method>`
+**Path**: `<!endpoint.path>`
+**Purpose**: <!endpoint.description>
+
+### Request
+
+```http
+<!endpoint.method> <!api.base_url><!endpoint.path>
+Content-Type: application/json
+<?endpoint.requires_auth bool>
+Authorization: Bearer YOUR_API_KEY
+</endpoint.requires_auth>
+```
+
+<?endpoint.has_path_params bool>
+#### Path Parameters
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+<?endpoint.path_params>
+| <!endpoint.param_name> | <!endpoint.param_type> | <!endpoint.param_required bool> | <!endpoint.param_description> |
+</endpoint.path_params>
+</endpoint.has_path_params>
+
+<?endpoint.has_query_params bool>
+#### Query Parameters
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+<?endpoint.query_params>
+| <!endpoint.query_name> | <!endpoint.query_type> | <!endpoint.query_required bool> | <!endpoint.query_default> | <!endpoint.query_description> |
+</endpoint.query_params>
+</endpoint.has_query_params>
+
+<?endpoint.has_body bool>
+#### Request Body
+
+```json
+<!endpoint.request_body>
+```
+
+**Schema**: <!endpoint.request_schema>
+</endpoint.has_body>
+
+### Response
+
+<?endpoint.success_codes>
+**Success Codes**: <!endpoint.success_codes>
+</endpoint.success_codes>
+
+```json
+<!endpoint.response_example>
+```
+
+<?endpoint.has_error_codes bool>
+#### Error Responses
+
+| Code | Description | Solution |
+|------|-------------|----------|
+<?endpoint.error_codes>
+| <!endpoint.error_code int> | <!endpoint.error_description> | <!endpoint.error_solution> |
+</endpoint.error_codes>
+</endpoint.has_error_codes>
+
+### Code Examples
+
+<?examples.curl bool>
+#### cURL
+```bash
+curl -X <!endpoint.method> \
+  '<!api.base_url><!endpoint.path>' \
+  -H 'Content-Type: application/json' \
+<?endpoint.requires_auth bool>
+  -H 'Authorization: Bearer YOUR_API_KEY' \
+</endpoint.requires_auth>
+<?endpoint.has_body bool>
+  -d '<!endpoint.curl_body>'
+</endpoint.has_body>
+```
+</examples.curl>
+
+<?examples.javascript bool>
+#### JavaScript (fetch)
+```javascript
+const response = await fetch('<!api.base_url><!endpoint.path>', {
+  method: '<!endpoint.method>',
+  headers: {
+    'Content-Type': 'application/json',
+<?endpoint.requires_auth bool>
+    'Authorization': 'Bearer YOUR_API_KEY',
+</endpoint.requires_auth>
+  },
+<?endpoint.has_body bool>
+  body: JSON.stringify(<!endpoint.js_body>)
+</endpoint.has_body>
+});
+
+const data = await response.json();
+console.log(data);
+```
+</examples.javascript>
+
+<?examples.python bool>
+#### Python (requests)
+```python
+import requests
+
+url = "<!api.base_url><!endpoint.path>"
+<?endpoint.requires_auth bool>
+headers = {
+    "Content-Type": "application/json",
+    "Authorization": "Bearer YOUR_API_KEY"
+}
+</endpoint.requires_auth>
+<?endpoint.has_body bool>
+data = <!endpoint.python_body>
+
+response = requests.<!endpoint.method_lower>(url, headers=headers, json=data)
+</endpoint.has_body>
+<?endpoint.no_body bool>
+response = requests.<!endpoint.method_lower>(url, headers=headers)
+</endpoint.no_body>
+print(response.json())
+```
+</examples.python>
+
+<?examples.go bool>
+#### Go
+```go
+package main
+
+import (
+    "bytes"
+    "encoding/json"
+    "fmt"
+    "net/http"
+)
+
+func main() {
+    url := "<!api.base_url><!endpoint.path>"
+    
+<?endpoint.has_body bool>
+    data := <!endpoint.go_body>
+    jsonData, _ := json.Marshal(data)
+    
+    req, _ := http.NewRequest("<!endpoint.method>", url, bytes.NewBuffer(jsonData))
+</endpoint.has_body>
+<?endpoint.no_body bool>
+    req, _ := http.NewRequest("<!endpoint.method>", url, nil)
+</endpoint.no_body>
+    
+    req.Header.Set("Content-Type", "application/json")
+<?endpoint.requires_auth bool>
+    req.Header.Set("Authorization", "Bearer YOUR_API_KEY")
+</endpoint.requires_auth>
+    
+    client := &http.Client{}
+    resp, _ := client.Do(req)
+    defer resp.Body.Close()
+    
+    // Handle response...
+}
+```
+</examples.go>
+</endpoint.featured>
+
+.title Schema Reference
+<?schemas.available bool>
+## 📋 Data Schemas
+
+<?schemas.count int>
+### Available Schemas (<!schemas.count> total)
+
+<?schemas.schema_1>
+#### <!schemas.schema_1.name>
+
+**Description**: <!schemas.schema_1.description>
+
+```json
+<!schemas.schema_1.example>
+```
+
+**Properties**:
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+<?schemas.schema_1.properties>
+| <!schemas.field_name> | <!schemas.field_type> | <!schemas.field_required bool> | <!schemas.field_description> |
+</schemas.schema_1.properties>
+
+<?schemas.schema_1.has_validation bool>
+**Validation Rules**:
+<!schemas.schema_1.validation_rules>
+</schemas.schema_1.has_validation>
+</schemas.schema_1>
+</schemas.count>
+</schemas.available>
+
+.title SDKs and Tools
+<?sdks.available bool>
+## 🛠️ SDKs & Libraries
+
+<?sdks.official_count int>
+### Official SDKs (<!sdks.official_count> languages)
+
+<?sdks.javascript bool>
+#### JavaScript/TypeScript
+```bash
+npm install <!sdks.js_package>
+```
+
+**Documentation**: [JavaScript SDK Guide](<!sdks.js_docs>)
+**Version**: <!sdks.js_version>
+**Bundle Size**: <!sdks.js_size>
+</sdks.javascript>
+
+<?sdks.python bool>
+#### Python
+```bash
+pip install <!sdks.python_package>
+```
+
+**Documentation**: [Python SDK Guide](<!sdks.python_docs>)
+**Version**: <!sdks.python_version>
+**Python Compatibility**: <!sdks.python_compat>
+</sdks.python>
+
+<?sdks.go bool>
+#### Go
+```bash
+go get <!sdks.go_package>
+```
+
+**Documentation**: [Go SDK Guide](<!sdks.go_docs>)
+**Version**: <!sdks.go_version>
+**Go Version**: <!sdks.go_compat>
+</sdks.go>
+
+<?sdks.ruby bool>
+#### Ruby
+```bash
+gem install <!sdks.ruby_package>
+```
+
+**Documentation**: [Ruby SDK Guide](<!sdks.ruby_docs>)
+**Version**: <!sdks.ruby_version>
+</sdks.ruby>
+</sdks.official_count>
+
+<?sdks.community_count int>
+### Community SDKs (<!sdks.community_count> languages)
+<!sdks.community_list>
+
+*Note: Community SDKs are maintained by third parties and may not be up-to-date.*
+</sdks.community_count>
+</sdks.available>
+
+## 🔧 Development Tools
+
+<?tools.postman bool>
+### Postman Collection
+Import our complete API collection: [Download Postman Collection](<!tools.postman_url>)
+
+**Features**:
+- Pre-configured environments
+- Authentication setup
+- Example requests for all endpoints
+</tools.postman>
+
+<?tools.openapi bool>
+### OpenAPI Specification
+**OpenAPI 3.0**: [Download Spec](<!tools.openapi_url>)
+**Swagger UI**: [Interactive Documentation](<!tools.swagger_url>)
+</tools.openapi>
+
+<?tools.insomnia bool>
+### Insomnia Workspace
+Import for Insomnia: [Download Workspace](<!tools.insomnia_url>)
+</tools.insomnia>
+
+.title Support and Resources
+## 🆘 Getting Help
+
+### Support Channels
+<?support.has_premium bool>
+**Premium Support**: <!support.premium_response_time> response time
+- Email: <!support.premium_email>
+- Phone: <!support.premium_phone>
+- Slack: <!support.premium_slack>
+</support.has_premium>
+
+**Community Support**:
+- Discord: <!support.discord>
+- Stack Overflow: Tag with `<!support.stackoverflow_tag>`
+- GitHub Issues: <!support.github_issues>
+
+### Documentation Resources
+- **API Reference**: You're reading it! 📖
+- **Tutorials**: <!docs.tutorials_url>
+- **Best Practices**: <!docs.best_practices_url>
+- **Changelog**: <!docs.changelog_url>
+
+<?support.status_page bool>
+### Service Status
+Check our service status: <!support.status_url>
+
+**SLA**: <!support.sla_uptime>% uptime
+**Status**: <!support.current_status>
+</support.status_page>
+
+---
+**Documentation Version**: <!docs.version>
+**Last Updated**: <!docs.last_updated>
+**API Version**: <!api.version>
+
+*Built with ❤️ by the <!company.name> API Team* 

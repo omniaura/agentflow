@@ -229,24 +229,199 @@ func (s Slice) Stringify(in []byte) string {
 // VarInfo holds the parsed variable path and type from a var token
 // Path is the dot-separated path as a slice of []byte (e.g. ["user", "subscription", "tier"])
 // Type is the type string (e.g. "string", "int", "bool")
+// Operator is the conditional operator (e.g. ">=", "==", "!=") for OptionalBlock tokens
+// Operand is the value to compare against (e.g. "30", "true", "\"gold\"")
 type VarInfo struct {
-	Path [][]byte
-	Type string
+	Path     [][]byte
+	Type     string
+	Operator string // For conditionals: ">=", "<=", "==", "!=", ">", "<"
+	Operand  string // For conditionals: the value to compare against
 }
 
 // GetVar parses the variable name and type from a var token
-func (t T) GetVar(in []byte) VarInfo {
+// The typeCache map stores previously seen variable types for reuse
+// For OptionalBlock tokens, it also parses conditional operators and operands
+func (t T) GetVar(in []byte, typeCache map[string]string) VarInfo {
 	b := in[t.Start:t.End]
+
+	// Handle conditional expressions for OptionalBlock tokens
+	if t.Kind == kind.OptionalBlock {
+		return parseConditionalExpression(b, typeCache)
+	}
+
+	// Handle regular variable tokens
 	parts := bytes.Fields(b)
 	var path [][]byte
 	var typ string
 	if len(parts) > 0 {
 		path = bytes.Split(parts[0], []byte{'.'})
 	}
+
+	// Create cache key from the variable path
+	pathKey := string(bytes.Join(path, []byte(".")))
+
 	if len(parts) > 1 {
+		// Type is explicitly specified, cache it
 		typ = string(parts[1])
+		typeCache[pathKey] = typ
 	} else {
-		typ = "string"
+		// No type specified, check cache
+		if cachedType, exists := typeCache[pathKey]; exists {
+			typ = cachedType
+		} else {
+			typ = "string" // default
+		}
 	}
 	return VarInfo{Path: path, Type: typ}
+}
+
+// parseConditionalExpression parses conditional expressions like "writer.current_streak gte 30"
+func parseConditionalExpression(expr []byte, typeCache map[string]string) VarInfo {
+	exprStr := string(expr)
+
+	// List of word operators to check for
+	operators := []string{"gte", "lte", "gt", "lt", "eq", "ne"}
+
+	for _, op := range operators {
+		if idx := strings.Index(exprStr, " "+op+" "); idx != -1 {
+			// Found an operator
+			varPart := strings.TrimSpace(exprStr[:idx])
+			operandPart := strings.TrimSpace(exprStr[idx+len(op)+2:]) // +2 for the spaces around operator
+
+			// Parse variable path and type
+			varInfo := parseVariablePart(varPart, typeCache)
+
+			// Check if operand is a variable reference (contains dot notation)
+			if strings.Contains(operandPart, ".") && !strings.Contains(operandPart, "\"") && !strings.Contains(operandPart, "'") {
+				// Operand is another variable - convert to Go field access
+				operandPath := strings.Split(operandPart, ".")
+				var operandFieldAccess strings.Builder
+				operandFieldAccess.WriteString("input.")
+				for i, part := range operandPath {
+					// Convert to CamelCase using the proper bytcase function
+					if len(part) > 0 {
+						operandFieldAccess.Write(bytcase.ToCamel([]byte(part)))
+						if i < len(operandPath)-1 {
+							operandFieldAccess.WriteString(".")
+						}
+					}
+				}
+				varInfo.Operand = operandFieldAccess.String()
+			} else {
+				// Infer type from operand constant
+				inferredType := inferTypeFromOperand(operandPart)
+				if inferredType != "string" || varInfo.Type == "string" {
+					varInfo.Type = inferredType
+					// Cache the inferred type
+					pathKey := string(bytes.Join(varInfo.Path, []byte(".")))
+					typeCache[pathKey] = inferredType
+				}
+				varInfo.Operand = formatOperandForGeneration(operandPart, varInfo.Type)
+			}
+
+			varInfo.Operator = op
+			return varInfo
+		}
+	}
+
+	// No operator found - treat as simple truthiness check
+	varInfo := parseVariablePart(exprStr, typeCache)
+	return varInfo
+}
+
+// formatOperandForGeneration formats operands for code generation
+func formatOperandForGeneration(operand, varType string) string {
+	operand = strings.TrimSpace(operand)
+
+	switch varType {
+	case "string":
+		// Ensure string operands are properly quoted
+		if !strings.HasPrefix(operand, "\"") && !strings.HasPrefix(operand, "'") {
+			return "\"" + operand + "\""
+		}
+		return operand
+	case "int", "float32", "float64":
+		// Numeric types - use as-is
+		return operand
+	case "bool":
+		// Boolean types - use as-is
+		return operand
+	default:
+		// Default to quoted string
+		if !strings.HasPrefix(operand, "\"") && !strings.HasPrefix(operand, "'") {
+			return "\"" + operand + "\""
+		}
+		return operand
+	}
+}
+
+// parseVariablePart parses the variable name and optional explicit type
+func parseVariablePart(varPart string, typeCache map[string]string) VarInfo {
+	parts := strings.Fields(varPart)
+	var path [][]byte
+	var typ string
+
+	if len(parts) > 0 {
+		path = bytes.Split([]byte(parts[0]), []byte{'.'})
+	}
+
+	// Create cache key from the variable path
+	pathKey := string(bytes.Join(path, []byte(".")))
+
+	if len(parts) > 1 {
+		// Type is explicitly specified, cache it
+		typ = parts[1]
+		typeCache[pathKey] = typ
+	} else {
+		// No type specified, check cache
+		if cachedType, exists := typeCache[pathKey]; exists {
+			typ = cachedType
+		} else {
+			typ = "string" // default
+		}
+	}
+
+	return VarInfo{Path: path, Type: typ}
+}
+
+// inferTypeFromOperand infers the Go type from the operand value
+func inferTypeFromOperand(operand string) string {
+	operand = strings.TrimSpace(operand)
+
+	// Check for boolean values
+	if operand == "true" || operand == "false" {
+		return "bool"
+	}
+
+	// Check for quoted strings
+	if (strings.HasPrefix(operand, "\"") && strings.HasSuffix(operand, "\"")) ||
+		(strings.HasPrefix(operand, "'") && strings.HasSuffix(operand, "'")) {
+		return "string"
+	}
+
+	// Check for floating point numbers
+	if strings.Contains(operand, ".") {
+		if _, err := strconv.ParseFloat(operand, 64); err == nil {
+			return "float64"
+		}
+	}
+
+	// Check for integers
+	if _, err := strconv.Atoi(operand); err == nil {
+		return "int"
+	}
+
+	// Default to string for unquoted values
+	return "string"
+}
+
+// hasComparisonOperator checks if the token content contains any comparison operators
+func hasComparisonOperator(content string) bool {
+	operators := []string{">=", "<=", "==", "!=", ">", "<"}
+	for _, op := range operators {
+		if strings.Contains(content, op) {
+			return true
+		}
+	}
+	return false
 }

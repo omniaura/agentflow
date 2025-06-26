@@ -1,0 +1,7 @@
+## User Profile
+Name: <!name>
+Age: <!age int>
+Premium: <!premium bool>
+
+## Summary
+Hello <!name>! You are <!age> years old and premium status is <!premium>. 

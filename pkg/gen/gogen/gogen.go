@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"go/format"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -98,9 +99,10 @@ func GenFile(w io.Writer, f ast.File) error {
 	// Collect required imports for all prompts
 	imports := map[string]bool{"strings": false, "strconv": false}
 	for _, p := range f.Prompts {
+		typeCache := make(map[string]string)
 		for _, t := range p.Nodes {
-			if t.Kind == kind.Var {
-				vi := t.GetVar(f.Content)
+			if t.Kind == kind.Var || t.Kind == kind.OptionalBlock {
+				vi := t.GetVar(f.Content, typeCache)
 				if vi.Type == "int" || vi.Type == "bool" {
 					imports["strconv"] = true
 				}
@@ -117,6 +119,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		}
 	}
 	if len(importList) > 0 {
+		slices.Sort(importList)
 		buf.WriteString("import (\n")
 		for _, imp := range importList {
 			buf.WriteString("\t\"")
@@ -150,13 +153,27 @@ func GenFile(w io.Writer, f ast.File) error {
 		}
 		writeRootStruct(&buf, structName, inputs)
 
+		// Generate IsZero methods for nested structs
+		generateIsZeroMethods(&buf, structName, inputs)
+
 		// Generate the String method
 		buf.WriteString("func (input *")
 		buf.Write(structName)
 		buf.WriteString(") String() string {\n")
 
 		vars, _ := p.Vars(f.Content, caseconv.CaseCamel)
-		if len(vars) > 0 {
+		hasVariables := len(vars) > 0
+
+		// Also check for conditionals or any complex tokens that need processing
+		hasComplexTokens := false
+		for _, t := range p.Nodes {
+			if t.Kind == kind.OptionalBlock || t.Kind == kind.ElseBlock || t.Kind == kind.EndTag {
+				hasComplexTokens = true
+				break
+			}
+		}
+
+		if hasVariables || hasComplexTokens {
 			stringTemplateWithStruct(&buf, p.Nodes, f.Content, inputs)
 		} else {
 			stringTemplate(&buf, p.Nodes, f.Content)
@@ -174,6 +191,64 @@ func GenFile(w io.Writer, f ast.File) error {
 	}
 	_, err = w.Write(formattedBytes)
 	return err
+}
+
+// generateIsZeroMethods generates IsXxxZero() methods for nested struct fields
+func generateIsZeroMethods(buf *bytes.Buffer, structName []byte, inputs ast.InputStruct) {
+	generateIsZeroMethodsRecursive(buf, structName, inputs.TopLevel, []string{})
+}
+
+func generateIsZeroMethodsRecursive(buf *bytes.Buffer, structName []byte, nodes []ast.InputNode, fieldPath []string) {
+	for _, node := range nodes {
+		if len(node.Subnodes) > 0 && node.Type == "struct" {
+			// Generate isZero method for this nested struct (private)
+			currentPath := append(fieldPath, string(node.Name))
+			methodName := "is" + strings.Join(currentPath, "") + "Zero"
+
+			buf.WriteString("func (input *")
+			buf.Write(structName)
+			buf.WriteString(") ")
+			buf.WriteString(methodName)
+			buf.WriteString("() bool {\n")
+
+			// Build the field access path
+			fieldAccess := "input"
+			for _, part := range currentPath {
+				fieldAccess += "." + part
+			}
+
+			// Generate zero value checks for all fields
+			buf.WriteString("\treturn ")
+			for i, subnode := range node.Subnodes {
+				if i > 0 {
+					buf.WriteString(" &&\n\t\t")
+				}
+
+				fieldRef := fieldAccess + "." + string(subnode.Name)
+
+				// Check if this subnode is a struct (has subnodes)
+				if len(subnode.Subnodes) > 0 {
+					// Use the isZero method for struct types
+					currentPathForSubnode := append(currentPath, string(subnode.Name))
+					subnodeMethodName := "is" + strings.Join(currentPathForSubnode, "") + "Zero"
+					buf.WriteString("input." + subnodeMethodName + "()")
+				} else {
+					switch subnode.Type {
+					case "bool":
+						buf.WriteString("!" + fieldRef)
+					case "int", "float32", "float64":
+						buf.WriteString(fieldRef + " == 0")
+					default: // string and other types
+						buf.WriteString(fieldRef + " == \"\"")
+					}
+				}
+			}
+			buf.WriteString("\n}\n\n")
+
+			// Recursively generate methods for deeper nested structs
+			generateIsZeroMethodsRecursive(buf, structName, node.Subnodes, currentPath)
+		}
+	}
 }
 
 func writeRootStruct(buf *bytes.Buffer, structName []byte, inputs ast.InputStruct) {
@@ -253,19 +328,55 @@ func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
 	buf.WriteString("`\n}\n")
 }
 
-func stringTemplateWithStruct(buf *bytes.Buffer, toks token.Slice, content []byte, _ ast.InputStruct) {
+func stringTemplateWithStruct(buf *bytes.Buffer, toks token.Slice, content []byte, inputs ast.InputStruct) {
 	buf.WriteString("\tvar b strings.Builder\n")
 
-	// Pre-declare all int variables for conversion
+	// Create type cache to track variable types
+	typeCache := make(map[string]string)
+
+	// Create mapping from variable paths to local variable names for numeric variables
+	numericVarMap := make(map[string]string)
 	var varDecls []string
 	varCounter := 0
+
+	// First pass: identify which numeric variables are actually used for output (kind.Var)
+	usedInOutput := make(map[string]bool)
+	for _, t := range toks {
+		if t.Kind == kind.Var {
+			vi := t.GetVar(content, typeCache)
+			if vi.Type == "int" || vi.Type == "float32" || vi.Type == "float64" {
+				pathKey := string(bytes.Join(vi.Path, []byte(".")))
+				usedInOutput[pathKey] = true
+			}
+		}
+	}
+
+	// Second pass: pre-declare string conversions only for numeric variables used in output
 	for _, t := range toks {
 		if t.Kind == kind.Var || t.Kind == kind.OptionalBlock {
-			vi := t.GetVar(content)
-			if vi.Type == "int" {
-				localVar := "var" + strconv.Itoa(varCounter)
-				varDecls = append(varDecls, localVar+" := strconv.Itoa("+varFieldAccess(vi.Path)+")")
-				varCounter++
+			vi := t.GetVar(content, typeCache)
+			pathKey := string(bytes.Join(vi.Path, []byte(".")))
+			// Only create string conversion if this variable is actually used for output
+			if usedInOutput[pathKey] {
+				if _, exists := numericVarMap[pathKey]; !exists {
+					switch vi.Type {
+					case "int":
+						localVar := "var" + strconv.Itoa(varCounter)
+						numericVarMap[pathKey] = localVar
+						varDecls = append(varDecls, localVar+" := strconv.Itoa("+varFieldAccess(vi.Path)+")")
+						varCounter++
+					case "float32":
+						localVar := "var" + strconv.Itoa(varCounter)
+						numericVarMap[pathKey] = localVar
+						varDecls = append(varDecls, localVar+" := strconv.FormatFloat(float64("+varFieldAccess(vi.Path)+"), 'g', -1, 32)")
+						varCounter++
+					case "float64":
+						localVar := "var" + strconv.Itoa(varCounter)
+						numericVarMap[pathKey] = localVar
+						varDecls = append(varDecls, localVar+" := strconv.FormatFloat("+varFieldAccess(vi.Path)+", 'g', -1, 64)")
+						varCounter++
+					}
+				}
 			}
 		}
 	}
@@ -279,33 +390,43 @@ func stringTemplateWithStruct(buf *bytes.Buffer, toks token.Slice, content []byt
 
 	// First pass: Generate length calculation code
 	buf.WriteString("\tlength := 0\n")
-	generateLengthCalculation(buf, toks, content)
+	generateLengthCalculation(buf, toks, content, typeCache, numericVarMap, inputs)
 
 	// Grow the buffer
 	buf.WriteString("\tb.Grow(length)\n")
 
 	// Second pass: Generate the actual string building code
-	generateStringBuilding(buf, toks, content)
+	generateStringBuilding(buf, toks, content, typeCache, numericVarMap, inputs)
 
 	buf.WriteString("\treturn b.String()\n}\n")
 }
 
-func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []byte) {
-	inOptional := false
-	varCounter := 0
+func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
+	conditionalStack := []bool{} // Track nested conditionals
 	indentLevel := 1
 
 	for _, t := range toks {
 		switch t.Kind {
 		case kind.Var:
-			vi := t.GetVar(content)
+			vi := t.GetVar(content, typeCache)
 			writeIndent(buf, indentLevel)
 			buf.WriteString("length += ")
+			pathKey := string(bytes.Join(vi.Path, []byte(".")))
 			switch vi.Type {
-			case "int":
-				localVar := "var" + strconv.Itoa(varCounter)
-				buf.WriteString("len(" + localVar + ")")
-				varCounter++
+			case "int", "float32", "float64":
+				if localVar, exists := numericVarMap[pathKey]; exists {
+					buf.WriteString("len(" + localVar + ")")
+				} else {
+					// Variable not pre-declared (only used in conditionals), calculate length inline
+					switch vi.Type {
+					case "int":
+						buf.WriteString("len(strconv.Itoa(" + varFieldAccess(vi.Path) + "))")
+					case "float32":
+						buf.WriteString("len(strconv.FormatFloat(float64(" + varFieldAccess(vi.Path) + "), 'g', -1, 32))")
+					case "float64":
+						buf.WriteString("len(strconv.FormatFloat(" + varFieldAccess(vi.Path) + ", 'g', -1, 64))")
+					}
+				}
 			case "bool":
 				buf.WriteString("5") // max length for "false"
 			default:
@@ -314,19 +435,39 @@ func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []by
 			buf.WriteString("\n")
 
 		case kind.OptionalBlock:
-			inOptional = true
+			conditionalStack = append(conditionalStack, true)
 			indentLevel++
-			vi := t.GetVar(content)
+			vi := t.GetVar(content, typeCache)
 			writeIndent(buf, indentLevel-1)
 			buf.WriteString("if ")
-			buf.WriteString(varFieldAccess(vi.Path))
-			switch vi.Type {
-			case "bool":
-				// just check if true
-			case "int":
-				buf.WriteString(" != 0")
-			default:
-				buf.WriteString(" != \"\"")
+
+			// Generate conditional expression
+			if vi.Operator != "" {
+				// Custom operator expression
+				buf.WriteString(varFieldAccess(vi.Path))
+				buf.WriteString(" ")
+				buf.WriteString(convertWordOperatorToGo(vi.Operator))
+				buf.WriteString(" ")
+				buf.WriteString(vi.Operand) // Use vi.Operand directly (already formatted)
+			} else {
+				// Default truthiness check
+				if isStructPath(vi.Path, inputs) {
+					// Use the private isZero method for struct types
+					buf.WriteString("!")
+					buf.WriteString(generateIsZeroMethodCall(vi.Path))
+				} else {
+					switch vi.Type {
+					case "bool":
+						// just check if true
+						buf.WriteString(varFieldAccess(vi.Path))
+					case "int":
+						buf.WriteString(varFieldAccess(vi.Path))
+						buf.WriteString(" != 0")
+					default:
+						buf.WriteString(varFieldAccess(vi.Path))
+						buf.WriteString(" != \"\"")
+					}
+				}
 			}
 			buf.WriteString(" {\n")
 
@@ -335,12 +476,12 @@ func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []by
 			buf.WriteString("} else {\n")
 
 		case kind.EndTag:
-			if inOptional {
+			if len(conditionalStack) > 0 {
+				conditionalStack = conditionalStack[:len(conditionalStack)-1]
 				indentLevel--
 				writeIndent(buf, indentLevel)
 				buf.WriteString("}\n")
 			}
-			inOptional = false
 
 		default:
 			// static text
@@ -353,25 +494,44 @@ func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []by
 			}
 		}
 	}
+
+	// Close any remaining open conditionals
+	for len(conditionalStack) > 0 {
+		conditionalStack = conditionalStack[:len(conditionalStack)-1]
+		indentLevel--
+		writeIndent(buf, indentLevel)
+		buf.WriteString("}\n")
+	}
 }
 
-func generateStringBuilding(buf *bytes.Buffer, toks token.Slice, content []byte) {
-	inOptional := false
-	varCounter := 0
+func generateStringBuilding(buf *bytes.Buffer, toks token.Slice, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
+	conditionalStack := []bool{} // Track nested conditionals
 
 	for _, t := range toks {
 		switch t.Kind {
 		case kind.Var:
-			if inOptional {
+			// Add proper indentation based on nesting level
+			for range len(conditionalStack) {
 				buf.WriteRune('\t')
 			}
-			vi := t.GetVar(content)
+			vi := t.GetVar(content, typeCache)
 			buf.WriteString("\tb.WriteString(")
+			pathKey := string(bytes.Join(vi.Path, []byte(".")))
 			switch vi.Type {
-			case "int":
-				localVar := "var" + strconv.Itoa(varCounter)
-				buf.WriteString(localVar)
-				varCounter++
+			case "int", "float32", "float64":
+				if localVar, exists := numericVarMap[pathKey]; exists {
+					buf.WriteString(localVar)
+				} else {
+					// Variable not pre-declared, format inline
+					switch vi.Type {
+					case "int":
+						buf.WriteString("strconv.Itoa(" + varFieldAccess(vi.Path) + ")")
+					case "float32":
+						buf.WriteString("strconv.FormatFloat(float64(" + varFieldAccess(vi.Path) + "), 'g', -1, 32)")
+					case "float64":
+						buf.WriteString("strconv.FormatFloat(" + varFieldAccess(vi.Path) + ", 'g', -1, 64)")
+					}
+				}
 			case "bool":
 				buf.WriteString("strconv.FormatBool(" + varFieldAccess(vi.Path) + ")")
 			default:
@@ -380,43 +540,93 @@ func generateStringBuilding(buf *bytes.Buffer, toks token.Slice, content []byte)
 			buf.WriteString(")\n")
 
 		case kind.OptionalBlock:
-			inOptional = true
-			vi := t.GetVar(content)
+			conditionalStack = append(conditionalStack, true)
+			// Add proper indentation for the if statement
+			for range len(conditionalStack) - 1 {
+				buf.WriteRune('\t')
+			}
+			vi := t.GetVar(content, typeCache)
 			buf.WriteString("\tif ")
-			buf.WriteString(varFieldAccess(vi.Path))
-			switch vi.Type {
-			case "bool":
-				// just check if true
-			case "int":
-				buf.WriteString(" != 0")
-			default:
-				buf.WriteString(" != \"\"")
+
+			// Generate conditional expression
+			if vi.Operator != "" {
+				// Custom operator expression
+				buf.WriteString(varFieldAccess(vi.Path))
+				buf.WriteString(" ")
+				buf.WriteString(convertWordOperatorToGo(vi.Operator))
+				buf.WriteString(" ")
+				buf.WriteString(vi.Operand) // Use vi.Operand directly (already formatted)
+			} else {
+				// Default truthiness check
+				if isStructPath(vi.Path, inputs) {
+					// Use the private isZero method for struct types
+					buf.WriteString("!")
+					buf.WriteString(generateIsZeroMethodCall(vi.Path))
+				} else {
+					switch vi.Type {
+					case "bool":
+						// just check if true
+						buf.WriteString(varFieldAccess(vi.Path))
+					case "int":
+						buf.WriteString(varFieldAccess(vi.Path))
+						buf.WriteString(" != 0")
+					default:
+						buf.WriteString(varFieldAccess(vi.Path))
+						buf.WriteString(" != \"\"")
+					}
+				}
 			}
 			buf.WriteString(" {\n")
 
 		case kind.ElseBlock:
+			// Add proper indentation for the else statement
+			for range len(conditionalStack) - 1 {
+				buf.WriteRune('\t')
+			}
 			buf.WriteString("\t} else {\n")
 
 		case kind.EndTag:
-			if inOptional {
+			if len(conditionalStack) > 0 {
+				conditionalStack = conditionalStack[:len(conditionalStack)-1]
+				// Add proper indentation for the closing brace
+				for range len(conditionalStack) {
+					buf.WriteRune('\t')
+				}
 				buf.WriteString("\t}\n")
 			}
-			inOptional = false
 
 		default:
 			// static text
-			if inOptional {
+			// Add proper indentation based on nesting level
+			for range len(conditionalStack) {
 				buf.WriteRune('\t')
 			}
 			textContent := t.Get(content)
 			if bytes.Equal(textContent, []byte("\n")) {
 				buf.WriteString("\tb.WriteRune('\\n')\n")
 			} else if len(textContent) > 0 {
-				buf.WriteString("\tb.WriteString(`")
-				buf.Write(textContent)
-				buf.WriteString("`)\n")
+				// Check if content contains backticks - if so, use quoted strings
+				if bytes.Contains(textContent, []byte("`")) {
+					buf.WriteString("\tb.WriteString(")
+					writeQuotedString(buf, textContent)
+					buf.WriteString(")\n")
+				} else {
+					buf.WriteString("\tb.WriteString(`")
+					buf.Write(textContent)
+					buf.WriteString("`)\n")
+				}
 			}
 		}
+	}
+
+	// Close any remaining open conditionals
+	for len(conditionalStack) > 0 {
+		conditionalStack = conditionalStack[:len(conditionalStack)-1]
+		// Add proper indentation for the closing brace
+		for range len(conditionalStack) {
+			buf.WriteRune('\t')
+		}
+		buf.WriteString("\t}\n")
 	}
 }
 
@@ -426,16 +636,45 @@ func writeIndent(buf *bytes.Buffer, level int) {
 	}
 }
 
-// varToStringExprWithLocal returns a Go expression to convert a variable to string and assign to a local variable
-func varToStringExprWithLocal(vi token.VarInfo, localVar string) string {
-	field := varFieldAccess(vi.Path)
-	switch vi.Type {
-	case "int":
-		return "strconv.Itoa(" + field + ")"
-	case "bool":
-		return "strconv.FormatBool(" + field + ")"
+// writeQuotedString writes a properly escaped quoted string literal
+func writeQuotedString(buf *bytes.Buffer, content []byte) {
+	buf.WriteRune('"')
+	for _, b := range content {
+		switch b {
+		case '"':
+			buf.WriteString(`\"`)
+		case '\\':
+			buf.WriteString(`\\`)
+		case '\n':
+			buf.WriteString(`\n`)
+		case '\r':
+			buf.WriteString(`\r`)
+		case '\t':
+			buf.WriteString(`\t`)
+		default:
+			buf.WriteByte(b)
+		}
+	}
+	buf.WriteRune('"')
+}
+
+// convertWordOperatorToGo converts word operators to Go operators
+func convertWordOperatorToGo(wordOp string) string {
+	switch wordOp {
+	case "gte":
+		return ">="
+	case "lte":
+		return "<="
+	case "gt":
+		return ">"
+	case "lt":
+		return "<"
+	case "eq":
+		return "=="
+	case "ne":
+		return "!="
 	default:
-		return field
+		return wordOp // fallback
 	}
 }
 
@@ -452,15 +691,53 @@ func varFieldAccess(path [][]byte) string {
 	return buf.String()
 }
 
-// varToStringExpr returns a Go expression to convert a variable to string based on its type
-func varToStringExpr(vi token.VarInfo) string {
-	field := varFieldAccess(vi.Path)
-	switch vi.Type {
-	case "int":
-		return "strconv.Itoa(" + field + ")"
-	case "bool":
-		return "strconv.FormatBool(" + field + ")"
-	default:
-		return field
+// generateIsZeroMethodCall generates a call to the private isZero method for a struct field
+func generateIsZeroMethodCall(path [][]byte) string {
+	var buf strings.Builder
+	buf.WriteString("input.is")
+	for _, part := range path {
+		buf.Write(bytcase.ToCamel(part))
 	}
+	buf.WriteString("Zero()")
+	return buf.String()
+}
+
+// isStructPath checks if a given variable path represents a struct field in the InputStruct
+func isStructPath(path [][]byte, inputs ast.InputStruct) bool {
+	if len(path) == 0 {
+		return false
+	}
+
+	// Find the top-level node
+	topLevelName := bytcase.ToCamel(path[0])
+	var currentNode *ast.InputNode
+	for i := range inputs.TopLevel {
+		if bytes.Equal(inputs.TopLevel[i].Name, topLevelName) {
+			currentNode = &inputs.TopLevel[i]
+			break
+		}
+	}
+
+	if currentNode == nil {
+		return false
+	}
+
+	// Traverse the path
+	for i := 1; i < len(path); i++ {
+		found := false
+		fieldName := bytcase.ToCamel(path[i])
+		for j := range currentNode.Subnodes {
+			if bytes.Equal(currentNode.Subnodes[j].Name, fieldName) {
+				currentNode = &currentNode.Subnodes[j]
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	// Check if this final node is a struct (has subnodes)
+	return len(currentNode.Subnodes) > 0
 }

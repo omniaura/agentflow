@@ -1,0 +1,261 @@
+.title System Prompt
+You are SupportBot Pro, an intelligent customer support agent with advanced escalation capabilities. You provide empathetic, efficient support while routing complex issues to appropriate specialists based on priority, customer tier, and issue complexity.
+
+.title Initial Customer Greeting
+# 🎧 Customer Support - Ticket #<!ticket.id>
+
+Hello <!customer.name>! I'm here to help you today.
+
+## 👤 Customer Profile
+- **Account Type**: <!customer.tier> Customer
+- **Member Since**: <!customer.join_date>
+- **Previous Tickets**: <!customer.ticket_history.total_count int>
+- **Satisfaction Score**: <!customer.satisfaction_score int>/10 ⭐
+
+<?customer.tier eq "premium">
+🌟 **Premium Support**: You'll receive priority assistance with our fastest response times.
+</customer.tier>
+
+<?customer.tier eq "enterprise">
+🏢 **Enterprise Support**: Your dedicated account manager is <!customer.account_manager>, available at <!customer.manager_contact>.
+</customer.tier>
+
+## 📋 Issue Details
+- **Category**: <!issue.category>
+- **Severity**: <!issue.severity>
+- **Priority**: <!issue.priority_level int>/5
+- **Reported**: <!issue.timestamp>
+
+<?issue.is_urgent bool>
+🚨 **URGENT ISSUE DETECTED** - This will be fast-tracked for immediate attention.
+</issue.is_urgent>
+
+.title Issue Analysis and Routing
+## 🔍 Issue Classification
+
+**Description**: <!issue.description>
+
+<?issue.category eq "technical">
+### 🛠️ Technical Issue Analysis
+
+**System Affected**: <!technical.system>
+**Error Code**: <!technical.error_code>
+**Environment**: <!technical.environment>
+
+<?technical.has_logs bool>
+**Error Logs Available**: Yes
+```
+<!technical.logs>
+```
+</technical.has_logs>
+
+<?technical.complexity_score int>
+**Complexity Assessment**: <!technical.complexity_score>/10
+
+<?technical.complexity_score gte 8>
+🔴 **High Complexity** - Escalating to Senior Technical Team
+**Estimated Resolution**: <!technical.estimated_hours int> hours
+**Assigned Specialist**: <!technical.assigned_specialist>
+</technical.complexity_score>
+
+<?technical.complexity_score lte 3>
+✅ **Standard Issue** - Can be resolved with standard procedures
+**Estimated Resolution**: <!technical.estimated_minutes int> minutes
+</technical.complexity_score>
+</technical.complexity_score>
+</issue.category>
+
+<?issue.category eq "billing">
+### 💳 Billing Issue Analysis
+
+**Invoice Number**: <!billing.invoice_id>
+**Amount**: $<!billing.amount float64>
+**Payment Method**: <!billing.payment_method>
+**Dispute Reason**: <!billing.dispute_reason>
+
+<?billing.requires_refund bool>
+💰 **Refund Request Detected**
+**Refund Amount**: $<!billing.refund_amount float64>
+**Processing Time**: <!billing.refund_days int> business days
+
+<?customer.tier eq "premium">
+⚡ **Fast-Track Refund**: Your refund will be processed within 24 hours.
+</customer.tier>
+
+<?customer.tier eq "enterprise">
+⚡ **Fast-Track Refund**: Your refund will be processed within 24 hours.
+</customer.tier>
+</billing.requires_refund>
+
+<?billing.payment_failed bool>
+❌ **Payment Failure Detected**
+**Failure Reason**: <!billing.failure_reason>
+**Next Retry**: <!billing.next_retry_date>
+
+**Action Required**: <!billing.customer_action>
+</billing.payment_failed>
+</issue.category>
+
+<?issue.category eq "account">
+### 👤 Account Issue Analysis
+
+**Issue Type**: <!account.issue_type>
+**Account Status**: <!account.status>
+
+<?account.locked bool>
+🔒 **Account Locked**
+**Lock Reason**: <!account.lock_reason>
+**Security Level**: <!account.security_level>
+
+**Unlock Steps**:
+1. <!account.unlock_step_1>
+2. <!account.unlock_step_2>
+3. <!account.unlock_step_3>
+
+<?account.requires_verification bool>
+**Identity Verification Required**: Please prepare <!account.verification_documents>
+</account.requires_verification>
+</account.locked>
+
+<?account.subscription_change bool>
+📋 **Subscription Change Request**
+**Current Plan**: <!account.current_plan>
+**Requested Plan**: <!account.requested_plan>
+**Effective Date**: <!account.change_date>
+**Prorated Amount**: $<!account.prorate_amount float64>
+</account.subscription_change>
+</issue.category>
+
+.title Intelligent Escalation Logic
+<?escalation.required bool>
+## 🚀 Escalation Triggered
+
+**Escalation Level**: <!escalation.level int>
+**Trigger Reason**: <!escalation.reason>
+
+<?escalation.level gte 3>
+### 🔴 Level 3+ Escalation - Management Involvement
+
+**Escalated To**: <!escalation.manager_name>
+**Contact**: <!escalation.manager_contact>
+**SLA**: <!escalation.sla_hours int> hours
+
+<?customer.vip_status bool>
+👑 **VIP Customer Alert**: Executive team has been notified.
+**Executive Contact**: <!escalation.executive_contact>
+</customer.vip_status>
+
+**Escalation Notes**: <!escalation.notes>
+</escalation.level>
+
+<?escalation.level eq 2>
+### 🟡 Level 2 Escalation - Specialist Required
+
+**Specialist Team**: <!escalation.specialist_team>
+**Expert Assigned**: <!escalation.expert_name>
+**Specialty**: <!escalation.expert_specialty>
+**Estimated Response**: <!escalation.response_time int> minutes
+</escalation.level>
+
+<?escalation.level eq 1>
+### 🟢 Level 1 Escalation - Senior Support
+
+**Senior Agent**: <!escalation.senior_agent>
+**Queue Position**: <!escalation.queue_position int>
+**Expected Pickup**: <!escalation.pickup_time>
+</escalation.level>
+
+<?escalation.callback_requested bool>
+📞 **Callback Scheduled**
+**Phone Number**: <!customer.phone>
+**Preferred Time**: <!escalation.callback_time>
+**Time Zone**: <!customer.timezone>
+</escalation.callback_requested>
+</escalation.required>
+
+.title Resolution and Next Steps
+## 💡 Immediate Actions
+
+<?solution.has_quick_fix bool>
+### ✅ Quick Resolution Available
+
+**Solution**: <!solution.quick_fix>
+
+**Steps to Resolve**:
+1. <!solution.step_1>
+2. <!solution.step_2>
+3. <!solution.step_3>
+
+<?solution.requires_restart bool>
+⚠️ **System Restart Required**: Please restart <!solution.restart_component> after completing the above steps.
+</solution.requires_restart>
+
+**Verification**: <!solution.verification_steps>
+</solution.has_quick_fix>
+
+<?solution.requires_investigation bool>
+### 🔍 Further Investigation Needed
+
+**Investigation Timeline**: <!investigation.timeline>
+**Assigned Team**: <!investigation.team>
+**Progress Updates**: Every <!investigation.update_frequency int> hours
+
+**What We're Checking**:
+- <!investigation.check_1>
+- <!investigation.check_2>
+- <!investigation.check_3>
+
+**How We'll Contact You**: <!investigation.contact_method>
+</solution.requires_investigation>
+
+## 📋 Ticket Status Update
+
+**Current Status**: <!ticket.status>
+**Priority**: <!ticket.priority_level>/5
+**Next Update**: <!ticket.next_update>
+
+<?ticket.sla_at_risk bool>
+⚠️ **SLA Alert**: This ticket is approaching SLA deadline (<!ticket.sla_deadline>)
+**Escalation Triggered**: Yes
+</ticket.sla_at_risk>
+
+## 🎯 Customer Satisfaction
+
+Before we close, how would you rate your experience today?
+
+<?followup.survey_link>
+**Quick Survey**: <!followup.survey_link> (2 minutes)
+</followup.survey_link>
+
+<?followup.has_compensation bool>
+### 🎁 Service Recovery
+
+Due to the inconvenience, we're providing:
+**Compensation**: <!followup.compensation_type>
+**Value**: $<!followup.compensation_value float64>
+**Applied To**: <!followup.compensation_target>
+**Effective**: <!followup.compensation_date>
+</followup.has_compensation>
+
+## 📞 Need More Help?
+
+<?customer.tier eq "enterprise">
+**Your Dedicated Support**: <!customer.dedicated_support_contact>
+**24/7 Hotline**: <!customer.emergency_contact>
+</customer.tier>
+
+<?customer.tier eq "premium">
+**Premium Support Line**: <!support.premium_phone>
+**Average Wait Time**: <!support.premium_wait_time int> minutes
+</customer.tier>
+
+**General Support**: <!support.general_contact>
+**Live Chat**: Available 24/7 at <!support.chat_url>
+**Knowledge Base**: <!support.kb_url>
+
+---
+**Ticket Reference**: #<!ticket.id>
+**Support Agent**: <!agent.name> (ID: <!agent.id>)
+**Session End**: <!session.end_time>
+
+*Thank you for choosing our service, <!customer.name>! 🌟* 
