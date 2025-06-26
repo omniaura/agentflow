@@ -13,7 +13,7 @@ install:
     cd cmd/af && go install .
 
 fmt:
-    go fmt ./...
+    gofmt -s -w ./..
     go vet ./...
 
 # Get the latest tag
