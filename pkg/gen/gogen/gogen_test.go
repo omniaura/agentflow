@@ -16,6 +16,7 @@ limitations under the License.
 package gogen_test
 
 import (
+	"flag"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +28,8 @@ import (
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
 	"github.com/omniaura/agentflow/pkg/logger"
 )
+
+var update = flag.Bool("update", false, "update golden files")
 
 func TestMain(m *testing.M) {
 	cfg.TestMode()
@@ -67,6 +70,14 @@ func TestGenerate(t *testing.T) {
 
 			// Read expected output
 			outputPath := filepath.Join(testCaseDir, "output.golden.go")
+
+			if *update {
+				// Update the golden file
+				err := os.WriteFile(outputPath, []byte(got), 0644)
+				require.NoError(t, err)
+				return
+			}
+
 			wantBytes, err := os.ReadFile(outputPath)
 			require.NoError(t, err)
 			want := string(wantBytes)

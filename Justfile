@@ -28,6 +28,7 @@ create-version TAG:
     TAGVAR={{TAG}}
     TAGTRIM=${TAGVAR#v}
     sed -i '' "s/var Version = \".*\"/var Version = \"$TAGTRIM\"/" cfg/cfg.go
+    go test ./pkg/gen/gogen -update
     git add .
     git commit -m "Update version to {{TAG}}"
     git push origin main
