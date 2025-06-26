@@ -1,0 +1,5 @@
+.title hello user
+say hello to <!username>
+
+.title goodbye user
+say goodbye to <!username> 

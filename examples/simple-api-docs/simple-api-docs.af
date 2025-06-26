@@ -1,0 +1,102 @@
+.title API Documentation Generator
+You are APIDocBot, an intelligent documentation generator that creates comprehensive, up-to-date API documentation with interactive examples, versioning support, and developer-friendly formatting.
+
+.title API Overview
+# 📡 <!api.name> API Documentation
+
+**Version**: <!api.version>
+**Base URL**: `<!api.base_url>`
+**Protocol**: <!api.protocol>
+**Authentication**: <!api.auth_type>
+
+<?api.deprecated bool>
+⚠️ **DEPRECATED API**: This API version is deprecated. Please migrate to version <!api.replacement_version>.
+**Sunset Date**: <!api.sunset_date>
+</api.deprecated>
+
+<?api.beta bool>
+🧪 **BETA API**: This API is in beta. Features may change without notice.
+**Stability**: <!api.stability_level>/5
+</api.beta>
+
+## 🌟 What's New in v<!api.version>
+
+<?changelog.has_breaking_changes bool>
+### 💥 Breaking Changes
+<!changelog.breaking_changes>
+
+⚠️ **Migration Required**: See our [migration guide](<!docs.migration_url>) for upgrade instructions.
+</changelog.has_breaking_changes>
+
+<?changelog.new_features>
+### ✨ New Features
+<!changelog.new_features>
+</changelog.new_features>
+
+<?changelog.improvements>
+### 🚀 Improvements
+<!changelog.improvements>
+</changelog.improvements>
+
+<?changelog.bug_fixes>
+### 🐛 Bug Fixes
+<!changelog.bug_fixes>
+</changelog.bug_fixes>
+
+## 🔐 Authentication
+
+**Type**: <!auth.type>
+**Required**: <!auth.required bool>
+
+<?auth.type eq "bearer">
+### Bearer Token Authentication
+Include your API key in the Authorization header:
+
+```http
+Authorization: Bearer YOUR_API_KEY
+```
+
+**Get your API key**: [Developer Dashboard](<!auth.dashboard_url>)
+</auth.type>
+
+<?auth.type eq "oauth2">
+### OAuth 2.0 Authentication
+**Flow**: <!auth.oauth_flow>
+**Scopes**: <!auth.scopes>
+
+**Authorization URL**: `<!auth.auth_url>`
+**Token URL**: `<!auth.token_url>`
+
+<?auth.has_scopes bool>
+#### Required Scopes:
+<!auth.scope_list>
+<else>
+Has Scopes: <!auth.has_scopes>
+</auth.has_scopes>
+</auth.type>
+
+<?auth.type eq "apikey">
+### API Key Authentication
+**Header**: `<!auth.header_name>`
+**Query Parameter**: `<!auth.query_param>` (alternative)
+
+```http
+<!auth.header_name>: YOUR_API_KEY
+```
+</auth.type>
+
+<?auth.rate_limits bool>
+## 📊 Rate Limits
+
+**Standard Tier**: <!rate_limits.standard_requests int> requests/<!rate_limits.standard_window>
+**Premium Tier**: <!rate_limits.premium_requests int> requests/<!rate_limits.premium_window>
+
+**Rate Limit Headers**:
+- `X-RateLimit-Limit`: Total requests allowed
+- `X-RateLimit-Remaining`: Requests remaining
+- `X-RateLimit-Reset`: Time when limit resets
+
+<?rate_limits.has_burst bool>
+**Burst Allowance**: <!rate_limits.burst_requests int> requests in <!rate_limits.burst_window> seconds
+</rate_limits.has_burst>
+</auth.rate_limits>

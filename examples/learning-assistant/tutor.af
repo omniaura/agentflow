@@ -1,0 +1,243 @@
+.title System Prompt
+You are AdaptiveTutor, an AI learning assistant that personalizes education based on student progress, learning style, and current skill level. You provide engaging, interactive lessons with appropriate difficulty scaling.
+
+.title Lesson Introduction
+# 📚 <!subject> Learning Session
+
+Hi <!student.name>! Welcome to your personalized learning session.
+
+## 👤 Your Profile
+- **Current Level**: <!student.level>
+- **Learning Style**: <!student.learning_style>
+- **Progress**: <!student.completion_percentage int>% complete
+- **Streak**: <!student.streak_days int> days 🔥
+
+<?student.preferred_language>
+*Lesson will be delivered in: <!student.preferred_language>*
+</student.preferred_language>
+
+## 🎯 Today's Objective
+**Topic**: <!lesson.topic>
+**Difficulty**: <!lesson.difficulty>/5 ⭐
+
+<?student.level eq "beginner">
+Don't worry if this seems challenging - we'll break everything down into simple, manageable steps!
+</student.level>
+
+<?student.level eq "intermediate">
+You're making great progress! Today we'll build on what you already know and explore some new concepts.
+</student.level>
+
+<?student.level eq "advanced">
+Ready for a challenge? Today's lesson will push your understanding to the next level.
+</student.level>
+
+.title Adaptive Content Delivery
+<?lesson.has_prerequisites bool>
+## 📋 Prerequisites Check
+Before we start, let's make sure you understand these concepts:
+
+<!lesson.prerequisites>
+
+<?student.prerequisites_score int>
+**Your prerequisite score**: <!student.prerequisites_score>/100
+
+<?student.prerequisites_score lt 70>
+🔄 **Recommendation**: Let's do a quick review of the basics first.
+
+### Quick Review Session
+<!lesson.review_content>
+</student.prerequisites_score>
+
+<?student.prerequisites_score gte 90>
+✅ **Excellent!** You're ready for advanced concepts.
+</student.prerequisites_score>
+</student.prerequisites_score>
+</lesson.has_prerequisites>
+
+## 🎓 Lesson Content
+
+<?student.learning_style eq "visual">
+### 📊 Visual Learning Approach
+<!lesson.visual_content>
+
+<?lesson.has_diagrams bool>
+**Interactive Diagrams:**
+<!lesson.diagrams>
+</lesson.has_diagrams>
+
+<?lesson.has_charts bool>
+**Charts & Graphs:**
+<!lesson.charts>
+</lesson.has_charts>
+</student.learning_style>
+
+<?student.learning_style eq "auditory">
+### 🎵 Auditory Learning Approach
+<!lesson.auditory_content>
+
+*💡 Tip: Try reading this lesson out loud or use text-to-speech for better retention!*
+</student.learning_style>
+
+<?student.learning_style eq "kinesthetic">
+### 🛠️ Hands-On Learning Approach
+Let's learn by doing! Here are some interactive exercises:
+
+<!lesson.interactive_exercises>
+
+**Practice Activities:**
+<!lesson.practice_activities>
+</student.learning_style>
+
+## 🧠 Core Concepts
+
+<?lesson.concept_count int>
+We'll cover <!lesson.concept_count> main concepts today:
+
+1. <!concepts.concept_1>
+2. <!concepts.concept_2>
+<?lesson.concept_count gte 3>
+3. <!concepts.concept_3>
+</lesson.concept_count>
+<?lesson.concept_count gte 4>
+4. <!concepts.concept_4>
+</lesson.concept_count>
+<?lesson.concept_count gte 5>
+5. <!concepts.concept_5>
+</lesson.concept_count>
+</lesson.concept_count>
+
+## 💡 Examples
+
+<?student.level eq "beginner">
+### Simple Example
+Let's start with a basic example:
+
+```
+<!examples.basic>
+```
+
+**Explanation**: <!examples.basic_explanation>
+</student.level>
+
+<?student.level eq "intermediate">
+### Practical Example
+Here's a real-world scenario:
+
+```
+<!examples.intermediate>
+```
+
+**Analysis**: <!examples.intermediate_analysis>
+
+**Why this works**: <!examples.intermediate_reasoning>
+</student.level>
+
+<?student.level eq "advanced">
+### Complex Example
+Let's examine an advanced implementation:
+
+```
+<!examples.advanced>
+```
+
+**Deep Dive**: <!examples.advanced_analysis>
+
+**Optimization Opportunities**: <!examples.optimizations>
+</student.level>
+
+.title Interactive Assessment
+## 🎯 Practice Time!
+
+<?assessment.has_quiz bool>
+### Quick Knowledge Check
+
+**Question <!question.number int>**: <!question.text>
+
+<?question.type eq "multiple_choice">
+A) <!question.option_a>
+B) <!question.option_b>
+C) <!question.option_c>
+D) <!question.option_d>
+</question.type>
+
+<?question.type eq "coding">
+**Coding Challenge:**
+```
+<!question.code_template>
+```
+
+**Expected Output**: <!question.expected_output>
+</question.type>
+
+<?question.type eq "explanation">
+**Explain in your own words**: <!question.prompt>
+
+*Hint*: Think about <!question.hint>
+</question.type>
+</assessment.has_quiz>
+
+<?assessment.has_project bool>
+## 🚀 Mini Project
+
+**Project**: <!project.title>
+**Estimated Time**: <!project.estimated_minutes int> minutes
+
+**Requirements**:
+<!project.requirements>
+
+**Starter Code**:
+```<!project.language>
+<!project.starter_code>
+```
+
+<?project.has_bonus bool>
+**Bonus Challenge**: <!project.bonus_challenge>
+</project.has_bonus>
+</assessment.has_project>
+
+.title Progress Tracking
+## 📈 Your Progress
+
+**Lesson Completion**: <!progress.current_lesson int>/<!progress.total_lessons int> lessons
+**Overall Progress**: <!student.completion_percentage>%
+
+<?student.streak_days gte 7>
+🎉 **Amazing!** You're on a <!student.streak_days>-day learning streak!
+
+<?student.streak_days gte 30>
+🏆 **Legendary Learner!** 30+ day streak - you're unstoppable!
+</student.streak_days>
+
+<?progress.struggling_areas>
+### 📝 Areas for Review
+Based on your performance, consider reviewing:
+<!progress.struggling_areas>
+</progress.struggling_areas>
+
+<?progress.strength_areas>
+### 💪 Your Strengths
+You're excelling in:
+<!progress.strength_areas>
+</progress.strength_areas>
+
+## 🎯 Next Steps
+
+<?student.completion_percentage gte 80>
+🎓 **Almost there!** You're ready for the final assessment.
+
+**Next**: <!next_steps.final_assessment>
+</student.completion_percentage>
+
+<?student.completion_percentage lt 80>
+**Next Lesson**: <!next_steps.next_topic>
+**Recommended Study Time**: <!next_steps.study_minutes int> minutes
+
+<?next_steps.has_homework bool>
+**Homework Assignment**: <!next_steps.homework>
+</next_steps.has_homework>
+</student.completion_percentage>
+
+---
+*Keep up the great work, <!student.name>! 🌟*
+*Session completed at: <!session.timestamp>* 

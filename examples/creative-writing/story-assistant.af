@@ -1,0 +1,314 @@
+.title System Prompt
+You are CreativeWriter Pro, a versatile AI writing assistant specializing in storytelling, creative fiction, and narrative development. You adapt your style and guidance based on genre, target audience, and the writer's experience level.
+
+.title Writing Session Introduction
+# ✍️ Creative Writing Session
+
+Welcome back, <!writer.name>! Let's bring your stories to life.
+
+## 👤 Writer Profile
+- **Experience Level**: <!writer.experience>
+- **Preferred Genres**: <!writer.favorite_genres>
+- **Writing Goal**: <!session.goal>
+- **Target Word Count**: <!session.target_words int> words
+
+<?writer.current_streak int>
+🔥 **Writing Streak**: <!writer.current_streak> days! Keep it up!
+
+<?writer.current_streak gte 30>
+🏆 **Master Writer**: 30+ day streak! You're a writing machine!
+</writer.current_streak>
+
+## 📖 Current Project
+**Title**: <!project.title>
+**Genre**: <!project.genre>
+**Target Audience**: <!project.audience>
+**Current Length**: <!project.current_words int> words
+
+<?project.completion_percentage int>
+**Progress**: <!project.completion_percentage>% complete
+
+<?project.completion_percentage gte 75>
+🎉 **Almost there!** You're in the final stretch!
+</project.completion_percentage>
+
+<?project.completion_percentage lt 25>
+🌱 **Just getting started** - The hardest part is behind you!
+</project.completion_percentage>
+</project.completion_percentage>
+
+.title Genre-Specific Guidance
+<?project.genre eq "fantasy">
+## 🧙‍♂️ Fantasy Writing Mode
+
+**World-Building Focus**: <!fantasy.world_complexity>
+**Magic System**: <!fantasy.magic_system>
+**Setting Era**: <!fantasy.time_period>
+
+### Fantasy Elements Checklist:
+- **Creatures**: <!fantasy.creatures>
+- **Locations**: <!fantasy.locations>
+- **Conflicts**: <!fantasy.conflicts>
+
+<?fantasy.has_magic_rules bool>
+### ⚡ Magic System Rules
+<!fantasy.magic_rules>
+
+**Power Limitations**: <!fantasy.magic_limitations>
+**Consequences**: <!fantasy.magic_consequences>
+</fantasy.has_magic_rules>
+
+**Writing Tip**: In fantasy, consistency in world-building is key. Make sure your magic system and world rules stay coherent throughout your story.
+</project.genre>
+
+<?project.genre eq "sci-fi">
+## 🚀 Science Fiction Writing Mode
+
+**Sub-genre**: <!scifi.subgenre>
+**Tech Level**: <!scifi.technology_level>
+**Setting**: <!scifi.setting>
+
+### Sci-Fi Elements:
+- **Technology**: <!scifi.technologies>
+- **Scientific Concepts**: <!scifi.science_focus>
+- **Social Issues**: <!scifi.themes>
+
+<?scifi.has_time_travel bool>
+### ⏰ Time Travel Mechanics
+**Type**: <!scifi.time_travel_type>
+**Rules**: <!scifi.time_travel_rules>
+**Paradox Handling**: <!scifi.paradox_approach>
+</scifi.has_time_travel>
+
+**Writing Tip**: Great sci-fi isn't just about the technology—it's about how that technology affects human relationships and society.
+</project.genre>
+
+<?project.genre eq "mystery">
+## 🔍 Mystery Writing Mode
+
+**Mystery Type**: <!mystery.type>
+**Detective**: <!mystery.protagonist_type>
+**Crime**: <!mystery.crime_type>
+
+### Mystery Structure:
+- **Clues Planted**: <!mystery.clue_count int>/<!mystery.total_clues int>
+- **Red Herrings**: <!mystery.red_herrings int>
+- **Suspects**: <!mystery.suspect_count int>
+
+<?mystery.clue_count lt mystery.total_clues>
+⚠️ **Clue Alert**: You still need to plant <!mystery.remaining_clues int> more clues!
+</mystery.clue_count>
+
+### Current Suspects:
+1. <!mystery.suspect_1> - Motive: <!mystery.motive_1>
+2. <!mystery.suspect_2> - Motive: <!mystery.motive_2>
+3. <!mystery.suspect_3> - Motive: <!mystery.motive_3>
+
+**Writing Tip**: Play fair with your readers—give them all the clues they need to solve the mystery alongside your detective.
+</project.genre>
+
+<?project.genre eq "romance">
+## 💕 Romance Writing Mode
+
+**Romance Type**: <!romance.subgenre>
+**Heat Level**: <!romance.heat_level>
+**Trope**: <!romance.main_trope>
+
+### Character Development:
+- **Protagonist**: <!romance.protagonist_name>
+- **Love Interest**: <!romance.love_interest_name>
+- **Meet-Cute**: <!romance.meet_cute>
+
+<?romance.conflict_type>
+### Central Conflict
+**Type**: <!romance.conflict_type>
+**Source**: <!romance.conflict_source>
+**Resolution Strategy**: <!romance.resolution_approach>
+</romance.conflict_type>
+
+**Writing Tip**: Great romance is built on emotional truth. Make sure both characters grow and change through their relationship.
+</project.genre>
+
+.title Character Development Workshop
+## 👥 Character Analysis
+
+<?characters.main_character>
+### Protagonist: <!characters.main_character.name>
+
+**Archetype**: <!characters.main_character.archetype>
+**Fatal Flaw**: <!characters.main_character.flaw>
+**Deepest Desire**: <!characters.main_character.desire>
+**Growth Arc**: <!characters.main_character.arc>
+
+<?characters.main_character.backstory_complete bool>
+✅ **Backstory Complete**: Well-developed background
+</characters.main_character.backstory_complete>
+
+<?characters.main_character.needs_development bool>
+🔧 **Development Needed**: Character needs more depth in: <!characters.main_character.weak_areas>
+</characters.main_character.needs_development>
+</characters.main_character>
+
+<?characters.antagonist>
+### Antagonist: <!characters.antagonist.name>
+
+**Type**: <!characters.antagonist.type>
+**Motivation**: <!characters.antagonist.motivation>
+**Methods**: <!characters.antagonist.methods>
+
+<?characters.antagonist.sympathetic bool>
+💡 **Sympathetic Villain**: Your antagonist has relatable motivations - this adds depth!
+</characters.antagonist.sympathetic>
+
+**Conflict Style**: <!characters.antagonist.conflict_style>
+</characters.antagonist>
+
+<?characters.supporting_cast int>
+### Supporting Characters (<!characters.supporting_cast> total)
+
+<?characters.supporting_cast gt 5>
+⚠️ **Character Overload**: You have many supporting characters. Make sure each serves a unique purpose!
+</characters.supporting_cast>
+
+**Key Supporting Roles**:
+- <!characters.support_1.name>: <!characters.support_1.role>
+- <!characters.support_2.name>: <!characters.support_2.role>
+- <!characters.support_3.name>: <!characters.support_3.role>
+</characters.supporting_cast>
+
+.title Plot Structure Analysis
+## 📊 Story Structure
+
+**Structure Type**: <!plot.structure_type>
+**Current Act**: <!plot.current_act int>/<!plot.total_acts int>
+
+### Plot Points Checklist:
+<?plot.inciting_incident bool>
+✅ **Inciting Incident**: Completed
+</plot.inciting_incident>
+
+<?plot.first_plot_point bool>
+✅ **First Plot Point**: Completed  
+</plot.first_plot_point>
+
+<?plot.midpoint bool>
+✅ **Midpoint**: Completed
+</plot.midpoint>
+
+<?plot.climax bool>
+✅ **Climax**: Completed
+</plot.climax>
+
+<?plot.resolution bool>
+✅ **Resolution**: Completed
+</plot.resolution>
+
+### Pacing Analysis
+**Current Pace**: <!plot.pacing>
+**Tension Level**: <!plot.tension_level int>/10
+
+<?plot.tension_level lt 4>
+📈 **Pacing Note**: Consider adding more conflict or stakes to increase tension.
+</plot.tension_level>
+
+<?plot.tension_level gt 8>
+⚠️ **High Intensity**: Make sure to give readers breathing room between intense scenes.
+</plot.tension_level>
+
+## 🎯 Scene Goals
+
+**Today's Scene**: <!scene.description>
+**Purpose**: <!scene.purpose>
+**POV Character**: <!scene.pov_character>
+**Setting**: <!scene.location>
+
+### Scene Objectives:
+1. **Plot Advancement**: <!scene.plot_goal>
+2. **Character Development**: <!scene.character_goal>
+3. **Emotional Beat**: <!scene.emotional_goal>
+
+<?scene.has_conflict bool>
+✅ **Conflict Present**: Good! Every scene needs tension.
+**Conflict Type**: <!scene.conflict_type>
+</scene.has_conflict>
+
+.title Writing Productivity Dashboard
+## 📈 Writing Metrics
+
+**Today's Goal**: <!session.daily_goal int> words
+**Current Progress**: <!session.words_written int> words (<!session.progress_percentage int>%)
+
+<?session.progress_percentage gte 100>
+🎉 **Goal Achieved!** Fantastic work today!
+
+<?session.bonus_words int>
+**Bonus Words**: +<!session.bonus_words> words over your goal!
+</session.bonus_words>
+</session.progress_percentage>
+
+<?session.progress_percentage lt 50>
+💪 **Keep Going**: You're halfway to your goal! 
+
+**Motivational Tip**: <!motivation.tip>
+</session.progress_percentage>
+
+### Writing Statistics:
+- **Writing Speed**: <!stats.words_per_minute int> words/minute
+- **Session Duration**: <!stats.session_minutes int> minutes
+- **Break Time**: <!stats.break_minutes int> minutes
+
+<?stats.writing_speed_trend>
+**Speed Trend**: <!stats.writing_speed_trend> (compared to last week)
+</stats.writing_speed_trend>
+
+## 🎨 Writing Prompts & Inspiration
+
+<?prompts.has_custom bool>
+### Personalized Prompt for You:
+<!prompts.custom_prompt>
+
+**Why this fits your style**: <!prompts.custom_reason>
+</prompts.has_custom>
+
+<?prompts.general_suggestions>
+### General Writing Exercises:
+- **Character Exercise**: <!prompts.character_exercise>
+- **Dialogue Challenge**: <!prompts.dialogue_challenge>
+- **World-Building**: <!prompts.worldbuilding_prompt>
+</prompts.general_suggestions>
+
+## 🔧 Writing Tools & Tips
+
+<?tools.grammar_check bool>
+📝 **Grammar Assistant**: Available - Run a quick check before finishing your session.
+</tools.grammar_check>
+
+<?tools.research_needed bool>
+🔍 **Research Reminder**: Don't forget to research: <!tools.research_topics>
+</tools.research_needed>
+
+<?writer.experience eq "beginner">
+### Beginner Writer Tips:
+- Write first, edit later
+- Don't worry about perfection in your first draft
+- Read extensively in your chosen genre
+- Join a writing community for support
+
+**Today's Focus**: <!tips.beginner_focus>
+</writer.experience>
+
+<?writer.experience eq "advanced">
+### Advanced Techniques:
+- Experiment with unreliable narrators
+- Layer multiple subplots effectively
+- Master show vs. tell
+- Develop your unique voice
+
+**Challenge**: <!tips.advanced_challenge>
+</writer.experience>
+
+---
+**Session Time**: <!session.start_time> - <!session.end_time>
+**Next Session Goal**: <!session.next_goal>
+
+*Keep writing, <!writer.name>! Your story is waiting to be told. 📚✨* 

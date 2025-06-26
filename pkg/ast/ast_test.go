@@ -143,17 +143,18 @@ func TestGetInputs(t *testing.T) {
 				TopLevel: []ast.InputNode{
 					{
 						Name: []byte("User"),
+						Type: "struct",
 						Subnodes: []ast.InputNode{
-							{Name: []byte("Name")},
-							{Name: []byte("Email")},
-							{Name: []byte("Age")},
-							{Name: []byte("Subscription"), Subnodes: []ast.InputNode{
-								{Name: []byte("Plan")},
-								{Name: []byte("Status")},
+							{Name: []byte("Name"), Type: "string"},
+							{Name: []byte("Email"), Type: "string"},
+							{Name: []byte("Age"), Type: "string"},
+							{Name: []byte("Subscription"), Type: "struct", Subnodes: []ast.InputNode{
+								{Name: []byte("Plan"), Type: "string"},
+								{Name: []byte("Status"), Type: "string"},
 							}},
 						},
 					},
-					{Name: []byte("Message")},
+					{Name: []byte("Message"), Type: "string"},
 				},
 			},
 			content: []byte("<!user.name> <!user.email> <!user.age> <!message> <!user.subscription.plan> <!user.subscription.status>"),
@@ -168,7 +169,6 @@ func TestGetInputs(t *testing.T) {
 			ii, err := f.Prompts[0].GetInputs(tc.content, tc.c)
 			require.NoError(t, err)
 			require.Equal(t, tc.want, ii)
-			t.Logf("got:\n%s", ii.String())
 		})
 	}
 }
