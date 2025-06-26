@@ -4,17 +4,17 @@ package ditto
 
 import "strings"
 
-type SystemPrompt struct {}
+type SystemPrompt struct{}
 
 func (input *SystemPrompt) String() string {
 	return `You are a friendly AI named Ditto here to help the user who is your best friend.`
 }
 
 type MainChatTemplate struct {
-	Tools string
+	Tools    string
 	Examples string
-	Memory struct {
-		Long string
+	Memory   struct {
+		Long  string
 		Short string
 	}
 	Script struct {
@@ -22,7 +22,7 @@ type MainChatTemplate struct {
 		Type string
 	}
 	User struct {
-		Name string
+		Name   string
 		Prompt string
 	}
 	CurrentTime string

@@ -23,7 +23,7 @@ This prompt uses the technique.
 }
 
 type CreateTitle struct {
-	UserName string
+	UserName      string
 	MessageThread string
 }
 
@@ -41,7 +41,7 @@ title: `)
 }
 
 type ChatWithUser struct {
-	AiName string
+	AiName        string
 	MessageThread string
 }
 
@@ -61,11 +61,11 @@ func (input *ChatWithUser) String() string {
 }
 
 type ExampleWithManyVariables struct {
-	UserName string
+	UserName      string
 	MessageThread string
-	AiName string
-	Title string
-	MaxLineLen string
+	AiName        string
+	Title         string
+	MaxLineLen    string
 	MoreVariables string
 }
 
@@ -122,7 +122,7 @@ The user's email is `)
 
 type ConditionalWithElse struct {
 	User struct {
-		Premium string
+		Premium      string
 		Subscription struct {
 			Tier string
 		}

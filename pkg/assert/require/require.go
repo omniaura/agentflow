@@ -61,13 +61,13 @@ func WantGot(sb *strings.Builder, want, got any) {
 	if s, ok := want.(fmt.Stringer); ok {
 		sb.WriteString(s.String())
 	} else {
-		sb.WriteString(fmt.Sprintf("%+v", want))
+		fmt.Fprintf(sb, "%+v", want)
 	}
 	sb.WriteString("\n\x1b[1mGOT:\x1b[0m\n")
 	if s, ok := got.(fmt.Stringer); ok {
 		sb.WriteString(s.String())
 	} else {
-		sb.WriteString(fmt.Sprintf("%+v", got))
+		fmt.Fprintf(sb, "%+v", got)
 	}
 }
 
@@ -77,7 +77,7 @@ func WantGotBoldQuotes(sb *strings.Builder, want, got any) {
 	if s, ok := want.(fmt.Stringer); ok {
 		sb.WriteString(s.String())
 	} else {
-		sb.WriteString(fmt.Sprintf("%+v", want))
+		fmt.Fprintf(sb, "%+v", want)
 	}
 	sb.WriteString("\x1b[1m|\x1b[0m")
 	sb.WriteString("\n\x1b[1mGOT:\x1b[0m\n")
@@ -85,7 +85,7 @@ func WantGotBoldQuotes(sb *strings.Builder, want, got any) {
 	if s, ok := got.(fmt.Stringer); ok {
 		sb.WriteString(s.String())
 	} else {
-		sb.WriteString(fmt.Sprintf("%+v", got))
+		fmt.Fprintf(sb, "%+v", got)
 	}
 	sb.WriteString("\x1b[1m|\x1b[0m")
 }

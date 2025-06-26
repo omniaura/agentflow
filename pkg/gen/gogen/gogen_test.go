@@ -16,6 +16,7 @@ limitations under the License.
 package gogen_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -37,64 +38,29 @@ type TestCase struct {
 	Name     string
 	Filename string
 	Content  string
-	Want     string
 }
 
 func TestGenerate(t *testing.T) {
 	cases := []TestCase{
 		{
-			Name:     "no vars no title",
+			Name:     "no_vars_no_title",
 			Filename: "no_vars_no_title.af",
 			Content:  testdata.NoVarsNoTitle,
-			Want: "package novarsnotitle\n\n" +
-				"func NoVarsNoTitle() string {\n" +
-				"\treturn `say hello to the user!`\n}\n",
 		},
 		{
-			Name:     "single prompt",
+			Name:     "single_prompt",
 			Filename: "hello1.af",
 			Content:  testdata.OneVarNoTitle,
-			Want: "package hello1\n\n" +
-				"import \"strings\"\n\n" +
-				"func Hello1(username string) string {\n" +
-				"\tvar b strings.Builder\n" +
-				"\tb.Grow(13 + len(username))\n" +
-				"\tb.WriteString(`say hello to `)\n" +
-				"\tb.WriteString(username)\n" +
-				"\treturn b.String()\n}\n",
 		},
 		{
-			Name:     "single prompt with title",
+			Name:     "single_prompt_with_title",
 			Filename: "hello2.af",
 			Content:  testdata.OneVarWithTitle,
-			Want: "package hello2\n\n" +
-				"import \"strings\"\n\n" +
-				"func HelloUser(username string) string {\n" +
-				"\tvar b strings.Builder\n" +
-				"\tb.Grow(13 + len(username))\n" +
-				"\tb.WriteString(`say hello to `)\n" +
-				"\tb.WriteString(username)\n" +
-				"\treturn b.String()\n}\n",
 		},
 		{
-			Name:     "two prompts with titles",
+			Name:     "two_prompts_with_titles",
 			Filename: "hello3.af",
 			Content:  testdata.TwoPromptsWithVars,
-			Want: "package hello3\n\n" +
-				"import \"strings\"\n\n" +
-				"func HelloUser(username string) string {\n" +
-				"\tvar b strings.Builder\n" +
-				"\tb.Grow(13 + len(username))\n" +
-				"\tb.WriteString(`say hello to `)\n" +
-				"\tb.WriteString(username)\n" +
-				"\treturn b.String()\n}\n" +
-				"\n" +
-				"func GoodbyeUser(username string) string {\n" +
-				"\tvar b strings.Builder\n" +
-				"\tb.Grow(15 + len(username))\n" +
-				"\tb.WriteString(`say goodbye to `)\n" +
-				"\tb.WriteString(username)\n" +
-				"\treturn b.String()\n}\n",
 		},
 	}
 	for _, tc := range cases {
@@ -104,10 +70,16 @@ func TestGenerate(t *testing.T) {
 			var buf strings.Builder
 			gogen.GenFile(&buf, file)
 			got := buf.String()
-			if got != tc.Want {
+
+			goldenPath := "testdata/" + tc.Name + ".golden.go"
+			wantBytes, err := os.ReadFile(goldenPath)
+			require.NoError(t, err)
+			want := string(wantBytes)
+
+			if got != want {
 				var sb strings.Builder
 				sb.WriteRune('\n')
-				require.WantGotBoldQuotes(&sb, tc.Want, got)
+				require.WantGotBoldQuotes(&sb, want, got)
 				t.Error(sb.String())
 			}
 		})

@@ -4,7 +4,7 @@ package hellowithoutnewlines
 
 import "strings"
 
-type SystemPrompt struct {}
+type SystemPrompt struct{}
 
 func (input *SystemPrompt) String() string {
 	return `You are HelloBot, a simple assistant that loves to say hello to users.
