@@ -27,7 +27,7 @@ create-version TAG:
     set -e
     TAGVAR={{TAG}}
     TAGTRIM=${TAGVAR#v}
-    sed -i '' "s/Version:.*\".*\"/Version:          \"$TAGTRIM\"/" cmd/af/main.go
+    sed -i '' "s/var Version = \".*\"/var Version = \"$TAGTRIM\"/" cfg/cfg.go
     git add .
     git commit -m "Update version to {{TAG}}"
     git push origin main
@@ -42,3 +42,6 @@ merge-dependabot:
 lint:
     go fmt ./...
     go vet ./...
+
+generate:
+    go generate ./...

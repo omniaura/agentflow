@@ -137,16 +137,20 @@ func (i InputStruct) String() string {
 
 type InputNode struct {
 	Name     []byte
+	Type     string // New: type of the variable ("string", "int", "bool", etc.)
 	Subnodes []InputNode
 }
 
 func (n InputNode) Equal(other InputNode) bool {
-	return bytes.Equal(n.Name, other.Name) && slices.EqualFunc(n.Subnodes, other.Subnodes, InputNode.Equal)
+	return bytes.Equal(n.Name, other.Name) && n.Type == other.Type && slices.EqualFunc(n.Subnodes, other.Subnodes, InputNode.Equal)
 }
 
 func (n InputNode) String() string {
 	if len(n.Subnodes) == 0 {
-		return "string"
+		if n.Type == "" {
+			return "string"
+		}
+		return n.Type
 	}
 
 	var buf strings.Builder
@@ -162,43 +166,73 @@ func (n InputNode) String() string {
 	return buf.String()
 }
 
+// Helper to parse variable path and type from a tag like "user.subscription.tier int"
+func parseVarAndType(tag []byte) (path [][]byte, typ string) {
+	parts := bytes.Fields(tag)
+	if len(parts) == 0 {
+		return nil, ""
+	}
+	path = bytes.Split(parts[0], []byte{'.'})
+	if len(parts) > 1 {
+		typ = string(parts[1])
+	}
+	return
+}
+
 func (ii *InputStruct) insertVar(node token.T, content []byte, c caseconv.Case) {
-	name := bytes.Split(node.Get(content), []byte{'.'})
-	nn := c.BytCase(name[0])
+	path, typ := parseVarAndType(node.Get(content))
+	if len(path) == 0 {
+		return
+	}
+	nn := c.BytCase(path[0])
 	idx := slices.IndexFunc(ii.TopLevel, func(n InputNode) bool {
 		return bytes.Equal(n.Name, nn)
 	})
 	if idx == -1 {
-		ii.TopLevel = append(ii.TopLevel, InputNode{
-			Name: nn,
-		})
+		newNode := InputNode{Name: nn}
+		if len(path) == 1 {
+			newNode.Type = typ
+		}
+		ii.TopLevel = append(ii.TopLevel, newNode)
 		idx = len(ii.TopLevel) - 1
 	}
-	if len(name) == 1 {
+	if len(path) == 1 {
+		// Set type if not struct
+		ii.TopLevel[idx].Type = typ
+		// If not struct, clear subnodes
+		if typ != "struct" {
+			ii.TopLevel[idx].Subnodes = nil
+		}
 		return
 	}
-	ii.TopLevel[idx].insertMultiLevelVar(name[1:], c)
+	ii.TopLevel[idx].insertMultiLevelVar(path[1:], typ, c)
 }
 
-func (n *InputNode) insertMultiLevelVar(name [][]byte, c caseconv.Case) {
-	if len(name) == 0 {
+func (n *InputNode) insertMultiLevelVar(path [][]byte, typ string, c caseconv.Case) {
+	if len(path) == 0 {
 		slog.Debug("0 len name reached")
 		return
 	}
-	nn := c.BytCase(name[0])
+	nn := c.BytCase(path[0])
 	idx := slices.IndexFunc(n.Subnodes, func(n InputNode) bool {
 		return bytes.Equal(n.Name, nn)
 	})
 	if idx == -1 {
-		n.Subnodes = append(n.Subnodes, InputNode{
-			Name: nn,
-		})
+		newNode := InputNode{Name: nn}
+		if len(path) == 1 {
+			newNode.Type = typ
+		}
+		n.Subnodes = append(n.Subnodes, newNode)
 		idx = len(n.Subnodes) - 1
 	}
-	if len(name) == 1 {
+	if len(path) == 1 {
+		n.Subnodes[idx].Type = typ
+		if typ != "struct" {
+			n.Subnodes[idx].Subnodes = nil
+		}
 		return
 	}
-	n.Subnodes[idx].insertMultiLevelVar(name[1:], c)
+	n.Subnodes[idx].insertMultiLevelVar(path[1:], typ, c)
 }
 
 func (p Prompt) GetInputs(content []byte, c caseconv.Case) (ii InputStruct, err error) {

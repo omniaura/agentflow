@@ -147,6 +147,8 @@ func Tokenize(input []byte) (Slice, error) {
 				ct.Kind = kind.OptionalBlock
 			case '/':
 				ct.Kind = kind.EndTag
+			case 'e':
+				ct.Kind = kind.ElseBlock
 			}
 			ct.Start = i + 2
 		}
@@ -222,4 +224,29 @@ func (s Slice) Stringify(in []byte) string {
 		}
 	}
 	return buf.String()
+}
+
+// VarInfo holds the parsed variable path and type from a var token
+// Path is the dot-separated path as a slice of []byte (e.g. ["user", "subscription", "tier"])
+// Type is the type string (e.g. "string", "int", "bool")
+type VarInfo struct {
+	Path [][]byte
+	Type string
+}
+
+// GetVar parses the variable name and type from a var token
+func (t T) GetVar(in []byte) VarInfo {
+	b := in[t.Start:t.End]
+	parts := bytes.Fields(b)
+	var path [][]byte
+	var typ string
+	if len(parts) > 0 {
+		path = bytes.Split(parts[0], []byte{'.'})
+	}
+	if len(parts) > 1 {
+		typ = string(parts[1])
+	} else {
+		typ = "string"
+	}
+	return VarInfo{Path: path, Type: typ}
 }

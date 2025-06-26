@@ -17,6 +17,7 @@ package gogen_test
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,7 +26,6 @@ import (
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
 	"github.com/omniaura/agentflow/pkg/logger"
-	"github.com/omniaura/agentflow/tests/testdata"
 )
 
 func TestMain(m *testing.M) {
@@ -34,48 +34,44 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-type TestCase struct {
-	Name     string
-	Filename string
-	Content  string
-}
-
 func TestGenerate(t *testing.T) {
-	cases := []TestCase{
-		{
-			Name:     "no_vars_no_title",
-			Filename: "no_vars_no_title.af",
-			Content:  testdata.NoVarsNoTitle,
-		},
-		{
-			Name:     "single_prompt",
-			Filename: "hello1.af",
-			Content:  testdata.OneVarNoTitle,
-		},
-		{
-			Name:     "single_prompt_with_title",
-			Filename: "hello2.af",
-			Content:  testdata.OneVarWithTitle,
-		},
-		{
-			Name:     "two_prompts_with_titles",
-			Filename: "hello3.af",
-			Content:  testdata.TwoPromptsWithVars,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.Name, func(t *testing.T) {
-			file, err := ast.NewFile(tc.Filename, []byte(tc.Content))
+	testdataDir := "testdata"
+
+	// Walk the testdata directory to find all test cases
+	entries, err := os.ReadDir(testdataDir)
+	require.NoError(t, err)
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		testCaseName := entry.Name()
+		t.Run(testCaseName, func(t *testing.T) {
+			testCaseDir := filepath.Join(testdataDir, testCaseName)
+
+			// Read input file
+			inputPath := filepath.Join(testCaseDir, "input.golden.af")
+			inputBytes, err := os.ReadFile(inputPath)
 			require.NoError(t, err)
+
+			// Create AST file with the test case name as filename
+			filename := testCaseName + ".af"
+			file, err := ast.NewFile(filename, inputBytes)
+			require.NoError(t, err)
+
+			// Generate output
 			var buf strings.Builder
 			gogen.GenFile(&buf, file)
 			got := buf.String()
 
-			goldenPath := "testdata/" + tc.Name + ".golden.go"
-			wantBytes, err := os.ReadFile(goldenPath)
+			// Read expected output
+			outputPath := filepath.Join(testCaseDir, "output.golden.go")
+			wantBytes, err := os.ReadFile(outputPath)
 			require.NoError(t, err)
 			want := string(wantBytes)
 
+			// Compare
 			if got != want {
 				var sb strings.Builder
 				sb.WriteRune('\n')

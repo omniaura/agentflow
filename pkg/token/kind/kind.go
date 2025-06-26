@@ -1,6 +1,6 @@
 package kind
 
-//go:generate stringer -type=Kind
+//go:generate go tool stringer -type=Kind
 
 type Kind int
 
@@ -26,6 +26,7 @@ const (
 	Unset Kind = iota
 	EndTag
 	OptionalBlock
+	ElseBlock
 	Title
 	Text
 	// TODO: add var parameters
@@ -50,6 +51,7 @@ func (k Kind) IsTag() bool {
 	case
 		Var,
 		OptionalBlock,
+		ElseBlock,
 		EndTag:
 		return true
 	}

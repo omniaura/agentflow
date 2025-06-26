@@ -11,15 +11,16 @@ func _() {
 	_ = x[Unset-0]
 	_ = x[EndTag-1]
 	_ = x[OptionalBlock-2]
-	_ = x[Title-3]
-	_ = x[Text-4]
-	_ = x[Var-5]
-	_ = x[RawBlock-6]
+	_ = x[ElseBlock-3]
+	_ = x[Title-4]
+	_ = x[Text-5]
+	_ = x[Var-6]
+	_ = x[RawBlock-7]
 }
 
-const _Kind_name = "UnsetEndTagOptionalBlockTitleTextVarRawBlock"
+const _Kind_name = "UnsetEndTagOptionalBlockElseBlockTitleTextVarRawBlock"
 
-var _Kind_index = [...]uint8{0, 5, 11, 24, 29, 33, 36, 44}
+var _Kind_index = [...]uint8{0, 5, 11, 24, 33, 38, 42, 45, 53}
 
 func (i Kind) String() string {
 	if i < 0 || i >= Kind(len(_Kind_index)-1) {

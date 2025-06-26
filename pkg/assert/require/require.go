@@ -18,6 +18,7 @@ package require
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -28,15 +29,26 @@ type Equaler[T any] interface {
 
 func EqualErr(t *testing.T, want, got error) {
 	if !errors.Is(want, got) {
-		t.Fatalf("expected %v, got %v", want, got)
+		// Get caller info for clickable file:line
+		_, file, line, ok := runtime.Caller(1)
+		if ok {
+			t.Fatalf("%s:%d: expected %v, got %v", file, line, want, got)
+		} else {
+			t.Fatalf("expected %v, got %v", want, got)
+		}
 	}
 }
 
 func Equal[T Equaler[T]](t *testing.T, want, got T) {
 	if !want.Equal(got) {
 		var sb strings.Builder
+		// Get caller info for clickable file:line
+		_, file, line, ok := runtime.Caller(1)
+		if ok {
+			sb.WriteString(fmt.Sprintf("%s:%d: ", file, line))
+		}
 		sb.WriteString("Should equal:\n")
-		WantGot(&sb, want, got)
+		WantGotDiff(&sb, want, got)
 		t.Fatal(sb.String())
 	}
 }
@@ -44,15 +56,81 @@ func Equal[T Equaler[T]](t *testing.T, want, got T) {
 func NotEqual[T Equaler[T]](t *testing.T, want, got T) {
 	if want.Equal(got) {
 		var sb strings.Builder
+		// Get caller info for clickable file:line
+		_, file, line, ok := runtime.Caller(1)
+		if ok {
+			sb.WriteString(fmt.Sprintf("%s:%d: ", file, line))
+		}
 		sb.WriteString("Should not equal:\n")
-		WantGot(&sb, want, got)
+		WantGotDiff(&sb, want, got)
 		t.Fatal(sb.String())
 	}
 }
 
 func NoError(t *testing.T, err error) {
 	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
+		// Get caller info for clickable file:line
+		_, file, line, ok := runtime.Caller(1)
+		if ok {
+			t.Fatalf("%s:%d: expected no error, got %v", file, line, err)
+		} else {
+			t.Fatalf("expected no error, got %v", err)
+		}
+	}
+}
+
+// makeWhitespaceVisible replaces whitespace characters with visible representations
+func makeWhitespaceVisible(s string) string {
+	s = strings.ReplaceAll(s, " ", "·")
+	s = strings.ReplaceAll(s, "\t", "→")
+	s = strings.ReplaceAll(s, "\n", "↵\n")
+	s = strings.ReplaceAll(s, "\r", "⤴")
+	return s
+}
+
+// WantGotDiff shows a diff-style comparison with visible whitespace
+func WantGotDiff(sb *strings.Builder, want, got any) {
+	var wantStr, gotStr string
+	if s, ok := want.(fmt.Stringer); ok {
+		wantStr = s.String()
+	} else {
+		wantStr = fmt.Sprintf("%+v", want)
+	}
+	if s, ok := got.(fmt.Stringer); ok {
+		gotStr = s.String()
+	} else {
+		gotStr = fmt.Sprintf("%+v", got)
+	}
+
+	wantLines := strings.Split(wantStr, "\n")
+	gotLines := strings.Split(gotStr, "\n")
+
+	sb.WriteString("\n\x1b[1mDIFF:\x1b[0m\n")
+
+	maxLines := len(wantLines)
+	if len(gotLines) > maxLines {
+		maxLines = len(gotLines)
+	}
+
+	for i := 0; i < maxLines; i++ {
+		var wantLine, gotLine string
+		if i < len(wantLines) {
+			wantLine = wantLines[i]
+		}
+		if i < len(gotLines) {
+			gotLine = gotLines[i]
+		}
+
+		if wantLine == gotLine {
+			sb.WriteString(fmt.Sprintf("  %s\n", makeWhitespaceVisible(wantLine)))
+		} else {
+			if wantLine != "" {
+				sb.WriteString(fmt.Sprintf("\x1b[31m- %s\x1b[0m\n", makeWhitespaceVisible(wantLine)))
+			}
+			if gotLine != "" {
+				sb.WriteString(fmt.Sprintf("\x1b[32m+ %s\x1b[0m\n", makeWhitespaceVisible(gotLine)))
+			}
+		}
 	}
 }
 
