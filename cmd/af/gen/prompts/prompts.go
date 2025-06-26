@@ -39,7 +39,7 @@ func flags(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().StringVarP(&Dir,
 		"dir", "d", ".", "Directory to read .af files from. Defaults to current directory.")
 	cmd.Flags().StringVarP(&Lang,
-		"lang", "l", "go", "Language to generate prompts for. Defaults to go.")
+		"lang", "l", "go", "Language to generate prompts for. Only 'go' is supported.")
 	return cmd
 }
 
