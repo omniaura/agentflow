@@ -26,9 +26,6 @@ import (
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
-	"github.com/omniaura/agentflow/pkg/gen/js"
-	"github.com/omniaura/agentflow/pkg/gen/py"
-	"github.com/omniaura/agentflow/pkg/gen/ts"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 )
@@ -42,15 +39,15 @@ func flags(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().StringVarP(&Dir,
 		"dir", "d", ".", "Directory to read .af files from. Defaults to current directory.")
 	cmd.Flags().StringVarP(&Lang,
-		"lang", "l", "py", "Language to generate prompts for. Defaults to py.")
+		"lang", "l", "go", "Language to generate prompts for. Defaults to go.")
 	return cmd
 }
 
 func CMD() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "prompts",
-		Short: "Generate prompts for specified languages",
-		Long: `Generate prompts for specified languages from .af files in the input directory.
+		Short: "Generate Go prompts",
+		Long: `Generate Go prompts from .af files in the input directory.
 The generated prompts will be written next to their corresponding .af files.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
@@ -103,16 +100,10 @@ The generated prompts will be written next to their corresponding .af files.`,
 
 					var genErr error
 					switch Lang {
-					case "py":
-						genErr = py.GenFile(outFile, ff)
-					case "js":
-						genErr = js.GenFile(outFile, ff)
-					case "ts":
-						genErr = ts.GenFile(outFile, ff)
 					case "go":
 						genErr = gogen.GenFile(outFile, ff)
 					default:
-						return fmt.Errorf("unsupported language: %s", Lang)
+						return fmt.Errorf("unsupported language: %s (only 'go' is supported)", Lang)
 					}
 
 					if genErr != nil {
