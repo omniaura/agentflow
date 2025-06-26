@@ -101,11 +101,15 @@ func GenFile(w io.Writer, f ast.File) error {
 	for _, p := range f.Prompts {
 		typeCache := make(map[string]string)
 		for _, t := range p.Nodes {
-			if t.Kind == kind.Var || t.Kind == kind.OptionalBlock {
+			switch t.Kind {
+			case kind.Var:
 				vi := t.GetVar(f.Content, typeCache)
-				if vi.Type == "int" || vi.Type == "bool" {
+				switch vi.Type {
+				case "int", "bool", "float32", "float64":
 					imports["strconv"] = true
 				}
+				fallthrough
+			case kind.OptionalBlock:
 				imports["strings"] = true
 			}
 		}
