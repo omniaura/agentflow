@@ -5,5 +5,5 @@ package novarsnotitle
 type NoVarsNoTitle struct{}
 
 func (input *NoVarsNoTitle) String() string {
-	return `say hello to the user!`
+	return "say hello to the user!"
 }

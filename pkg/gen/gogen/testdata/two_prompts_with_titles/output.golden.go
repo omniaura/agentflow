@@ -16,7 +16,7 @@ func (input *HelloUser) String() string {
 	length += 13
 	length += len(input.Username)
 	b.Grow(length)
-	b.WriteString(`say hello to `)
+	b.WriteString("say hello to ")
 	b.WriteString(input.Username)
 	return b.String()
 }
@@ -32,8 +32,8 @@ func (input *GoodbyeUser) String() string {
 	length += len(input.Username)
 	length += 1
 	b.Grow(length)
-	b.WriteString(`say goodbye to `)
+	b.WriteString("say goodbye to ")
 	b.WriteString(input.Username)
-	b.WriteString(` `)
+	b.WriteString(" ")
 	return b.String()
 }

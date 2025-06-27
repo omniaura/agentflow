@@ -10,7 +10,7 @@ import (
 type ApiDocumentationGenerator struct{}
 
 func (input *ApiDocumentationGenerator) String() string {
-	return `You are APIDocBot, an intelligent documentation generator that creates comprehensive, up-to-date API documentation with interactive examples, versioning support, and developer-friendly formatting.`
+	return "You are APIDocBot, an intelligent documentation generator that creates comprehensive, up-to-date API documentation with interactive examples, versioning support, and developer-friendly formatting."
 }
 
 type ApiOverview struct {
@@ -113,9 +113,11 @@ func (input *ApiOverview) isRateLimitsZero() bool {
 
 func (input *ApiOverview) String() string {
 	var b strings.Builder
-	var0 := strconv.Itoa(input.RateLimits.StandardRequests)
-	var1 := strconv.Itoa(input.RateLimits.PremiumRequests)
-	var2 := strconv.Itoa(input.RateLimits.BurstRequests)
+	var0 := strconv.FormatBool(input.Auth.Required)
+	var1 := strconv.FormatBool(input.Auth.HasScopes)
+	var2 := strconv.Itoa(input.RateLimits.StandardRequests)
+	var3 := strconv.Itoa(input.RateLimits.PremiumRequests)
+	var4 := strconv.Itoa(input.RateLimits.BurstRequests)
 	length := 0
 	length += 7
 	length += len(input.Api.Name)
@@ -172,7 +174,7 @@ func (input *ApiOverview) String() string {
 	length += 36
 	length += len(input.Auth.Type)
 	length += 15
-	length += 5
+	length += len(var0)
 	length += 2
 	if input.Auth.Type == "bearer" {
 		length += 176
@@ -196,7 +198,7 @@ func (input *ApiOverview) String() string {
 			length += 1
 		} else {
 			length += 13
-			length += 5
+			length += len(var1)
 			length += 1
 		}
 		length += 1
@@ -214,17 +216,17 @@ func (input *ApiOverview) String() string {
 	length += 2
 	if input.Auth.RateLimits {
 		length += 41
-		length += len(var0)
+		length += len(var2)
 		length += 10
 		length += len(input.RateLimits.StandardWindow)
 		length += 19
-		length += len(var1)
+		length += len(var3)
 		length += 10
 		length += len(input.RateLimits.PremiumWindow)
 		length += 165
 		if input.RateLimits.HasBurst {
 			length += 22
-			length += len(var2)
+			length += len(var4)
 			length += 13
 			length += len(input.RateLimits.BurstWindow)
 			length += 9
@@ -233,119 +235,73 @@ func (input *ApiOverview) String() string {
 	}
 	length += 1
 	b.Grow(length)
-	b.WriteString(`# 📡 `)
+	b.WriteString("# 📡 ")
 	b.WriteString(input.Api.Name)
-	b.WriteString(` API Documentation
-
-**Version**: `)
+	b.WriteString(" API Documentation\n\n**Version**: ")
 	b.WriteString(input.Api.Version)
 	b.WriteString("\n**Base URL**: `")
 	b.WriteString(input.Api.BaseUrl)
 	b.WriteString("`\n**Protocol**: ")
 	b.WriteString(input.Api.Protocol)
-	b.WriteString(`
-**Authentication**: `)
+	b.WriteString("\n**Authentication**: ")
 	b.WriteString(input.Api.AuthType)
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Api.Deprecated {
-		b.WriteString(`
-⚠️ **DEPRECATED API**: This API version is deprecated. Please migrate to version `)
+		b.WriteString("\n⚠️ **DEPRECATED API**: This API version is deprecated. Please migrate to version ")
 		b.WriteString(input.Api.ReplacementVersion)
-		b.WriteString(`.
-**Sunset Date**: `)
+		b.WriteString(".\n**Sunset Date**: ")
 		b.WriteString(input.Api.SunsetDate)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Api.Beta {
-		b.WriteString(`
-🧪 **BETA API**: This API is in beta. Features may change without notice.
-**Stability**: `)
+		b.WriteString("\n🧪 **BETA API**: This API is in beta. Features may change without notice.\n**Stability**: ")
 		b.WriteString(input.Api.StabilityLevel)
-		b.WriteString(`/5
-`)
+		b.WriteString("/5\n")
 	}
-	b.WriteString(`
-
-## 🌟 What's New in v`)
+	b.WriteString("\n\n## 🌟 What's New in v")
 	b.WriteString(input.Api.Version)
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Changelog.HasBreakingChanges {
-		b.WriteString(`
-### 💥 Breaking Changes
-`)
+		b.WriteString("\n### 💥 Breaking Changes\n")
 		b.WriteString(input.Changelog.BreakingChanges)
-		b.WriteString(`
-
-⚠️ **Migration Required**: See our [migration guide](`)
+		b.WriteString("\n\n⚠️ **Migration Required**: See our [migration guide](")
 		b.WriteString(input.Docs.MigrationUrl)
-		b.WriteString(`) for upgrade instructions.
-`)
+		b.WriteString(") for upgrade instructions.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Changelog.NewFeatures != "" {
-		b.WriteString(`
-### ✨ New Features
-`)
+		b.WriteString("\n### ✨ New Features\n")
 		b.WriteString(input.Changelog.NewFeatures)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Changelog.Improvements != "" {
-		b.WriteString(`
-### 🚀 Improvements
-`)
+		b.WriteString("\n### 🚀 Improvements\n")
 		b.WriteString(input.Changelog.Improvements)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Changelog.BugFixes != "" {
-		b.WriteString(`
-### 🐛 Bug Fixes
-`)
+		b.WriteString("\n### 🐛 Bug Fixes\n")
 		b.WriteString(input.Changelog.BugFixes)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-## 🔐 Authentication
-
-**Type**: `)
+	b.WriteString("\n\n## 🔐 Authentication\n\n**Type**: ")
 	b.WriteString(input.Auth.Type)
-	b.WriteString(`
-**Required**: `)
-	b.WriteString(strconv.FormatBool(input.Auth.Required))
-	b.WriteString(`
-
-`)
+	b.WriteString("\n**Required**: ")
+	b.WriteString(var0)
+	b.WriteString("\n\n")
 	if input.Auth.Type == "bearer" {
 		b.WriteString("\n### Bearer Token Authentication\nInclude your API key in the Authorization header:\n\n```http\nAuthorization: Bearer YOUR_API_KEY\n```\n\n**Get your API key**: [Developer Dashboard](")
 		b.WriteString(input.Auth.DashboardUrl)
-		b.WriteString(`)
-`)
+		b.WriteString(")\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Auth.Type == "oauth2" {
-		b.WriteString(`
-### OAuth 2.0 Authentication
-**Flow**: `)
+		b.WriteString("\n### OAuth 2.0 Authentication\n**Flow**: ")
 		b.WriteString(input.Auth.OauthFlow)
-		b.WriteString(`
-**Scopes**: `)
+		b.WriteString("\n**Scopes**: ")
 		b.WriteString(input.Auth.Scopes)
 		b.WriteString("\n\n**Authorization URL**: `")
 		b.WriteString(input.Auth.AuthUrl)
@@ -353,22 +309,17 @@ func (input *ApiOverview) String() string {
 		b.WriteString(input.Auth.TokenUrl)
 		b.WriteString("`\n\n")
 		if input.Auth.HasScopes {
-			b.WriteString(`
-#### Required Scopes:
-`)
+			b.WriteString("\n#### Required Scopes:\n")
 			b.WriteString(input.Auth.ScopeList)
 			b.WriteRune('\n')
 		} else {
-			b.WriteString(`
-Has Scopes: `)
-			b.WriteString(strconv.FormatBool(input.Auth.HasScopes))
+			b.WriteString("\nHas Scopes: ")
+			b.WriteString(var1)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Auth.Type == "apikey" {
 		b.WriteString("\n### API Key Authentication\n**Header**: `")
 		b.WriteString(input.Auth.HeaderName)
@@ -378,31 +329,23 @@ Has Scopes: `)
 		b.WriteString(input.Auth.HeaderName)
 		b.WriteString(": YOUR_API_KEY\n```\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Auth.RateLimits {
-		b.WriteString(`
-## 📊 Rate Limits
-
-**Standard Tier**: `)
-		b.WriteString(var0)
-		b.WriteString(` requests/`)
+		b.WriteString("\n## 📊 Rate Limits\n\n**Standard Tier**: ")
+		b.WriteString(var2)
+		b.WriteString(" requests/")
 		b.WriteString(input.RateLimits.StandardWindow)
-		b.WriteString(`
-**Premium Tier**: `)
-		b.WriteString(var1)
-		b.WriteString(` requests/`)
+		b.WriteString("\n**Premium Tier**: ")
+		b.WriteString(var3)
+		b.WriteString(" requests/")
 		b.WriteString(input.RateLimits.PremiumWindow)
 		b.WriteString("\n\n**Rate Limit Headers**:\n- `X-RateLimit-Limit`: Total requests allowed\n- `X-RateLimit-Remaining`: Requests remaining\n- `X-RateLimit-Reset`: Time when limit resets\n\n")
 		if input.RateLimits.HasBurst {
-			b.WriteString(`
-**Burst Allowance**: `)
-			b.WriteString(var2)
-			b.WriteString(` requests in `)
+			b.WriteString("\n**Burst Allowance**: ")
+			b.WriteString(var4)
+			b.WriteString(" requests in ")
 			b.WriteString(input.RateLimits.BurstWindow)
-			b.WriteString(` seconds
-`)
+			b.WriteString(" seconds\n")
 		}
 		b.WriteRune('\n')
 	}

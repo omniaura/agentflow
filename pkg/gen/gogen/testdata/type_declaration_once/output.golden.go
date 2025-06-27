@@ -11,44 +11,49 @@ type TypeDeclarationOnce struct {
 	Name    string
 	Age     int
 	Premium bool
+	Score   float32
 }
 
 func (input *TypeDeclarationOnce) String() string {
 	var b strings.Builder
 	var0 := strconv.Itoa(input.Age)
+	var1 := strconv.FormatBool(input.Premium)
+	var2 := strconv.FormatFloat(float64(input.Score), 'g', -1, 32)
 	length := 0
 	length += 22
 	length += len(input.Name)
 	length += 6
 	length += len(var0)
 	length += 10
-	length += 5
+	length += len(var1)
+	length += 8
+	length += len(var2)
 	length += 19
 	length += len(input.Name)
 	length += 10
 	length += len(var0)
-	length += 33
-	length += 5
+	length += 30
+	length += len(var1)
+	length += 20
+	length += len(var2)
 	length += 2
 	b.Grow(length)
-	b.WriteString(`## User Profile
-Name: `)
+	b.WriteString("## User Profile\nName: ")
 	b.WriteString(input.Name)
-	b.WriteString(`
-Age: `)
+	b.WriteString("\nAge: ")
 	b.WriteString(var0)
-	b.WriteString(`
-Premium: `)
-	b.WriteString(strconv.FormatBool(input.Premium))
-	b.WriteString(`
-
-## Summary
-Hello `)
+	b.WriteString("\nPremium: ")
+	b.WriteString(var1)
+	b.WriteString("\nScore: ")
+	b.WriteString(var2)
+	b.WriteString("\n\n## Summary\nHello ")
 	b.WriteString(input.Name)
-	b.WriteString(`! You are `)
+	b.WriteString("! You are ")
 	b.WriteString(var0)
-	b.WriteString(` years old and premium status is `)
-	b.WriteString(strconv.FormatBool(input.Premium))
-	b.WriteString(`. `)
+	b.WriteString(" years old, premium status is ")
+	b.WriteString(var1)
+	b.WriteString(", and your score is ")
+	b.WriteString(var2)
+	b.WriteString(". ")
 	return b.String()
 }

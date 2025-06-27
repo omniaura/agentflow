@@ -10,7 +10,7 @@ import (
 type SystemPrompt struct{}
 
 func (input *SystemPrompt) String() string {
-	return `You are CreativeWriter Pro, a versatile AI writing assistant specializing in storytelling, creative fiction, and narrative development. You adapt your style and guidance based on genre, target audience, and the writer's experience level.`
+	return "You are CreativeWriter Pro, a versatile AI writing assistant specializing in storytelling, creative fiction, and narrative development. You adapt your style and guidance based on genre, target audience, and the writer's experience level."
 }
 
 type WritingSessionIntroduction struct {
@@ -56,7 +56,9 @@ func (input *WritingSessionIntroduction) isProjectZero() bool {
 func (input *WritingSessionIntroduction) String() string {
 	var b strings.Builder
 	var0 := strconv.Itoa(input.Session.TargetWords)
-	var1 := strconv.Itoa(input.Project.CurrentWords)
+	var1 := strconv.Itoa(input.Writer.CurrentStreak)
+	var2 := strconv.Itoa(input.Project.CurrentWords)
+	var3 := strconv.Itoa(input.Project.CompletionPercentage)
 	length := 0
 	length += 49
 	length += len(input.Writer.Name)
@@ -71,7 +73,7 @@ func (input *WritingSessionIntroduction) String() string {
 	length += 8
 	if input.Writer.CurrentStreak != 0 {
 		length += 26
-		length += len(strconv.Itoa(input.Writer.CurrentStreak))
+		length += len(var1)
 		length += 20
 		if input.Writer.CurrentStreak >= 30 {
 			length += 67
@@ -83,11 +85,11 @@ func (input *WritingSessionIntroduction) String() string {
 		length += 22
 		length += len(input.Project.Audience)
 		length += 21
-		length += len(var1)
+		length += len(var2)
 		length += 8
 		if input.Project.CompletionPercentage != 0 {
 			length += 15
-			length += len(strconv.Itoa(input.Project.CompletionPercentage))
+			length += len(var3)
 			length += 12
 			if input.Project.CompletionPercentage >= 75 {
 				length += 53
@@ -100,75 +102,43 @@ func (input *WritingSessionIntroduction) String() string {
 		}
 	}
 	b.Grow(length)
-	b.WriteString(`# ✍️ Creative Writing Session
-
-Welcome back, `)
+	b.WriteString("# ✍️ Creative Writing Session\n\nWelcome back, ")
 	b.WriteString(input.Writer.Name)
-	b.WriteString(`! Let's bring your stories to life.
-
-## 👤 Writer Profile
-- **Experience Level**: `)
+	b.WriteString("! Let's bring your stories to life.\n\n## 👤 Writer Profile\n- **Experience Level**: ")
 	b.WriteString(input.Writer.Experience)
-	b.WriteString(`
-- **Preferred Genres**: `)
+	b.WriteString("\n- **Preferred Genres**: ")
 	b.WriteString(input.Writer.FavoriteGenres)
-	b.WriteString(`
-- **Writing Goal**: `)
+	b.WriteString("\n- **Writing Goal**: ")
 	b.WriteString(input.Session.Goal)
-	b.WriteString(`
-- **Target Word Count**: `)
+	b.WriteString("\n- **Target Word Count**: ")
 	b.WriteString(var0)
-	b.WriteString(` words
-
-`)
+	b.WriteString(" words\n\n")
 	if input.Writer.CurrentStreak != 0 {
-		b.WriteString(`
-🔥 **Writing Streak**: `)
-		b.WriteString(strconv.Itoa(input.Writer.CurrentStreak))
-		b.WriteString(` days! Keep it up!
-
-`)
-		if input.Writer.CurrentStreak >= 30 {
-			b.WriteString(`
-🏆 **Master Writer**: 30+ day streak! You're a writing machine!
-`)
-		}
-		b.WriteString(`
-
-## 📖 Current Project
-**Title**: `)
-		b.WriteString(input.Project.Title)
-		b.WriteString(`
-**Genre**: `)
-		b.WriteString(input.Project.Genre)
-		b.WriteString(`
-**Target Audience**: `)
-		b.WriteString(input.Project.Audience)
-		b.WriteString(`
-**Current Length**: `)
+		b.WriteString("\n🔥 **Writing Streak**: ")
 		b.WriteString(var1)
-		b.WriteString(` words
-
-`)
+		b.WriteString(" days! Keep it up!\n\n")
+		if input.Writer.CurrentStreak >= 30 {
+			b.WriteString("\n🏆 **Master Writer**: 30+ day streak! You're a writing machine!\n")
+		}
+		b.WriteString("\n\n## 📖 Current Project\n**Title**: ")
+		b.WriteString(input.Project.Title)
+		b.WriteString("\n**Genre**: ")
+		b.WriteString(input.Project.Genre)
+		b.WriteString("\n**Target Audience**: ")
+		b.WriteString(input.Project.Audience)
+		b.WriteString("\n**Current Length**: ")
+		b.WriteString(var2)
+		b.WriteString(" words\n\n")
 		if input.Project.CompletionPercentage != 0 {
-			b.WriteString(`
-**Progress**: `)
-			b.WriteString(strconv.Itoa(input.Project.CompletionPercentage))
-			b.WriteString(`% complete
-
-`)
+			b.WriteString("\n**Progress**: ")
+			b.WriteString(var3)
+			b.WriteString("% complete\n\n")
 			if input.Project.CompletionPercentage >= 75 {
-				b.WriteString(`
-🎉 **Almost there!** You're in the final stretch!
-`)
+				b.WriteString("\n🎉 **Almost there!** You're in the final stretch!\n")
 			}
-			b.WriteString(`
-
-`)
+			b.WriteString("\n\n")
 			if input.Project.CompletionPercentage < 25 {
-				b.WriteString(`
-🌱 **Just getting started** - The hardest part is behind you!
-`)
+				b.WriteString("\n🌱 **Just getting started** - The hardest part is behind you!\n")
 			}
 			b.WriteRune('\n')
 		}
@@ -415,203 +385,117 @@ func (input *GenreSpecificGuidance) String() string {
 	}
 	b.Grow(length)
 	if input.Project.Genre == "fantasy" {
-		b.WriteString(`
-## 🧙‍♂️ Fantasy Writing Mode
-
-**World-Building Focus**: `)
+		b.WriteString("\n## 🧙‍♂️ Fantasy Writing Mode\n\n**World-Building Focus**: ")
 		b.WriteString(input.Fantasy.WorldComplexity)
-		b.WriteString(`
-**Magic System**: `)
+		b.WriteString("\n**Magic System**: ")
 		b.WriteString(input.Fantasy.MagicSystem)
-		b.WriteString(`
-**Setting Era**: `)
+		b.WriteString("\n**Setting Era**: ")
 		b.WriteString(input.Fantasy.TimePeriod)
-		b.WriteString(`
-
-### Fantasy Elements Checklist:
-- **Creatures**: `)
+		b.WriteString("\n\n### Fantasy Elements Checklist:\n- **Creatures**: ")
 		b.WriteString(input.Fantasy.Creatures)
-		b.WriteString(`
-- **Locations**: `)
+		b.WriteString("\n- **Locations**: ")
 		b.WriteString(input.Fantasy.Locations)
-		b.WriteString(`
-- **Conflicts**: `)
+		b.WriteString("\n- **Conflicts**: ")
 		b.WriteString(input.Fantasy.Conflicts)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Fantasy.HasMagicRules {
-			b.WriteString(`
-### ⚡ Magic System Rules
-`)
+			b.WriteString("\n### ⚡ Magic System Rules\n")
 			b.WriteString(input.Fantasy.MagicRules)
-			b.WriteString(`
-
-**Power Limitations**: `)
+			b.WriteString("\n\n**Power Limitations**: ")
 			b.WriteString(input.Fantasy.MagicLimitations)
-			b.WriteString(`
-**Consequences**: `)
+			b.WriteString("\n**Consequences**: ")
 			b.WriteString(input.Fantasy.MagicConsequences)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-**Writing Tip**: In fantasy, consistency in world-building is key. Make sure your magic system and world rules stay coherent throughout your story.
-`)
+		b.WriteString("\n\n**Writing Tip**: In fantasy, consistency in world-building is key. Make sure your magic system and world rules stay coherent throughout your story.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Project.Genre == "sci-fi" {
-		b.WriteString(`
-## 🚀 Science Fiction Writing Mode
-
-**Sub-genre**: `)
+		b.WriteString("\n## 🚀 Science Fiction Writing Mode\n\n**Sub-genre**: ")
 		b.WriteString(input.Scifi.Subgenre)
-		b.WriteString(`
-**Tech Level**: `)
+		b.WriteString("\n**Tech Level**: ")
 		b.WriteString(input.Scifi.TechnologyLevel)
-		b.WriteString(`
-**Setting**: `)
+		b.WriteString("\n**Setting**: ")
 		b.WriteString(input.Scifi.Setting)
-		b.WriteString(`
-
-### Sci-Fi Elements:
-- **Technology**: `)
+		b.WriteString("\n\n### Sci-Fi Elements:\n- **Technology**: ")
 		b.WriteString(input.Scifi.Technologies)
-		b.WriteString(`
-- **Scientific Concepts**: `)
+		b.WriteString("\n- **Scientific Concepts**: ")
 		b.WriteString(input.Scifi.ScienceFocus)
-		b.WriteString(`
-- **Social Issues**: `)
+		b.WriteString("\n- **Social Issues**: ")
 		b.WriteString(input.Scifi.Themes)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Scifi.HasTimeTravel {
-			b.WriteString(`
-### ⏰ Time Travel Mechanics
-**Type**: `)
+			b.WriteString("\n### ⏰ Time Travel Mechanics\n**Type**: ")
 			b.WriteString(input.Scifi.TimeTravelType)
-			b.WriteString(`
-**Rules**: `)
+			b.WriteString("\n**Rules**: ")
 			b.WriteString(input.Scifi.TimeTravelRules)
-			b.WriteString(`
-**Paradox Handling**: `)
+			b.WriteString("\n**Paradox Handling**: ")
 			b.WriteString(input.Scifi.ParadoxApproach)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-**Writing Tip**: Great sci-fi isn't just about the technology—it's about how that technology affects human relationships and society.
-`)
+		b.WriteString("\n\n**Writing Tip**: Great sci-fi isn't just about the technology—it's about how that technology affects human relationships and society.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Project.Genre == "mystery" {
-		b.WriteString(`
-## 🔍 Mystery Writing Mode
-
-**Mystery Type**: `)
+		b.WriteString("\n## 🔍 Mystery Writing Mode\n\n**Mystery Type**: ")
 		b.WriteString(input.Mystery.Type)
-		b.WriteString(`
-**Detective**: `)
+		b.WriteString("\n**Detective**: ")
 		b.WriteString(input.Mystery.ProtagonistType)
-		b.WriteString(`
-**Crime**: `)
+		b.WriteString("\n**Crime**: ")
 		b.WriteString(input.Mystery.CrimeType)
-		b.WriteString(`
-
-### Mystery Structure:
-- **Clues Planted**: `)
+		b.WriteString("\n\n### Mystery Structure:\n- **Clues Planted**: ")
 		b.WriteString(var0)
-		b.WriteString(`/`)
+		b.WriteString("/")
 		b.WriteString(var1)
-		b.WriteString(`
-- **Red Herrings**: `)
+		b.WriteString("\n- **Red Herrings**: ")
 		b.WriteString(var2)
-		b.WriteString(`
-- **Suspects**: `)
+		b.WriteString("\n- **Suspects**: ")
 		b.WriteString(var3)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Mystery.ClueCount < input.Mystery.TotalClues {
-			b.WriteString(`
-⚠️ **Clue Alert**: You still need to plant `)
+			b.WriteString("\n⚠️ **Clue Alert**: You still need to plant ")
 			b.WriteString(var4)
-			b.WriteString(` more clues!
-`)
+			b.WriteString(" more clues!\n")
 		}
-		b.WriteString(`
-
-### Current Suspects:
-1. `)
+		b.WriteString("\n\n### Current Suspects:\n1. ")
 		b.WriteString(input.Mystery.Suspect1)
-		b.WriteString(` - Motive: `)
+		b.WriteString(" - Motive: ")
 		b.WriteString(input.Mystery.Motive1)
-		b.WriteString(`
-2. `)
+		b.WriteString("\n2. ")
 		b.WriteString(input.Mystery.Suspect2)
-		b.WriteString(` - Motive: `)
+		b.WriteString(" - Motive: ")
 		b.WriteString(input.Mystery.Motive2)
-		b.WriteString(`
-3. `)
+		b.WriteString("\n3. ")
 		b.WriteString(input.Mystery.Suspect3)
-		b.WriteString(` - Motive: `)
+		b.WriteString(" - Motive: ")
 		b.WriteString(input.Mystery.Motive3)
-		b.WriteString(`
-
-**Writing Tip**: Play fair with your readers—give them all the clues they need to solve the mystery alongside your detective.
-`)
+		b.WriteString("\n\n**Writing Tip**: Play fair with your readers—give them all the clues they need to solve the mystery alongside your detective.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Project.Genre == "romance" {
-		b.WriteString(`
-## 💕 Romance Writing Mode
-
-**Romance Type**: `)
+		b.WriteString("\n## 💕 Romance Writing Mode\n\n**Romance Type**: ")
 		b.WriteString(input.Romance.Subgenre)
-		b.WriteString(`
-**Heat Level**: `)
+		b.WriteString("\n**Heat Level**: ")
 		b.WriteString(input.Romance.HeatLevel)
-		b.WriteString(`
-**Trope**: `)
+		b.WriteString("\n**Trope**: ")
 		b.WriteString(input.Romance.MainTrope)
-		b.WriteString(`
-
-### Character Development:
-- **Protagonist**: `)
+		b.WriteString("\n\n### Character Development:\n- **Protagonist**: ")
 		b.WriteString(input.Romance.ProtagonistName)
-		b.WriteString(`
-- **Love Interest**: `)
+		b.WriteString("\n- **Love Interest**: ")
 		b.WriteString(input.Romance.LoveInterestName)
-		b.WriteString(`
-- **Meet-Cute**: `)
+		b.WriteString("\n- **Meet-Cute**: ")
 		b.WriteString(input.Romance.MeetCute)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Romance.ConflictType != "" {
-			b.WriteString(`
-### Central Conflict
-**Type**: `)
+			b.WriteString("\n### Central Conflict\n**Type**: ")
 			b.WriteString(input.Romance.ConflictType)
-			b.WriteString(`
-**Source**: `)
+			b.WriteString("\n**Source**: ")
 			b.WriteString(input.Romance.ConflictSource)
-			b.WriteString(`
-**Resolution Strategy**: `)
+			b.WriteString("\n**Resolution Strategy**: ")
 			b.WriteString(input.Romance.ResolutionApproach)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-**Writing Tip**: Great romance is built on emotional truth. Make sure both characters grow and change through their relationship.
-`)
+		b.WriteString("\n\n**Writing Tip**: Great romance is built on emotional truth. Make sure both characters grow and change through their relationship.\n")
 	}
 	return b.String()
 }
@@ -698,6 +582,7 @@ func (input *CharacterDevelopmentWorkshop) isCharactersSupport3Zero() bool {
 
 func (input *CharacterDevelopmentWorkshop) String() string {
 	var b strings.Builder
+	var0 := strconv.Itoa(input.Characters.SupportingCast)
 	length := 0
 	length += 28
 	if !input.isCharactersMainCharacterZero() {
@@ -744,7 +629,7 @@ func (input *CharacterDevelopmentWorkshop) String() string {
 	length += 2
 	if input.Characters.SupportingCast != 0 {
 		length += 28
-		length += len(strconv.Itoa(input.Characters.SupportingCast))
+		length += len(var0)
 		length += 9
 		if input.Characters.SupportingCast > 5 {
 			length += 109
@@ -764,107 +649,67 @@ func (input *CharacterDevelopmentWorkshop) String() string {
 		length += 1
 	}
 	b.Grow(length)
-	b.WriteString(`## 👥 Character Analysis
-
-`)
+	b.WriteString("## 👥 Character Analysis\n\n")
 	if !input.isCharactersMainCharacterZero() {
-		b.WriteString(`
-### Protagonist: `)
+		b.WriteString("\n### Protagonist: ")
 		b.WriteString(input.Characters.MainCharacter.Name)
-		b.WriteString(`
-
-**Archetype**: `)
+		b.WriteString("\n\n**Archetype**: ")
 		b.WriteString(input.Characters.MainCharacter.Archetype)
-		b.WriteString(`
-**Fatal Flaw**: `)
+		b.WriteString("\n**Fatal Flaw**: ")
 		b.WriteString(input.Characters.MainCharacter.Flaw)
-		b.WriteString(`
-**Deepest Desire**: `)
+		b.WriteString("\n**Deepest Desire**: ")
 		b.WriteString(input.Characters.MainCharacter.Desire)
-		b.WriteString(`
-**Growth Arc**: `)
+		b.WriteString("\n**Growth Arc**: ")
 		b.WriteString(input.Characters.MainCharacter.Arc)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Characters.MainCharacter.BackstoryComplete {
-			b.WriteString(`
-✅ **Backstory Complete**: Well-developed background
-`)
+			b.WriteString("\n✅ **Backstory Complete**: Well-developed background\n")
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Characters.MainCharacter.NeedsDevelopment {
-			b.WriteString(`
-🔧 **Development Needed**: Character needs more depth in: `)
+			b.WriteString("\n🔧 **Development Needed**: Character needs more depth in: ")
 			b.WriteString(input.Characters.MainCharacter.WeakAreas)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if !input.isCharactersAntagonistZero() {
-		b.WriteString(`
-### Antagonist: `)
+		b.WriteString("\n### Antagonist: ")
 		b.WriteString(input.Characters.Antagonist.Name)
-		b.WriteString(`
-
-**Type**: `)
+		b.WriteString("\n\n**Type**: ")
 		b.WriteString(input.Characters.Antagonist.Type)
-		b.WriteString(`
-**Motivation**: `)
+		b.WriteString("\n**Motivation**: ")
 		b.WriteString(input.Characters.Antagonist.Motivation)
-		b.WriteString(`
-**Methods**: `)
+		b.WriteString("\n**Methods**: ")
 		b.WriteString(input.Characters.Antagonist.Methods)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Characters.Antagonist.Sympathetic {
-			b.WriteString(`
-💡 **Sympathetic Villain**: Your antagonist has relatable motivations - this adds depth!
-`)
+			b.WriteString("\n💡 **Sympathetic Villain**: Your antagonist has relatable motivations - this adds depth!\n")
 		}
-		b.WriteString(`
-
-**Conflict Style**: `)
+		b.WriteString("\n\n**Conflict Style**: ")
 		b.WriteString(input.Characters.Antagonist.ConflictStyle)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Characters.SupportingCast != 0 {
-		b.WriteString(`
-### Supporting Characters (`)
-		b.WriteString(strconv.Itoa(input.Characters.SupportingCast))
-		b.WriteString(` total)
-
-`)
+		b.WriteString("\n### Supporting Characters (")
+		b.WriteString(var0)
+		b.WriteString(" total)\n\n")
 		if input.Characters.SupportingCast > 5 {
-			b.WriteString(`
-⚠️ **Character Overload**: You have many supporting characters. Make sure each serves a unique purpose!
-`)
+			b.WriteString("\n⚠️ **Character Overload**: You have many supporting characters. Make sure each serves a unique purpose!\n")
 		}
-		b.WriteString(`
-
-**Key Supporting Roles**:
-- `)
+		b.WriteString("\n\n**Key Supporting Roles**:\n- ")
 		b.WriteString(input.Characters.Support1.Name)
-		b.WriteString(`: `)
+		b.WriteString(": ")
 		b.WriteString(input.Characters.Support1.Role)
-		b.WriteString(`
-- `)
+		b.WriteString("\n- ")
 		b.WriteString(input.Characters.Support2.Name)
-		b.WriteString(`: `)
+		b.WriteString(": ")
 		b.WriteString(input.Characters.Support2.Role)
-		b.WriteString(`
-- `)
+		b.WriteString("\n- ")
 		b.WriteString(input.Characters.Support3.Name)
-		b.WriteString(`: `)
+		b.WriteString(": ")
 		b.WriteString(input.Characters.Support3.Role)
 		b.WriteRune('\n')
 	}
@@ -987,113 +832,61 @@ func (input *PlotStructureAnalysis) String() string {
 		length += 1
 	}
 	b.Grow(length)
-	b.WriteString(`## 📊 Story Structure
-
-**Structure Type**: `)
+	b.WriteString("## 📊 Story Structure\n\n**Structure Type**: ")
 	b.WriteString(input.Plot.StructureType)
-	b.WriteString(`
-**Current Act**: `)
+	b.WriteString("\n**Current Act**: ")
 	b.WriteString(var0)
-	b.WriteString(`/`)
+	b.WriteString("/")
 	b.WriteString(var1)
-	b.WriteString(`
-
-### Plot Points Checklist:
-`)
+	b.WriteString("\n\n### Plot Points Checklist:\n")
 	if input.Plot.IncitingIncident {
-		b.WriteString(`
-✅ **Inciting Incident**: Completed
-`)
+		b.WriteString("\n✅ **Inciting Incident**: Completed\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Plot.FirstPlotPoint {
-		b.WriteString(`
-✅ **First Plot Point**: Completed  
-`)
+		b.WriteString("\n✅ **First Plot Point**: Completed  \n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Plot.Midpoint {
-		b.WriteString(`
-✅ **Midpoint**: Completed
-`)
+		b.WriteString("\n✅ **Midpoint**: Completed\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Plot.Climax {
-		b.WriteString(`
-✅ **Climax**: Completed
-`)
+		b.WriteString("\n✅ **Climax**: Completed\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Plot.Resolution {
-		b.WriteString(`
-✅ **Resolution**: Completed
-`)
+		b.WriteString("\n✅ **Resolution**: Completed\n")
 	}
-	b.WriteString(`
-
-### Pacing Analysis
-**Current Pace**: `)
+	b.WriteString("\n\n### Pacing Analysis\n**Current Pace**: ")
 	b.WriteString(input.Plot.Pacing)
-	b.WriteString(`
-**Tension Level**: `)
+	b.WriteString("\n**Tension Level**: ")
 	b.WriteString(var2)
-	b.WriteString(`/10
-
-`)
+	b.WriteString("/10\n\n")
 	if input.Plot.TensionLevel < 4 {
-		b.WriteString(`
-📈 **Pacing Note**: Consider adding more conflict or stakes to increase tension.
-`)
+		b.WriteString("\n📈 **Pacing Note**: Consider adding more conflict or stakes to increase tension.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Plot.TensionLevel > 8 {
-		b.WriteString(`
-⚠️ **High Intensity**: Make sure to give readers breathing room between intense scenes.
-`)
+		b.WriteString("\n⚠️ **High Intensity**: Make sure to give readers breathing room between intense scenes.\n")
 	}
-	b.WriteString(`
-
-## 🎯 Scene Goals
-
-**Today's Scene**: `)
+	b.WriteString("\n\n## 🎯 Scene Goals\n\n**Today's Scene**: ")
 	b.WriteString(input.Scene.Description)
-	b.WriteString(`
-**Purpose**: `)
+	b.WriteString("\n**Purpose**: ")
 	b.WriteString(input.Scene.Purpose)
-	b.WriteString(`
-**POV Character**: `)
+	b.WriteString("\n**POV Character**: ")
 	b.WriteString(input.Scene.PovCharacter)
-	b.WriteString(`
-**Setting**: `)
+	b.WriteString("\n**Setting**: ")
 	b.WriteString(input.Scene.Location)
-	b.WriteString(`
-
-### Scene Objectives:
-1. **Plot Advancement**: `)
+	b.WriteString("\n\n### Scene Objectives:\n1. **Plot Advancement**: ")
 	b.WriteString(input.Scene.PlotGoal)
-	b.WriteString(`
-2. **Character Development**: `)
+	b.WriteString("\n2. **Character Development**: ")
 	b.WriteString(input.Scene.CharacterGoal)
-	b.WriteString(`
-3. **Emotional Beat**: `)
+	b.WriteString("\n3. **Emotional Beat**: ")
 	b.WriteString(input.Scene.EmotionalGoal)
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Scene.HasConflict {
-		b.WriteString(`
-✅ **Conflict Present**: Good! Every scene needs tension.
-**Conflict Type**: `)
+		b.WriteString("\n✅ **Conflict Present**: Good! Every scene needs tension.\n**Conflict Type**: ")
 		b.WriteString(input.Scene.ConflictType)
 		b.WriteRune('\n')
 	}
@@ -1195,9 +988,10 @@ func (input *WritingProductivityDashboard) String() string {
 	var0 := strconv.Itoa(input.Session.DailyGoal)
 	var1 := strconv.Itoa(input.Session.WordsWritten)
 	var2 := strconv.Itoa(input.Session.ProgressPercentage)
-	var3 := strconv.Itoa(input.Stats.WordsPerMinute)
-	var4 := strconv.Itoa(input.Stats.SessionMinutes)
-	var5 := strconv.Itoa(input.Stats.BreakMinutes)
+	var3 := strconv.Itoa(input.Session.BonusWords)
+	var4 := strconv.Itoa(input.Stats.WordsPerMinute)
+	var5 := strconv.Itoa(input.Stats.SessionMinutes)
+	var6 := strconv.Itoa(input.Stats.BreakMinutes)
 	length := 0
 	length += 43
 	length += len(var0)
@@ -1210,7 +1004,7 @@ func (input *WritingProductivityDashboard) String() string {
 		length += 48
 		if input.Session.BonusWords != 0 {
 			length += 19
-			length += len(strconv.Itoa(input.Session.BonusWords))
+			length += len(var3)
 			length += 23
 		}
 		length += 1
@@ -1222,11 +1016,11 @@ func (input *WritingProductivityDashboard) String() string {
 		length += 1
 	}
 	length += 47
-	length += len(var3)
-	length += 38
 	length += len(var4)
-	length += 27
+	length += 38
 	length += len(var5)
+	length += 27
+	length += len(var6)
 	length += 10
 	if input.Stats.WritingSpeedTrend != "" {
 		length += 18
@@ -1283,159 +1077,88 @@ func (input *WritingProductivityDashboard) String() string {
 	length += len(input.Writer.Name)
 	length += 45
 	b.Grow(length)
-	b.WriteString(`## 📈 Writing Metrics
-
-**Today's Goal**: `)
+	b.WriteString("## 📈 Writing Metrics\n\n**Today's Goal**: ")
 	b.WriteString(var0)
-	b.WriteString(` words
-**Current Progress**: `)
+	b.WriteString(" words\n**Current Progress**: ")
 	b.WriteString(var1)
-	b.WriteString(` words (`)
+	b.WriteString(" words (")
 	b.WriteString(var2)
-	b.WriteString(`%)
-
-`)
+	b.WriteString("%)\n\n")
 	if input.Session.ProgressPercentage >= 100 {
-		b.WriteString(`
-🎉 **Goal Achieved!** Fantastic work today!
-
-`)
+		b.WriteString("\n🎉 **Goal Achieved!** Fantastic work today!\n\n")
 		if input.Session.BonusWords != 0 {
-			b.WriteString(`
-**Bonus Words**: +`)
-			b.WriteString(strconv.Itoa(input.Session.BonusWords))
-			b.WriteString(` words over your goal!
-`)
+			b.WriteString("\n**Bonus Words**: +")
+			b.WriteString(var3)
+			b.WriteString(" words over your goal!\n")
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Session.ProgressPercentage < 50 {
-		b.WriteString(`
-💪 **Keep Going**: You're halfway to your goal! 
-
-**Motivational Tip**: `)
+		b.WriteString("\n💪 **Keep Going**: You're halfway to your goal! \n\n**Motivational Tip**: ")
 		b.WriteString(input.Motivation.Tip)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-### Writing Statistics:
-- **Writing Speed**: `)
-	b.WriteString(var3)
-	b.WriteString(` words/minute
-- **Session Duration**: `)
+	b.WriteString("\n\n### Writing Statistics:\n- **Writing Speed**: ")
 	b.WriteString(var4)
-	b.WriteString(` minutes
-- **Break Time**: `)
+	b.WriteString(" words/minute\n- **Session Duration**: ")
 	b.WriteString(var5)
-	b.WriteString(` minutes
-
-`)
+	b.WriteString(" minutes\n- **Break Time**: ")
+	b.WriteString(var6)
+	b.WriteString(" minutes\n\n")
 	if input.Stats.WritingSpeedTrend != "" {
-		b.WriteString(`
-**Speed Trend**: `)
+		b.WriteString("\n**Speed Trend**: ")
 		b.WriteString(input.Stats.WritingSpeedTrend)
-		b.WriteString(` (compared to last week)
-`)
+		b.WriteString(" (compared to last week)\n")
 	}
-	b.WriteString(`
-
-## 🎨 Writing Prompts & Inspiration
-
-`)
+	b.WriteString("\n\n## 🎨 Writing Prompts & Inspiration\n\n")
 	if input.Prompts.HasCustom {
-		b.WriteString(`
-### Personalized Prompt for You:
-`)
+		b.WriteString("\n### Personalized Prompt for You:\n")
 		b.WriteString(input.Prompts.CustomPrompt)
-		b.WriteString(`
-
-**Why this fits your style**: `)
+		b.WriteString("\n\n**Why this fits your style**: ")
 		b.WriteString(input.Prompts.CustomReason)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Prompts.GeneralSuggestions != "" {
-		b.WriteString(`
-### General Writing Exercises:
-- **Character Exercise**: `)
+		b.WriteString("\n### General Writing Exercises:\n- **Character Exercise**: ")
 		b.WriteString(input.Prompts.CharacterExercise)
-		b.WriteString(`
-- **Dialogue Challenge**: `)
+		b.WriteString("\n- **Dialogue Challenge**: ")
 		b.WriteString(input.Prompts.DialogueChallenge)
-		b.WriteString(`
-- **World-Building**: `)
+		b.WriteString("\n- **World-Building**: ")
 		b.WriteString(input.Prompts.WorldbuildingPrompt)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-## 🔧 Writing Tools & Tips
-
-`)
+	b.WriteString("\n\n## 🔧 Writing Tools & Tips\n\n")
 	if input.Tools.GrammarCheck {
-		b.WriteString(`
-📝 **Grammar Assistant**: Available - Run a quick check before finishing your session.
-`)
+		b.WriteString("\n📝 **Grammar Assistant**: Available - Run a quick check before finishing your session.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Tools.ResearchNeeded {
-		b.WriteString(`
-🔍 **Research Reminder**: Don't forget to research: `)
+		b.WriteString("\n🔍 **Research Reminder**: Don't forget to research: ")
 		b.WriteString(input.Tools.ResearchTopics)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Writer.Experience == "beginner" {
-		b.WriteString(`
-### Beginner Writer Tips:
-- Write first, edit later
-- Don't worry about perfection in your first draft
-- Read extensively in your chosen genre
-- Join a writing community for support
-
-**Today's Focus**: `)
+		b.WriteString("\n### Beginner Writer Tips:\n- Write first, edit later\n- Don't worry about perfection in your first draft\n- Read extensively in your chosen genre\n- Join a writing community for support\n\n**Today's Focus**: ")
 		b.WriteString(input.Tips.BeginnerFocus)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Writer.Experience == "advanced" {
-		b.WriteString(`
-### Advanced Techniques:
-- Experiment with unreliable narrators
-- Layer multiple subplots effectively
-- Master show vs. tell
-- Develop your unique voice
-
-**Challenge**: `)
+		b.WriteString("\n### Advanced Techniques:\n- Experiment with unreliable narrators\n- Layer multiple subplots effectively\n- Master show vs. tell\n- Develop your unique voice\n\n**Challenge**: ")
 		b.WriteString(input.Tips.AdvancedChallenge)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
----
-**Session Time**: `)
+	b.WriteString("\n\n---\n**Session Time**: ")
 	b.WriteString(input.Session.StartTime)
-	b.WriteString(` - `)
+	b.WriteString(" - ")
 	b.WriteString(input.Session.EndTime)
-	b.WriteString(`
-**Next Session Goal**: `)
+	b.WriteString("\n**Next Session Goal**: ")
 	b.WriteString(input.Session.NextGoal)
-	b.WriteString(`
-
-*Keep writing, `)
+	b.WriteString("\n\n*Keep writing, ")
 	b.WriteString(input.Writer.Name)
-	b.WriteString(`! Your story is waiting to be told. 📚✨* `)
+	b.WriteString("! Your story is waiting to be told. 📚✨* ")
 	return b.String()
 }

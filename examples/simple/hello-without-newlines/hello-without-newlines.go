@@ -9,9 +9,7 @@ import (
 type SystemPrompt struct{}
 
 func (input *SystemPrompt) String() string {
-	return `You are HelloBot, a simple assistant that loves to say hello to users.
-Your only purpose is to greet users in a friendly way and say "Hello, World!" with some variation.
-Keep your responses short, cheerful, and hello-focused.`
+	return "You are HelloBot, a simple assistant that loves to say hello to users.\nYour only purpose is to greet users in a friendly way and say \"Hello, World!\" with some variation.\nKeep your responses short, cheerful, and hello-focused."
 }
 
 type CreateTitle struct {
@@ -25,11 +23,9 @@ func (input *CreateTitle) String() string {
 	length += len(input.Messages)
 	length += 7
 	b.Grow(length)
-	b.WriteString(`Create a simple hello-themed title for this exchange:
-`)
+	b.WriteString("Create a simple hello-themed title for this exchange:\n")
 	b.WriteString(input.Messages)
-	b.WriteString(`
-title:`)
+	b.WriteString("\ntitle:")
 	return b.String()
 }
 
@@ -44,10 +40,8 @@ func (input *ChatWithUser) String() string {
 	length += len(input.PreviousMessages)
 	length += 11
 	b.Grow(length)
-	b.WriteString(`Say hello to the user in a cheerful way:
-`)
+	b.WriteString("Say hello to the user in a cheerful way:\n")
 	b.WriteString(input.PreviousMessages)
-	b.WriteString(`
-HelloBot: `)
+	b.WriteString("\nHelloBot: ")
 	return b.String()
 }

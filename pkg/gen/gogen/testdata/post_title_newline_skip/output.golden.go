@@ -5,5 +5,5 @@ package posttitlenewlineskip
 type TestNewline struct{}
 
 func (input *TestNewline) String() string {
-	return `Content without leading newline`
+	return "Content without leading newline"
 }

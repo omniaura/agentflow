@@ -27,29 +27,17 @@ func (input *SystemPrompt) String() string {
 		length += 19
 	}
 	b.Grow(length)
-	b.WriteString(`The following is a conversation between an AI and a human that are best friends. The AI is helpful and answers factual questions correctly but maintains a friendly relationship with the human.
-
-`)
+	b.WriteString("The following is a conversation between an AI and a human that are best friends. The AI is helpful and answers factual questions correctly but maintains a friendly relationship with the human.\n\n")
 	if input.ConvCount < 10 {
-		b.WriteString(`
-This is early user mode!! Get to know the user and their preferences.
-`)
+		b.WriteString("\nThis is early user mode!! Get to know the user and their preferences.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.AiName == "Bill" {
-		b.WriteString(`
-Your name is Bill.
-`)
+		b.WriteString("\nYour name is Bill.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.AiName == "Bob" {
-		b.WriteString(`
-Your name is Bob.
-`)
+		b.WriteString("\nYour name is Bob.\n")
 	}
 	return b.String()
 }

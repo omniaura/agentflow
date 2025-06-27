@@ -18,13 +18,9 @@ func (input *SystemPrompt) String() string {
 	length += len(input.AiName)
 	length += 280
 	b.Grow(length)
-	b.WriteString(`You are a friendly assistant named `)
+	b.WriteString("You are a friendly assistant named ")
 	b.WriteString(input.AiName)
-	b.WriteString(` who can help users with their questions.
-Do not hallucinate. Do not lie. Do not be rude. Do not be inappropriate.
-If you do not know the answer to a question, please say so.
-2 newlines will produce a newline in the output at the end of the prompt.
-This prompt uses the technique.`)
+	b.WriteString(" who can help users with their questions.\nDo not hallucinate. Do not lie. Do not be rude. Do not be inappropriate.\nIf you do not know the answer to a question, please say so.\n2 newlines will produce a newline in the output at the end of the prompt.\nThis prompt uses the technique.")
 	return b.String()
 }
 
@@ -42,13 +38,11 @@ func (input *CreateTitle) String() string {
 	length += len(input.MessageThread)
 	length += 7
 	b.Grow(length)
-	b.WriteString(`Create a title summarizing the contents of this exchange with `)
+	b.WriteString("Create a title summarizing the contents of this exchange with ")
 	b.WriteString(input.UserName)
-	b.WriteString(`:
-`)
+	b.WriteString(":\n")
 	b.WriteString(input.MessageThread)
-	b.WriteString(`
-title:`)
+	b.WriteString("\ntitle:")
 	return b.String()
 }
 
@@ -68,14 +62,13 @@ func (input *ChatWithUser) String() string {
 	length += len(input.AiName)
 	length += 1
 	b.Grow(length)
-	b.WriteString(`You are an AI named `)
+	b.WriteString("You are an AI named ")
 	b.WriteString(input.AiName)
-	b.WriteString(`. Please respond to the chat thread below:
-`)
+	b.WriteString(". Please respond to the chat thread below:\n")
 	b.WriteString(input.MessageThread)
 	b.WriteRune('\n')
 	b.WriteString(input.AiName)
-	b.WriteString(`:`)
+	b.WriteString(":")
 	return b.String()
 }
 
@@ -115,20 +108,15 @@ func (input *ExampleWithManyVariables) String() string {
 	b.WriteString(input.AiName)
 	b.WriteRune('\n')
 	b.WriteString(input.Title)
-	b.WriteString(`
-As the title says, the user is `)
+	b.WriteString("\nAs the title says, the user is ")
 	b.WriteString(input.UserName)
-	b.WriteString(` and the AI is `)
+	b.WriteString(" and the AI is ")
 	b.WriteString(input.AiName)
-	b.WriteString(`.
-The default max line length is 80 characters. It is currently `)
+	b.WriteString(".\nThe default max line length is 80 characters. It is currently ")
 	b.WriteString(input.MaxLineLen)
-	b.WriteString(`.
-Sometimes, `)
+	b.WriteString(".\nSometimes, ")
 	b.WriteString(input.MoreVariables)
-	b.WriteString(` are needed.
-When the max line length is surpassed, AgentFlow will wrap the line.
-This only applies to function headers. Prompt bodies are not wrapped.`)
+	b.WriteString(" are needed.\nWhen the max line length is surpassed, AgentFlow will wrap the line.\nThis only applies to function headers. Prompt bodies are not wrapped.")
 	return b.String()
 }
 
@@ -152,14 +140,11 @@ func (input *ConditionalPrompting) String() string {
 		length += 2
 	}
 	b.Grow(length)
-	b.WriteString(`This prompt demonstrates conditional prompting using optionals.
-`)
+	b.WriteString("This prompt demonstrates conditional prompting using optionals.\n")
 	if input.User.Email != "" {
-		b.WriteString(`
-The user's email is `)
+		b.WriteString("\nThe user's email is ")
 		b.WriteString(input.User.Email)
-		b.WriteString(`.
-`)
+		b.WriteString(".\n")
 	}
 	return b.String()
 }
@@ -197,22 +182,15 @@ func (input *ConditionalWithElse) String() string {
 		length += 80
 	}
 	b.Grow(length)
-	b.WriteString(`Here's an example with else syntax:
-`)
+	b.WriteString("Here's an example with else syntax:\n")
 	if input.User.Premium {
-		b.WriteString(`
-Welcome premium user! You have access to all features.
-Your subscription tier is level `)
+		b.WriteString("\nWelcome premium user! You have access to all features.\nYour subscription tier is level ")
 		b.WriteString(var0)
-		b.WriteString(`.
-Once again, that tier number is `)
+		b.WriteString(".\nOnce again, that tier number is ")
 		b.WriteString(var0)
-		b.WriteString(`.
-`)
+		b.WriteString(".\n")
 	} else {
-		b.WriteString(`
-Welcome! You're using the basic version. Upgrade to premium for more features.
-`)
+		b.WriteString("\nWelcome! You're using the basic version. Upgrade to premium for more features.\n")
 	}
 	return b.String()
 }

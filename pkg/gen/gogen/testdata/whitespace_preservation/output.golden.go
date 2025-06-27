@@ -5,8 +5,5 @@ package whitespacepreservation
 type TestWhitespace struct{}
 
 func (input *TestWhitespace) String() string {
-	return `Exact   spacing   should   be   preserved
-And line breaks
-
-Should work too`
+	return "Exact   spacing   should   be   preserved\nAnd line breaks\n\nShould work too"
 }

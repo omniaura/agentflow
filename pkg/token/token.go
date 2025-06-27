@@ -659,8 +659,8 @@ func ParseConditionalExpression(expr []byte, typeCache map[string]string) VarInf
 			// Parse variable path and type
 			varInfo := parseVariablePart(varPart, typeCache)
 
-			// Check if operand is a variable reference (contains dot notation)
-			if strings.Contains(operandPart, ".") && !strings.Contains(operandPart, "\"") && !strings.Contains(operandPart, "'") {
+			// Check if operand is a variable reference (contains dot notation but is not a numeric literal)
+			if strings.Contains(operandPart, ".") && !strings.Contains(operandPart, "\"") && !strings.Contains(operandPart, "'") && !isNumericLiteral(operandPart) {
 				// Operand is another variable - convert to Go field access
 				operandPath := strings.Split(operandPart, ".")
 				var operandFieldAccess strings.Builder
@@ -781,6 +781,25 @@ func inferTypeFromOperand(operand string) string {
 
 	// Default to string for unquoted values
 	return "string"
+}
+
+// isNumericLiteral checks if a string represents a numeric literal (int or float)
+func isNumericLiteral(operand string) bool {
+	operand = strings.TrimSpace(operand)
+	
+	// Check for floating point numbers
+	if strings.Contains(operand, ".") {
+		if _, err := strconv.ParseFloat(operand, 64); err == nil {
+			return true
+		}
+	}
+	
+	// Check for integers
+	if _, err := strconv.Atoi(operand); err == nil {
+		return true
+	}
+	
+	return false
 }
 
 // hasComparisonOperator checks if the token content contains any comparison operators

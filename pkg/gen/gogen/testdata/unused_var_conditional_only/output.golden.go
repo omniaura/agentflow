@@ -7,7 +7,9 @@ import (
 )
 
 type TestUnusedVar struct {
-	Count int
+	Count      int
+	CountFloat float64
+	UserName   string
 }
 
 func (input *TestUnusedVar) String() string {
@@ -18,15 +20,35 @@ func (input *TestUnusedVar) String() string {
 	} else {
 		length += 20
 	}
+	length += 2
+	if input.CountFloat > 5.0 {
+		length += 36
+	} else {
+		length += 35
+	}
+	length += 2
+	if input.UserName == "John" {
+		length += 12
+	} else {
+		length += 16
+	}
 	b.Grow(length)
 	if input.Count > 5 {
-		b.WriteString(`
-You have many items
-`)
+		b.WriteString("\nYou have many items\n")
 	} else {
-		b.WriteString(`
-You have few items
-`)
+		b.WriteString("\nYou have few items\n")
+	}
+	b.WriteString("\n\n")
+	if input.CountFloat > 5.0 {
+		b.WriteString("\nYou have many floating point items\n")
+	} else {
+		b.WriteString("\nYou have few floating point items\n")
+	}
+	b.WriteString("\n\n")
+	if input.UserName == "John" {
+		b.WriteString("\nHello John\n")
+	} else {
+		b.WriteString("\nHello stranger\n")
 	}
 	return b.String()
 }

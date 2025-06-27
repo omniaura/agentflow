@@ -5,11 +5,11 @@ package interpromptwhitespaceskip
 type FirstPrompt struct{}
 
 func (input *FirstPrompt) String() string {
-	return `First content`
+	return "First content"
 }
 
 type SecondPrompt struct{}
 
 func (input *SecondPrompt) String() string {
-	return `Second content`
+	return "Second content"
 }

@@ -1,6 +1,18 @@
 .title Test Unused Var
-<?count int gt 5>
+<?count gt 5>
 You have many items
 <else>
 You have few items
 </count>
+
+<?count_float gt 5.0>
+You have many floating point items
+<else>
+You have few floating point items
+</count_float>
+
+<?user_name eq "John">
+Hello John
+<else>
+Hello stranger
+</user_name>

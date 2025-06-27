@@ -1,4 +1,30 @@
 .title Backtick Interpolation Test
 This is a test with a backtick: `
 And this is a variable inside backticks: `<!variable_name>`
-And a normal variable: <!other_var> 
+And a normal variable: <!number int> 
+
+<?code>
+The user has provided the following code:
+```<!code.language>
+<!code.content>
+```
+</code>
+
+.title Backtick text only
+This is a test with a backtick: `
+And here are more backticks: `
+`
+
+and a newline:
+
+and double backticks: ``
+
+and here is a code block:
+
+```python
+def function_with_comments(a, b):
+    """
+    This is a comment
+    """
+    return a + b
+```

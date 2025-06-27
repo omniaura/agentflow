@@ -10,7 +10,7 @@ import (
 type SystemPrompt struct{}
 
 func (input *SystemPrompt) String() string {
-	return `You are AdaptiveTutor, an AI learning assistant that personalizes education based on student progress, learning style, and current skill level. You provide engaging, interactive lessons with appropriate difficulty scaling.`
+	return "You are AdaptiveTutor, an AI learning assistant that personalizes education based on student progress, learning style, and current skill level. You provide engaging, interactive lessons with appropriate difficulty scaling."
 }
 
 type LessonIntroduction struct {
@@ -83,67 +83,39 @@ func (input *LessonIntroduction) String() string {
 		length += 87
 	}
 	b.Grow(length)
-	b.WriteString(`# 📚 `)
+	b.WriteString("# 📚 ")
 	b.WriteString(input.Subject)
-	b.WriteString(` Learning Session
-
-Hi `)
+	b.WriteString(" Learning Session\n\nHi ")
 	b.WriteString(input.Student.Name)
-	b.WriteString(`! Welcome to your personalized learning session.
-
-## 👤 Your Profile
-- **Current Level**: `)
+	b.WriteString("! Welcome to your personalized learning session.\n\n## 👤 Your Profile\n- **Current Level**: ")
 	b.WriteString(input.Student.Level)
-	b.WriteString(`
-- **Learning Style**: `)
+	b.WriteString("\n- **Learning Style**: ")
 	b.WriteString(input.Student.LearningStyle)
-	b.WriteString(`
-- **Progress**: `)
+	b.WriteString("\n- **Progress**: ")
 	b.WriteString(var0)
-	b.WriteString(`% complete
-- **Streak**: `)
+	b.WriteString("% complete\n- **Streak**: ")
 	b.WriteString(var1)
-	b.WriteString(` days 🔥
-
-`)
+	b.WriteString(" days 🔥\n\n")
 	if input.Student.PreferredLanguage != "" {
-		b.WriteString(`
-*Lesson will be delivered in: `)
+		b.WriteString("\n*Lesson will be delivered in: ")
 		b.WriteString(input.Student.PreferredLanguage)
-		b.WriteString(`*
-`)
+		b.WriteString("*\n")
 	}
-	b.WriteString(`
-
-## 🎯 Today's Objective
-**Topic**: `)
+	b.WriteString("\n\n## 🎯 Today's Objective\n**Topic**: ")
 	b.WriteString(input.Lesson.Topic)
-	b.WriteString(`
-**Difficulty**: `)
+	b.WriteString("\n**Difficulty**: ")
 	b.WriteString(input.Lesson.Difficulty)
-	b.WriteString(`/5 ⭐
-
-`)
+	b.WriteString("/5 ⭐\n\n")
 	if input.Student.Level == "beginner" {
-		b.WriteString(`
-Don't worry if this seems challenging - we'll break everything down into simple, manageable steps!
-`)
+		b.WriteString("\nDon't worry if this seems challenging - we'll break everything down into simple, manageable steps!\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Student.Level == "intermediate" {
-		b.WriteString(`
-You're making great progress! Today we'll build on what you already know and explore some new concepts.
-`)
+		b.WriteString("\nYou're making great progress! Today we'll build on what you already know and explore some new concepts.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Student.Level == "advanced" {
-		b.WriteString(`
-Ready for a challenge? Today's lesson will push your understanding to the next level.
-`)
+		b.WriteString("\nReady for a challenge? Today's lesson will push your understanding to the next level.\n")
 	}
 	return b.String()
 }
@@ -229,6 +201,8 @@ func (input *AdaptiveContentDelivery) isExamplesZero() bool {
 
 func (input *AdaptiveContentDelivery) String() string {
 	var b strings.Builder
+	var0 := strconv.Itoa(input.Student.PrerequisitesScore)
+	var1 := strconv.Itoa(input.Lesson.ConceptCount)
 	length := 0
 	if input.Lesson.HasPrerequisites {
 		length += 94
@@ -236,7 +210,7 @@ func (input *AdaptiveContentDelivery) String() string {
 		length += 2
 		if input.Student.PrerequisitesScore != 0 {
 			length += 30
-			length += len(strconv.Itoa(input.Student.PrerequisitesScore))
+			length += len(var0)
 			length += 6
 			if input.Student.PrerequisitesScore < 70 {
 				length += 97
@@ -286,7 +260,7 @@ func (input *AdaptiveContentDelivery) String() string {
 	length += 25
 	if input.Lesson.ConceptCount != 0 {
 		length += 13
-		length += len(strconv.Itoa(input.Lesson.ConceptCount))
+		length += len(var1)
 		length += 26
 		length += len(input.Concepts.Concept1)
 		length += 4
@@ -341,149 +315,87 @@ func (input *AdaptiveContentDelivery) String() string {
 	}
 	b.Grow(length)
 	if input.Lesson.HasPrerequisites {
-		b.WriteString(`
-## 📋 Prerequisites Check
-Before we start, let's make sure you understand these concepts:
-
-`)
+		b.WriteString("\n## 📋 Prerequisites Check\nBefore we start, let's make sure you understand these concepts:\n\n")
 		b.WriteString(input.Lesson.Prerequisites)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Student.PrerequisitesScore != 0 {
-			b.WriteString(`
-**Your prerequisite score**: `)
-			b.WriteString(strconv.Itoa(input.Student.PrerequisitesScore))
-			b.WriteString(`/100
-
-`)
+			b.WriteString("\n**Your prerequisite score**: ")
+			b.WriteString(var0)
+			b.WriteString("/100\n\n")
 			if input.Student.PrerequisitesScore < 70 {
-				b.WriteString(`
-🔄 **Recommendation**: Let's do a quick review of the basics first.
-
-### Quick Review Session
-`)
+				b.WriteString("\n🔄 **Recommendation**: Let's do a quick review of the basics first.\n\n### Quick Review Session\n")
 				b.WriteString(input.Lesson.ReviewContent)
 				b.WriteRune('\n')
 			}
-			b.WriteString(`
-
-`)
+			b.WriteString("\n\n")
 			if input.Student.PrerequisitesScore >= 90 {
-				b.WriteString(`
-✅ **Excellent!** You're ready for advanced concepts.
-`)
+				b.WriteString("\n✅ **Excellent!** You're ready for advanced concepts.\n")
 			}
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-## 🎓 Lesson Content
-
-`)
+	b.WriteString("\n\n## 🎓 Lesson Content\n\n")
 	if input.Student.LearningStyle == "visual" {
-		b.WriteString(`
-### 📊 Visual Learning Approach
-`)
+		b.WriteString("\n### 📊 Visual Learning Approach\n")
 		b.WriteString(input.Lesson.VisualContent)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Lesson.HasDiagrams {
-			b.WriteString(`
-**Interactive Diagrams:**
-`)
+			b.WriteString("\n**Interactive Diagrams:**\n")
 			b.WriteString(input.Lesson.Diagrams)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Lesson.HasCharts {
-			b.WriteString(`
-**Charts & Graphs:**
-`)
+			b.WriteString("\n**Charts & Graphs:**\n")
 			b.WriteString(input.Lesson.Charts)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Student.LearningStyle == "auditory" {
-		b.WriteString(`
-### 🎵 Auditory Learning Approach
-`)
+		b.WriteString("\n### 🎵 Auditory Learning Approach\n")
 		b.WriteString(input.Lesson.AuditoryContent)
-		b.WriteString(`
-
-*💡 Tip: Try reading this lesson out loud or use text-to-speech for better retention!*
-`)
+		b.WriteString("\n\n*💡 Tip: Try reading this lesson out loud or use text-to-speech for better retention!*\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Student.LearningStyle == "kinesthetic" {
-		b.WriteString(`
-### 🛠️ Hands-On Learning Approach
-Let's learn by doing! Here are some interactive exercises:
-
-`)
+		b.WriteString("\n### 🛠️ Hands-On Learning Approach\nLet's learn by doing! Here are some interactive exercises:\n\n")
 		b.WriteString(input.Lesson.InteractiveExercises)
-		b.WriteString(`
-
-**Practice Activities:**
-`)
+		b.WriteString("\n\n**Practice Activities:**\n")
 		b.WriteString(input.Lesson.PracticeActivities)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-## 🧠 Core Concepts
-
-`)
+	b.WriteString("\n\n## 🧠 Core Concepts\n\n")
 	if input.Lesson.ConceptCount != 0 {
-		b.WriteString(`
-We'll cover `)
-		b.WriteString(strconv.Itoa(input.Lesson.ConceptCount))
-		b.WriteString(` main concepts today:
-
-1. `)
+		b.WriteString("\nWe'll cover ")
+		b.WriteString(var1)
+		b.WriteString(" main concepts today:\n\n1. ")
 		b.WriteString(input.Concepts.Concept1)
-		b.WriteString(`
-2. `)
+		b.WriteString("\n2. ")
 		b.WriteString(input.Concepts.Concept2)
 		b.WriteRune('\n')
 		if input.Lesson.ConceptCount >= 3 {
-			b.WriteString(`
-3. `)
+			b.WriteString("\n3. ")
 			b.WriteString(input.Concepts.Concept3)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 		if input.Lesson.ConceptCount >= 4 {
-			b.WriteString(`
-4. `)
+			b.WriteString("\n4. ")
 			b.WriteString(input.Concepts.Concept4)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 		if input.Lesson.ConceptCount >= 5 {
-			b.WriteString(`
-5. `)
+			b.WriteString("\n5. ")
 			b.WriteString(input.Concepts.Concept5)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-## 💡 Examples
-
-`)
+	b.WriteString("\n\n## 💡 Examples\n\n")
 	if input.Student.Level == "beginner" {
 		b.WriteString("\n### Simple Example\nLet's start with a basic example:\n\n```\n")
 		b.WriteString(input.Examples.Basic)
@@ -491,31 +403,23 @@ We'll cover `)
 		b.WriteString(input.Examples.BasicExplanation)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Student.Level == "intermediate" {
 		b.WriteString("\n### Practical Example\nHere's a real-world scenario:\n\n```\n")
 		b.WriteString(input.Examples.Intermediate)
 		b.WriteString("\n```\n\n**Analysis**: ")
 		b.WriteString(input.Examples.IntermediateAnalysis)
-		b.WriteString(`
-
-**Why this works**: `)
+		b.WriteString("\n\n**Why this works**: ")
 		b.WriteString(input.Examples.IntermediateReasoning)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Student.Level == "advanced" {
 		b.WriteString("\n### Complex Example\nLet's examine an advanced implementation:\n\n```\n")
 		b.WriteString(input.Examples.Advanced)
 		b.WriteString("\n```\n\n**Deep Dive**: ")
 		b.WriteString(input.Examples.AdvancedAnalysis)
-		b.WriteString(`
-
-**Optimization Opportunities**: `)
+		b.WriteString("\n\n**Optimization Opportunities**: ")
 		b.WriteString(input.Examples.Optimizations)
 		b.WriteRune('\n')
 	}
@@ -642,38 +546,25 @@ func (input *InteractiveAssessment) String() string {
 		length += 1
 	}
 	b.Grow(length)
-	b.WriteString(`## 🎯 Practice Time!
-
-`)
+	b.WriteString("## 🎯 Practice Time!\n\n")
 	if input.Assessment.HasQuiz {
-		b.WriteString(`
-### Quick Knowledge Check
-
-**Question `)
+		b.WriteString("\n### Quick Knowledge Check\n\n**Question ")
 		b.WriteString(var0)
-		b.WriteString(`**: `)
+		b.WriteString("**: ")
 		b.WriteString(input.Question.Text)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Question.Type == "multiple_choice" {
-			b.WriteString(`
-A) `)
+			b.WriteString("\nA) ")
 			b.WriteString(input.Question.OptionA)
-			b.WriteString(`
-B) `)
+			b.WriteString("\nB) ")
 			b.WriteString(input.Question.OptionB)
-			b.WriteString(`
-C) `)
+			b.WriteString("\nC) ")
 			b.WriteString(input.Question.OptionC)
-			b.WriteString(`
-D) `)
+			b.WriteString("\nD) ")
 			b.WriteString(input.Question.OptionD)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Question.Type == "coding" {
 			b.WriteString("\n**Coding Challenge:**\n```\n")
 			b.WriteString(input.Question.CodeTemplate)
@@ -681,37 +572,23 @@ D) `)
 			b.WriteString(input.Question.ExpectedOutput)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Question.Type == "explanation" {
-			b.WriteString(`
-**Explain in your own words**: `)
+			b.WriteString("\n**Explain in your own words**: ")
 			b.WriteString(input.Question.Prompt)
-			b.WriteString(`
-
-*Hint*: Think about `)
+			b.WriteString("\n\n*Hint*: Think about ")
 			b.WriteString(input.Question.Hint)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Assessment.HasProject {
-		b.WriteString(`
-## 🚀 Mini Project
-
-**Project**: `)
+		b.WriteString("\n## 🚀 Mini Project\n\n**Project**: ")
 		b.WriteString(input.Project.Title)
-		b.WriteString(`
-**Estimated Time**: `)
+		b.WriteString("\n**Estimated Time**: ")
 		b.WriteString(var1)
-		b.WriteString(` minutes
-
-**Requirements**:
-`)
+		b.WriteString(" minutes\n\n**Requirements**:\n")
 		b.WriteString(input.Project.Requirements)
 		b.WriteString("\n\n**Starter Code**:\n```")
 		b.WriteString(input.Project.Language)
@@ -719,8 +596,7 @@ D) `)
 		b.WriteString(input.Project.StarterCode)
 		b.WriteString("\n```\n\n")
 		if input.Project.HasBonus {
-			b.WriteString(`
-**Bonus Challenge**: `)
+			b.WriteString("\n**Bonus Challenge**: ")
 			b.WriteString(input.Project.BonusChallenge)
 			b.WriteRune('\n')
 		}
@@ -782,7 +658,8 @@ func (input *ProgressTracking) String() string {
 	var b strings.Builder
 	var0 := strconv.Itoa(input.Progress.CurrentLesson)
 	var1 := strconv.Itoa(input.Progress.TotalLessons)
-	var2 := strconv.Itoa(input.NextSteps.StudyMinutes)
+	var2 := strconv.Itoa(input.Student.StreakDays)
+	var3 := strconv.Itoa(input.NextSteps.StudyMinutes)
 	length := 0
 	length += 46
 	length += len(var0)
@@ -793,7 +670,7 @@ func (input *ProgressTracking) String() string {
 	length += 3
 	if input.Student.StreakDays >= 7 {
 		length += 31
-		length += len(strconv.Itoa(input.Student.StreakDays))
+		length += len(var2)
 		length += 23
 		if input.Student.StreakDays >= 30 {
 			length += 66
@@ -821,7 +698,7 @@ func (input *ProgressTracking) String() string {
 			length += 18
 			length += len(input.NextSteps.NextTopic)
 			length += 29
-			length += len(var2)
+			length += len(var3)
 			length += 10
 			if input.NextSteps.HasHomework {
 				length += 26
@@ -837,95 +714,57 @@ func (input *ProgressTracking) String() string {
 		length += 2
 	}
 	b.Grow(length)
-	b.WriteString(`## 📈 Your Progress
-
-**Lesson Completion**: `)
+	b.WriteString("## 📈 Your Progress\n\n**Lesson Completion**: ")
 	b.WriteString(var0)
-	b.WriteString(`/`)
+	b.WriteString("/")
 	b.WriteString(var1)
-	b.WriteString(` lessons
-**Overall Progress**: `)
+	b.WriteString(" lessons\n**Overall Progress**: ")
 	b.WriteString(strconv.Itoa(input.Student.CompletionPercentage))
-	b.WriteString(`%
-
-`)
+	b.WriteString("%\n\n")
 	if input.Student.StreakDays >= 7 {
-		b.WriteString(`
-🎉 **Amazing!** You're on a `)
-		b.WriteString(strconv.Itoa(input.Student.StreakDays))
-		b.WriteString(`-day learning streak!
-
-`)
+		b.WriteString("\n🎉 **Amazing!** You're on a ")
+		b.WriteString(var2)
+		b.WriteString("-day learning streak!\n\n")
 		if input.Student.StreakDays >= 30 {
-			b.WriteString(`
-🏆 **Legendary Learner!** 30+ day streak - you're unstoppable!
-`)
+			b.WriteString("\n🏆 **Legendary Learner!** 30+ day streak - you're unstoppable!\n")
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Progress.StrugglingAreas != "" {
-			b.WriteString(`
-### 📝 Areas for Review
-Based on your performance, consider reviewing:
-`)
+			b.WriteString("\n### 📝 Areas for Review\nBased on your performance, consider reviewing:\n")
 			b.WriteString(input.Progress.StrugglingAreas)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Progress.StrengthAreas != "" {
-			b.WriteString(`
-### 💪 Your Strengths
-You're excelling in:
-`)
+			b.WriteString("\n### 💪 Your Strengths\nYou're excelling in:\n")
 			b.WriteString(input.Progress.StrengthAreas)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-## 🎯 Next Steps
-
-`)
+		b.WriteString("\n\n## 🎯 Next Steps\n\n")
 		if input.Student.CompletionPercentage >= 80 {
-			b.WriteString(`
-🎓 **Almost there!** You're ready for the final assessment.
-
-**Next**: `)
+			b.WriteString("\n🎓 **Almost there!** You're ready for the final assessment.\n\n**Next**: ")
 			b.WriteString(input.NextSteps.FinalAssessment)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Student.CompletionPercentage < 80 {
-			b.WriteString(`
-**Next Lesson**: `)
+			b.WriteString("\n**Next Lesson**: ")
 			b.WriteString(input.NextSteps.NextTopic)
-			b.WriteString(`
-**Recommended Study Time**: `)
-			b.WriteString(var2)
-			b.WriteString(` minutes
-
-`)
+			b.WriteString("\n**Recommended Study Time**: ")
+			b.WriteString(var3)
+			b.WriteString(" minutes\n\n")
 			if input.NextSteps.HasHomework {
-				b.WriteString(`
-**Homework Assignment**: `)
+				b.WriteString("\n**Homework Assignment**: ")
 				b.WriteString(input.NextSteps.Homework)
 				b.WriteRune('\n')
 			}
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
----
-*Keep up the great work, `)
+		b.WriteString("\n\n---\n*Keep up the great work, ")
 		b.WriteString(input.Student.Name)
-		b.WriteString(`! 🌟*
-*Session completed at: `)
+		b.WriteString("! 🌟*\n*Session completed at: ")
 		b.WriteString(input.Session.Timestamp)
-		b.WriteString(`* `)
+		b.WriteString("* ")
 	}
 	return b.String()
 }

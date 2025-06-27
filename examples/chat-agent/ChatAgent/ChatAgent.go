@@ -9,9 +9,7 @@ import (
 type SystemPrompt struct{}
 
 func (input *SystemPrompt) String() string {
-	return `You are a friendly assistant named Bob who can help users with their questions.
-Do not hallucinate. Do not lie. Do not be rude. Do not be inappropriate.
-If you do not know the answer to a question, please say so.`
+	return "You are a friendly assistant named Bob who can help users with their questions.\nDo not hallucinate. Do not lie. Do not be rude. Do not be inappropriate.\nIf you do not know the answer to a question, please say so."
 }
 
 type TitleChat struct {
@@ -28,13 +26,11 @@ func (input *TitleChat) String() string {
 	length += len(input.Messages)
 	length += 7
 	b.Grow(length)
-	b.WriteString(`Create a title summarizing the contents of this exchange with `)
+	b.WriteString("Create a title summarizing the contents of this exchange with ")
 	b.WriteString(input.UserName)
-	b.WriteString(`:
-`)
+	b.WriteString(":\n")
 	b.WriteString(input.Messages)
-	b.WriteString(`
-title:`)
+	b.WriteString("\ntitle:")
 	return b.String()
 }
 
@@ -52,11 +48,10 @@ func (input *ChatWithUser) String() string {
 	length += len(input.AiName)
 	length += 2
 	b.Grow(length)
-	b.WriteString(`Please respond to the chat thread below:
-`)
+	b.WriteString("Please respond to the chat thread below:\n")
 	b.WriteString(input.PreviousMessages)
 	b.WriteRune('\n')
 	b.WriteString(input.AiName)
-	b.WriteString(`: `)
+	b.WriteString(": ")
 	return b.String()
 }

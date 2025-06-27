@@ -17,8 +17,8 @@ func (input *SinglePrompt) String() string {
 	length += len(input.Username)
 	length += 1
 	b.Grow(length)
-	b.WriteString(`say hello to `)
+	b.WriteString("say hello to ")
 	b.WriteString(input.Username)
-	b.WriteString(` `)
+	b.WriteString(" ")
 	return b.String()
 }

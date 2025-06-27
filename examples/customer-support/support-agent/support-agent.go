@@ -10,7 +10,7 @@ import (
 type SystemPrompt struct{}
 
 func (input *SystemPrompt) String() string {
-	return `You are SupportBot Pro, an intelligent customer support agent with advanced escalation capabilities. You provide empathetic, efficient support while routing complex issues to appropriate specialists based on priority, customer tier, and issue complexity.`
+	return "You are SupportBot Pro, an intelligent customer support agent with advanced escalation capabilities. You provide empathetic, efficient support while routing complex issues to appropriate specialists based on priority, customer tier, and issue complexity."
 }
 
 type InitialCustomerGreeting struct {
@@ -106,67 +106,41 @@ func (input *InitialCustomerGreeting) String() string {
 		length += 85
 	}
 	b.Grow(length)
-	b.WriteString(`# 🎧 Customer Support - Ticket #`)
+	b.WriteString("# 🎧 Customer Support - Ticket #")
 	b.WriteString(input.Ticket.Id)
-	b.WriteString(`
-
-Hello `)
+	b.WriteString("\n\nHello ")
 	b.WriteString(input.Customer.Name)
-	b.WriteString(`! I'm here to help you today.
-
-## 👤 Customer Profile
-- **Account Type**: `)
+	b.WriteString("! I'm here to help you today.\n\n## 👤 Customer Profile\n- **Account Type**: ")
 	b.WriteString(input.Customer.Tier)
-	b.WriteString(` Customer
-- **Member Since**: `)
+	b.WriteString(" Customer\n- **Member Since**: ")
 	b.WriteString(input.Customer.JoinDate)
-	b.WriteString(`
-- **Previous Tickets**: `)
+	b.WriteString("\n- **Previous Tickets**: ")
 	b.WriteString(var0)
-	b.WriteString(`
-- **Satisfaction Score**: `)
+	b.WriteString("\n- **Satisfaction Score**: ")
 	b.WriteString(var1)
-	b.WriteString(`/10 ⭐
-
-`)
+	b.WriteString("/10 ⭐\n\n")
 	if input.Customer.Tier == "premium" {
-		b.WriteString(`
-🌟 **Premium Support**: You'll receive priority assistance with our fastest response times.
-`)
+		b.WriteString("\n🌟 **Premium Support**: You'll receive priority assistance with our fastest response times.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Customer.Tier == "enterprise" {
-		b.WriteString(`
-🏢 **Enterprise Support**: Your dedicated account manager is `)
+		b.WriteString("\n🏢 **Enterprise Support**: Your dedicated account manager is ")
 		b.WriteString(input.Customer.AccountManager)
-		b.WriteString(`, available at `)
+		b.WriteString(", available at ")
 		b.WriteString(input.Customer.ManagerContact)
-		b.WriteString(`.
-`)
+		b.WriteString(".\n")
 	}
-	b.WriteString(`
-
-## 📋 Issue Details
-- **Category**: `)
+	b.WriteString("\n\n## 📋 Issue Details\n- **Category**: ")
 	b.WriteString(input.Issue.Category)
-	b.WriteString(`
-- **Severity**: `)
+	b.WriteString("\n- **Severity**: ")
 	b.WriteString(input.Issue.Severity)
-	b.WriteString(`
-- **Priority**: `)
+	b.WriteString("\n- **Priority**: ")
 	b.WriteString(var2)
-	b.WriteString(`/5
-- **Reported**: `)
+	b.WriteString("/5\n- **Reported**: ")
 	b.WriteString(input.Issue.Timestamp)
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Issue.IsUrgent {
-		b.WriteString(`
-🚨 **URGENT ISSUE DETECTED** - This will be fast-tracked for immediate attention.
-`)
+		b.WriteString("\n🚨 **URGENT ISSUE DETECTED** - This will be fast-tracked for immediate attention.\n")
 	}
 	return b.String()
 }
@@ -277,12 +251,13 @@ func (input *IssueAnalysisAndRouting) isAccountZero() bool {
 
 func (input *IssueAnalysisAndRouting) String() string {
 	var b strings.Builder
-	var0 := strconv.Itoa(input.Technical.EstimatedHours)
-	var1 := strconv.Itoa(input.Technical.EstimatedMinutes)
-	var2 := strconv.FormatFloat(input.Billing.Amount, 'g', -1, 64)
-	var3 := strconv.FormatFloat(input.Billing.RefundAmount, 'g', -1, 64)
-	var4 := strconv.Itoa(input.Billing.RefundDays)
-	var5 := strconv.FormatFloat(input.Account.ProrateAmount, 'g', -1, 64)
+	var0 := strconv.Itoa(input.Technical.ComplexityScore)
+	var1 := strconv.Itoa(input.Technical.EstimatedHours)
+	var2 := strconv.Itoa(input.Technical.EstimatedMinutes)
+	var3 := strconv.FormatFloat(input.Billing.Amount, 'g', -1, 64)
+	var4 := strconv.FormatFloat(input.Billing.RefundAmount, 'g', -1, 64)
+	var5 := strconv.Itoa(input.Billing.RefundDays)
+	var6 := strconv.FormatFloat(input.Account.ProrateAmount, 'g', -1, 64)
 	length := 0
 	length += 47
 	length += len(input.Issue.Description)
@@ -303,11 +278,11 @@ func (input *IssueAnalysisAndRouting) String() string {
 		length += 2
 		if input.Technical.ComplexityScore != 0 {
 			length += 28
-			length += len(strconv.Itoa(input.Technical.ComplexityScore))
+			length += len(var0)
 			length += 5
 			if input.Technical.ComplexityScore >= 8 {
 				length += 90
-				length += len(var0)
+				length += len(var1)
 				length += 32
 				length += len(input.Technical.AssignedSpecialist)
 				length += 1
@@ -315,7 +290,7 @@ func (input *IssueAnalysisAndRouting) String() string {
 			length += 2
 			if input.Technical.ComplexityScore <= 3 {
 				length += 93
-				length += len(var1)
+				length += len(var2)
 				length += 9
 			}
 			length += 1
@@ -327,7 +302,7 @@ func (input *IssueAnalysisAndRouting) String() string {
 		length += 54
 		length += len(input.Billing.InvoiceId)
 		length += 14
-		length += len(var2)
+		length += len(var3)
 		length += 21
 		length += len(input.Billing.PaymentMethod)
 		length += 21
@@ -335,9 +310,9 @@ func (input *IssueAnalysisAndRouting) String() string {
 		length += 2
 		if input.Billing.RequiresRefund {
 			length += 54
-			length += len(var3)
-			length += 22
 			length += len(var4)
+			length += 22
+			length += len(var5)
 			length += 16
 			if input.Customer.Tier == "premium" {
 				length += 75
@@ -395,202 +370,124 @@ func (input *IssueAnalysisAndRouting) String() string {
 			length += 21
 			length += len(input.Account.ChangeDate)
 			length += 23
-			length += len(var5)
+			length += len(var6)
 			length += 1
 		}
 		length += 1
 	}
 	b.Grow(length)
-	b.WriteString(`## 🔍 Issue Classification
-
-**Description**: `)
+	b.WriteString("## 🔍 Issue Classification\n\n**Description**: ")
 	b.WriteString(input.Issue.Description)
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Issue.Category == "technical" {
-		b.WriteString(`
-### 🛠️ Technical Issue Analysis
-
-**System Affected**: `)
+		b.WriteString("\n### 🛠️ Technical Issue Analysis\n\n**System Affected**: ")
 		b.WriteString(input.Technical.System)
-		b.WriteString(`
-**Error Code**: `)
+		b.WriteString("\n**Error Code**: ")
 		b.WriteString(input.Technical.ErrorCode)
-		b.WriteString(`
-**Environment**: `)
+		b.WriteString("\n**Environment**: ")
 		b.WriteString(input.Technical.Environment)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Technical.HasLogs {
 			b.WriteString("\n**Error Logs Available**: Yes\n```\n")
 			b.WriteString(input.Technical.Logs)
 			b.WriteString("\n```\n")
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Technical.ComplexityScore != 0 {
-			b.WriteString(`
-**Complexity Assessment**: `)
-			b.WriteString(strconv.Itoa(input.Technical.ComplexityScore))
-			b.WriteString(`/10
-
-`)
+			b.WriteString("\n**Complexity Assessment**: ")
+			b.WriteString(var0)
+			b.WriteString("/10\n\n")
 			if input.Technical.ComplexityScore >= 8 {
-				b.WriteString(`
-🔴 **High Complexity** - Escalating to Senior Technical Team
-**Estimated Resolution**: `)
-				b.WriteString(var0)
-				b.WriteString(` hours
-**Assigned Specialist**: `)
+				b.WriteString("\n🔴 **High Complexity** - Escalating to Senior Technical Team\n**Estimated Resolution**: ")
+				b.WriteString(var1)
+				b.WriteString(" hours\n**Assigned Specialist**: ")
 				b.WriteString(input.Technical.AssignedSpecialist)
 				b.WriteRune('\n')
 			}
-			b.WriteString(`
-
-`)
+			b.WriteString("\n\n")
 			if input.Technical.ComplexityScore <= 3 {
-				b.WriteString(`
-✅ **Standard Issue** - Can be resolved with standard procedures
-**Estimated Resolution**: `)
-				b.WriteString(var1)
-				b.WriteString(` minutes
-`)
+				b.WriteString("\n✅ **Standard Issue** - Can be resolved with standard procedures\n**Estimated Resolution**: ")
+				b.WriteString(var2)
+				b.WriteString(" minutes\n")
 			}
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Issue.Category == "billing" {
-		b.WriteString(`
-### 💳 Billing Issue Analysis
-
-**Invoice Number**: `)
+		b.WriteString("\n### 💳 Billing Issue Analysis\n\n**Invoice Number**: ")
 		b.WriteString(input.Billing.InvoiceId)
-		b.WriteString(`
-**Amount**: $`)
-		b.WriteString(var2)
-		b.WriteString(`
-**Payment Method**: `)
+		b.WriteString("\n**Amount**: $")
+		b.WriteString(var3)
+		b.WriteString("\n**Payment Method**: ")
 		b.WriteString(input.Billing.PaymentMethod)
-		b.WriteString(`
-**Dispute Reason**: `)
+		b.WriteString("\n**Dispute Reason**: ")
 		b.WriteString(input.Billing.DisputeReason)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Billing.RequiresRefund {
-			b.WriteString(`
-💰 **Refund Request Detected**
-**Refund Amount**: $`)
-			b.WriteString(var3)
-			b.WriteString(`
-**Processing Time**: `)
+			b.WriteString("\n💰 **Refund Request Detected**\n**Refund Amount**: $")
 			b.WriteString(var4)
-			b.WriteString(` business days
-
-`)
+			b.WriteString("\n**Processing Time**: ")
+			b.WriteString(var5)
+			b.WriteString(" business days\n\n")
 			if input.Customer.Tier == "premium" {
-				b.WriteString(`
-⚡ **Fast-Track Refund**: Your refund will be processed within 24 hours.
-`)
+				b.WriteString("\n⚡ **Fast-Track Refund**: Your refund will be processed within 24 hours.\n")
 			}
-			b.WriteString(`
-
-`)
+			b.WriteString("\n\n")
 			if input.Customer.Tier == "enterprise" {
-				b.WriteString(`
-⚡ **Fast-Track Refund**: Your refund will be processed within 24 hours.
-`)
+				b.WriteString("\n⚡ **Fast-Track Refund**: Your refund will be processed within 24 hours.\n")
 			}
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Billing.PaymentFailed {
-			b.WriteString(`
-❌ **Payment Failure Detected**
-**Failure Reason**: `)
+			b.WriteString("\n❌ **Payment Failure Detected**\n**Failure Reason**: ")
 			b.WriteString(input.Billing.FailureReason)
-			b.WriteString(`
-**Next Retry**: `)
+			b.WriteString("\n**Next Retry**: ")
 			b.WriteString(input.Billing.NextRetryDate)
-			b.WriteString(`
-
-**Action Required**: `)
+			b.WriteString("\n\n**Action Required**: ")
 			b.WriteString(input.Billing.CustomerAction)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Issue.Category == "account" {
-		b.WriteString(`
-### 👤 Account Issue Analysis
-
-**Issue Type**: `)
+		b.WriteString("\n### 👤 Account Issue Analysis\n\n**Issue Type**: ")
 		b.WriteString(input.Account.IssueType)
-		b.WriteString(`
-**Account Status**: `)
+		b.WriteString("\n**Account Status**: ")
 		b.WriteString(input.Account.Status)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Account.Locked {
-			b.WriteString(`
-🔒 **Account Locked**
-**Lock Reason**: `)
+			b.WriteString("\n🔒 **Account Locked**\n**Lock Reason**: ")
 			b.WriteString(input.Account.LockReason)
-			b.WriteString(`
-**Security Level**: `)
+			b.WriteString("\n**Security Level**: ")
 			b.WriteString(input.Account.SecurityLevel)
-			b.WriteString(`
-
-**Unlock Steps**:
-1. `)
+			b.WriteString("\n\n**Unlock Steps**:\n1. ")
 			b.WriteString(input.Account.UnlockStep1)
-			b.WriteString(`
-2. `)
+			b.WriteString("\n2. ")
 			b.WriteString(input.Account.UnlockStep2)
-			b.WriteString(`
-3. `)
+			b.WriteString("\n3. ")
 			b.WriteString(input.Account.UnlockStep3)
-			b.WriteString(`
-
-`)
+			b.WriteString("\n\n")
 			if input.Account.RequiresVerification {
-				b.WriteString(`
-**Identity Verification Required**: Please prepare `)
+				b.WriteString("\n**Identity Verification Required**: Please prepare ")
 				b.WriteString(input.Account.VerificationDocuments)
 				b.WriteRune('\n')
 			}
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Account.SubscriptionChange {
-			b.WriteString(`
-📋 **Subscription Change Request**
-**Current Plan**: `)
+			b.WriteString("\n📋 **Subscription Change Request**\n**Current Plan**: ")
 			b.WriteString(input.Account.CurrentPlan)
-			b.WriteString(`
-**Requested Plan**: `)
+			b.WriteString("\n**Requested Plan**: ")
 			b.WriteString(input.Account.RequestedPlan)
-			b.WriteString(`
-**Effective Date**: `)
+			b.WriteString("\n**Effective Date**: ")
 			b.WriteString(input.Account.ChangeDate)
-			b.WriteString(`
-**Prorated Amount**: $`)
-			b.WriteString(var5)
+			b.WriteString("\n**Prorated Amount**: $")
+			b.WriteString(var6)
 			b.WriteRune('\n')
 		}
 		b.WriteRune('\n')
@@ -717,96 +614,57 @@ func (input *IntelligentEscalationLogic) String() string {
 	}
 	b.Grow(length)
 	if input.Escalation.Required {
-		b.WriteString(`
-## 🚀 Escalation Triggered
-
-**Escalation Level**: `)
+		b.WriteString("\n## 🚀 Escalation Triggered\n\n**Escalation Level**: ")
 		b.WriteString(var0)
-		b.WriteString(`
-**Trigger Reason**: `)
+		b.WriteString("\n**Trigger Reason**: ")
 		b.WriteString(input.Escalation.Reason)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Escalation.Level >= 3 {
-			b.WriteString(`
-### 🔴 Level 3+ Escalation - Management Involvement
-
-**Escalated To**: `)
+			b.WriteString("\n### 🔴 Level 3+ Escalation - Management Involvement\n\n**Escalated To**: ")
 			b.WriteString(input.Escalation.ManagerName)
-			b.WriteString(`
-**Contact**: `)
+			b.WriteString("\n**Contact**: ")
 			b.WriteString(input.Escalation.ManagerContact)
-			b.WriteString(`
-**SLA**: `)
+			b.WriteString("\n**SLA**: ")
 			b.WriteString(var1)
-			b.WriteString(` hours
-
-`)
+			b.WriteString(" hours\n\n")
 			if input.Customer.VipStatus {
-				b.WriteString(`
-👑 **VIP Customer Alert**: Executive team has been notified.
-**Executive Contact**: `)
+				b.WriteString("\n👑 **VIP Customer Alert**: Executive team has been notified.\n**Executive Contact**: ")
 				b.WriteString(input.Escalation.ExecutiveContact)
 				b.WriteRune('\n')
 			}
-			b.WriteString(`
-
-**Escalation Notes**: `)
+			b.WriteString("\n\n**Escalation Notes**: ")
 			b.WriteString(input.Escalation.Notes)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Escalation.Level == 2 {
-			b.WriteString(`
-### 🟡 Level 2 Escalation - Specialist Required
-
-**Specialist Team**: `)
+			b.WriteString("\n### 🟡 Level 2 Escalation - Specialist Required\n\n**Specialist Team**: ")
 			b.WriteString(input.Escalation.SpecialistTeam)
-			b.WriteString(`
-**Expert Assigned**: `)
+			b.WriteString("\n**Expert Assigned**: ")
 			b.WriteString(input.Escalation.ExpertName)
-			b.WriteString(`
-**Specialty**: `)
+			b.WriteString("\n**Specialty**: ")
 			b.WriteString(input.Escalation.ExpertSpecialty)
-			b.WriteString(`
-**Estimated Response**: `)
+			b.WriteString("\n**Estimated Response**: ")
 			b.WriteString(var2)
-			b.WriteString(` minutes
-`)
+			b.WriteString(" minutes\n")
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Escalation.Level == 1 {
-			b.WriteString(`
-### 🟢 Level 1 Escalation - Senior Support
-
-**Senior Agent**: `)
+			b.WriteString("\n### 🟢 Level 1 Escalation - Senior Support\n\n**Senior Agent**: ")
 			b.WriteString(input.Escalation.SeniorAgent)
-			b.WriteString(`
-**Queue Position**: `)
+			b.WriteString("\n**Queue Position**: ")
 			b.WriteString(var3)
-			b.WriteString(`
-**Expected Pickup**: `)
+			b.WriteString("\n**Expected Pickup**: ")
 			b.WriteString(input.Escalation.PickupTime)
 			b.WriteRune('\n')
 		}
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Escalation.CallbackRequested {
-			b.WriteString(`
-📞 **Callback Scheduled**
-**Phone Number**: `)
+			b.WriteString("\n📞 **Callback Scheduled**\n**Phone Number**: ")
 			b.WriteString(input.Customer.Phone)
-			b.WriteString(`
-**Preferred Time**: `)
+			b.WriteString("\n**Preferred Time**: ")
 			b.WriteString(input.Escalation.CallbackTime)
-			b.WriteString(`
-**Time Zone**: `)
+			b.WriteString("\n**Time Zone**: ")
 			b.WriteString(input.Customer.Timezone)
 			b.WriteRune('\n')
 		}
@@ -1046,186 +904,106 @@ func (input *ResolutionAndNextSteps) String() string {
 	length += len(input.Customer.Name)
 	length += 8
 	b.Grow(length)
-	b.WriteString(`## 💡 Immediate Actions
-
-`)
+	b.WriteString("## 💡 Immediate Actions\n\n")
 	if input.Solution.HasQuickFix {
-		b.WriteString(`
-### ✅ Quick Resolution Available
-
-**Solution**: `)
+		b.WriteString("\n### ✅ Quick Resolution Available\n\n**Solution**: ")
 		b.WriteString(input.Solution.QuickFix)
-		b.WriteString(`
-
-**Steps to Resolve**:
-1. `)
+		b.WriteString("\n\n**Steps to Resolve**:\n1. ")
 		b.WriteString(input.Solution.Step1)
-		b.WriteString(`
-2. `)
+		b.WriteString("\n2. ")
 		b.WriteString(input.Solution.Step2)
-		b.WriteString(`
-3. `)
+		b.WriteString("\n3. ")
 		b.WriteString(input.Solution.Step3)
-		b.WriteString(`
-
-`)
+		b.WriteString("\n\n")
 		if input.Solution.RequiresRestart {
-			b.WriteString(`
-⚠️ **System Restart Required**: Please restart `)
+			b.WriteString("\n⚠️ **System Restart Required**: Please restart ")
 			b.WriteString(input.Solution.RestartComponent)
-			b.WriteString(` after completing the above steps.
-`)
+			b.WriteString(" after completing the above steps.\n")
 		}
-		b.WriteString(`
-
-**Verification**: `)
+		b.WriteString("\n\n**Verification**: ")
 		b.WriteString(input.Solution.VerificationSteps)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Solution.RequiresInvestigation {
-		b.WriteString(`
-### 🔍 Further Investigation Needed
-
-**Investigation Timeline**: `)
+		b.WriteString("\n### 🔍 Further Investigation Needed\n\n**Investigation Timeline**: ")
 		b.WriteString(input.Investigation.Timeline)
-		b.WriteString(`
-**Assigned Team**: `)
+		b.WriteString("\n**Assigned Team**: ")
 		b.WriteString(input.Investigation.Team)
-		b.WriteString(`
-**Progress Updates**: Every `)
+		b.WriteString("\n**Progress Updates**: Every ")
 		b.WriteString(var0)
-		b.WriteString(` hours
-
-**What We're Checking**:
-- `)
+		b.WriteString(" hours\n\n**What We're Checking**:\n- ")
 		b.WriteString(input.Investigation.Check1)
-		b.WriteString(`
-- `)
+		b.WriteString("\n- ")
 		b.WriteString(input.Investigation.Check2)
-		b.WriteString(`
-- `)
+		b.WriteString("\n- ")
 		b.WriteString(input.Investigation.Check3)
-		b.WriteString(`
-
-**How We'll Contact You**: `)
+		b.WriteString("\n\n**How We'll Contact You**: ")
 		b.WriteString(input.Investigation.ContactMethod)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-## 📋 Ticket Status Update
-
-**Current Status**: `)
+	b.WriteString("\n\n## 📋 Ticket Status Update\n\n**Current Status**: ")
 	b.WriteString(input.Ticket.Status)
-	b.WriteString(`
-**Priority**: `)
+	b.WriteString("\n**Priority**: ")
 	b.WriteString(input.Ticket.PriorityLevel)
-	b.WriteString(`/5
-**Next Update**: `)
+	b.WriteString("/5\n**Next Update**: ")
 	b.WriteString(input.Ticket.NextUpdate)
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Ticket.SlaAtRisk {
-		b.WriteString(`
-⚠️ **SLA Alert**: This ticket is approaching SLA deadline (`)
+		b.WriteString("\n⚠️ **SLA Alert**: This ticket is approaching SLA deadline (")
 		b.WriteString(input.Ticket.SlaDeadline)
-		b.WriteString(`)
-**Escalation Triggered**: Yes
-`)
+		b.WriteString(")\n**Escalation Triggered**: Yes\n")
 	}
-	b.WriteString(`
-
-## 🎯 Customer Satisfaction
-
-Before we close, how would you rate your experience today?
-
-`)
+	b.WriteString("\n\n## 🎯 Customer Satisfaction\n\nBefore we close, how would you rate your experience today?\n\n")
 	if input.Followup.SurveyLink != "" {
-		b.WriteString(`
-**Quick Survey**: `)
+		b.WriteString("\n**Quick Survey**: ")
 		b.WriteString(input.Followup.SurveyLink)
-		b.WriteString(` (2 minutes)
-`)
+		b.WriteString(" (2 minutes)\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Followup.HasCompensation {
-		b.WriteString(`
-### 🎁 Service Recovery
-
-Due to the inconvenience, we're providing:
-**Compensation**: `)
+		b.WriteString("\n### 🎁 Service Recovery\n\nDue to the inconvenience, we're providing:\n**Compensation**: ")
 		b.WriteString(input.Followup.CompensationType)
-		b.WriteString(`
-**Value**: $`)
+		b.WriteString("\n**Value**: $")
 		b.WriteString(var1)
-		b.WriteString(`
-**Applied To**: `)
+		b.WriteString("\n**Applied To**: ")
 		b.WriteString(input.Followup.CompensationTarget)
-		b.WriteString(`
-**Effective**: `)
+		b.WriteString("\n**Effective**: ")
 		b.WriteString(input.Followup.CompensationDate)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-## 📞 Need More Help?
-
-`)
+	b.WriteString("\n\n## 📞 Need More Help?\n\n")
 	if input.Customer.Tier == "enterprise" {
-		b.WriteString(`
-**Your Dedicated Support**: `)
+		b.WriteString("\n**Your Dedicated Support**: ")
 		b.WriteString(input.Customer.DedicatedSupportContact)
-		b.WriteString(`
-**24/7 Hotline**: `)
+		b.WriteString("\n**24/7 Hotline**: ")
 		b.WriteString(input.Customer.EmergencyContact)
 		b.WriteRune('\n')
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	if input.Customer.Tier == "premium" {
-		b.WriteString(`
-**Premium Support Line**: `)
+		b.WriteString("\n**Premium Support Line**: ")
 		b.WriteString(input.Support.PremiumPhone)
-		b.WriteString(`
-**Average Wait Time**: `)
+		b.WriteString("\n**Average Wait Time**: ")
 		b.WriteString(var2)
-		b.WriteString(` minutes
-`)
+		b.WriteString(" minutes\n")
 	}
-	b.WriteString(`
-
-**General Support**: `)
+	b.WriteString("\n\n**General Support**: ")
 	b.WriteString(input.Support.GeneralContact)
-	b.WriteString(`
-**Live Chat**: Available 24/7 at `)
+	b.WriteString("\n**Live Chat**: Available 24/7 at ")
 	b.WriteString(input.Support.ChatUrl)
-	b.WriteString(`
-**Knowledge Base**: `)
+	b.WriteString("\n**Knowledge Base**: ")
 	b.WriteString(input.Support.KbUrl)
-	b.WriteString(`
-
----
-**Ticket Reference**: #`)
+	b.WriteString("\n\n---\n**Ticket Reference**: #")
 	b.WriteString(input.Ticket.Id)
-	b.WriteString(`
-**Support Agent**: `)
+	b.WriteString("\n**Support Agent**: ")
 	b.WriteString(input.Agent.Name)
-	b.WriteString(` (ID: `)
+	b.WriteString(" (ID: ")
 	b.WriteString(input.Agent.Id)
-	b.WriteString(`)
-**Session End**: `)
+	b.WriteString(")\n**Session End**: ")
 	b.WriteString(input.Session.EndTime)
-	b.WriteString(`
-
-*Thank you for choosing our service, `)
+	b.WriteString("\n\n*Thank you for choosing our service, ")
 	b.WriteString(input.Customer.Name)
-	b.WriteString(`! 🌟* `)
+	b.WriteString("! 🌟* ")
 	return b.String()
 }

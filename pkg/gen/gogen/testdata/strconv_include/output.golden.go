@@ -30,26 +30,17 @@ func (input *SystemPrompt) String() string {
 	length += 34
 	length += len(input.Time)
 	b.Grow(length)
-	b.WriteString(`The following is a conversation between an AI and a human that are best friends. The AI is helpful and answers factual questions correctly but maintains a friendly relationship with the human.
-
-`)
+	b.WriteString("The following is a conversation between an AI and a human that are best friends. The AI is helpful and answers factual questions correctly but maintains a friendly relationship with the human.\n\n")
 	if input.ConvCount < 10 {
-		b.WriteString(`
-This is early user mode!! Get to know the user and their preferences.
-`)
+		b.WriteString("\nThis is early user mode!! Get to know the user and their preferences.\n")
 	}
-	b.WriteString(`
-
-`)
+	b.WriteString("\n\n")
 	b.WriteString(input.LongTermMemories)
-	b.WriteString(`
-
-User Name: `)
+	b.WriteString("\n\nUser Name: ")
 	b.WriteString(input.FirstName)
-	b.WriteString(` `)
+	b.WriteString(" ")
 	b.WriteString(input.LastName)
-	b.WriteString(`
-Current Time in User's Timezone: `)
+	b.WriteString("\nCurrent Time in User's Timezone: ")
 	b.WriteString(input.Time)
 	return b.String()
 }

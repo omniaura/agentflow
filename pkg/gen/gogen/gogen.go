@@ -334,11 +334,14 @@ func goTypeFor(typ string) string {
 }
 
 func stringTemplate(buf *bytes.Buffer, toks []coarse.Token, content []byte) {
-	buf.WriteString("\treturn `")
+	var fullContent bytes.Buffer
 	for _, t := range toks {
-		buf.Write(t.Get(content))
+		fullContent.Write(t.Get(content))
 	}
-	buf.WriteString("`\n}\n")
+
+	buf.WriteString("\treturn ")
+	buf.WriteString(strconv.Quote(fullContent.String()))
+	buf.WriteString("\n}\n")
 }
 
 func stringTemplateWithStruct(buf *bytes.Buffer, toks []coarse.Token, content []byte, inputs ast.InputStruct) {
@@ -352,43 +355,36 @@ func stringTemplateWithStruct(buf *bytes.Buffer, toks []coarse.Token, content []
 	var varDecls []string
 	varCounter := 0
 
-	// First pass: identify which numeric variables are actually used for output (coarse.Var only)
-	usedInOutput := make(map[string]bool)
+	// Pre-declare string conversions for all stringable variables (they're always used twice: length + output)
 	for _, t := range toks {
-		if t.Kind == coarse.Var {
-			vi := t.GetVar(content, typeCache)
-			if vi.Type == "int" || vi.Type == "float32" || vi.Type == "float64" {
-				pathKey := string(bytes.Join(vi.Path, []byte(".")))
-				usedInOutput[pathKey] = true
-			}
-		}
-	}
-
-	// Second pass: pre-declare string conversions only for numeric variables used in output
-	for _, t := range toks {
-		if t.Kind == coarse.Var || t.Kind == coarse.OptionalBlock {
+		switch t.Kind {
+		case coarse.OptionalBlock:
+			t.GetVar(content, typeCache) // populate type cache for later Var tokens
+		case coarse.Var:
 			vi := t.GetVar(content, typeCache)
 			pathKey := string(bytes.Join(vi.Path, []byte(".")))
-			// Only create string conversion if this variable is actually used for output
-			if usedInOutput[pathKey] {
-				if _, exists := numericVarMap[pathKey]; !exists {
-					switch vi.Type {
-					case "int":
-						localVar := "var" + strconv.Itoa(varCounter)
-						numericVarMap[pathKey] = localVar
-						varDecls = append(varDecls, localVar+" := strconv.Itoa("+varFieldAccess(vi.Path)+")")
-						varCounter++
-					case "float32":
-						localVar := "var" + strconv.Itoa(varCounter)
-						numericVarMap[pathKey] = localVar
-						varDecls = append(varDecls, localVar+" := strconv.FormatFloat(float64("+varFieldAccess(vi.Path)+"), 'g', -1, 32)")
-						varCounter++
-					case "float64":
-						localVar := "var" + strconv.Itoa(varCounter)
-						numericVarMap[pathKey] = localVar
-						varDecls = append(varDecls, localVar+" := strconv.FormatFloat("+varFieldAccess(vi.Path)+", 'g', -1, 64)")
-						varCounter++
-					}
+			if _, exists := numericVarMap[pathKey]; !exists {
+				switch vi.Type {
+				case "int":
+					localVar := "var" + strconv.Itoa(varCounter)
+					numericVarMap[pathKey] = localVar
+					varDecls = append(varDecls, localVar+" := strconv.Itoa("+varFieldAccess(vi.Path)+")")
+					varCounter++
+				case "float32":
+					localVar := "var" + strconv.Itoa(varCounter)
+					numericVarMap[pathKey] = localVar
+					varDecls = append(varDecls, localVar+" := strconv.FormatFloat(float64("+varFieldAccess(vi.Path)+"), 'g', -1, 32)")
+					varCounter++
+				case "float64":
+					localVar := "var" + strconv.Itoa(varCounter)
+					numericVarMap[pathKey] = localVar
+					varDecls = append(varDecls, localVar+" := strconv.FormatFloat("+varFieldAccess(vi.Path)+", 'g', -1, 64)")
+					varCounter++
+				case "bool":
+					localVar := "var" + strconv.Itoa(varCounter)
+					numericVarMap[pathKey] = localVar
+					varDecls = append(varDecls, localVar+" := strconv.FormatBool("+varFieldAccess(vi.Path)+")")
+					varCounter++
 				}
 			}
 		}
@@ -426,7 +422,7 @@ func generateLengthCalculation(buf *bytes.Buffer, toks []coarse.Token, content [
 			buf.WriteString("length += ")
 			pathKey := string(bytes.Join(vi.Path, []byte(".")))
 			switch vi.Type {
-			case "int", "float32", "float64":
+			case "int", "float32", "float64", "bool":
 				if localVar, exists := numericVarMap[pathKey]; exists {
 					buf.WriteString("len(" + localVar + ")")
 				} else {
@@ -438,10 +434,10 @@ func generateLengthCalculation(buf *bytes.Buffer, toks []coarse.Token, content [
 						buf.WriteString("len(strconv.FormatFloat(float64(" + varFieldAccess(vi.Path) + "), 'g', -1, 32))")
 					case "float64":
 						buf.WriteString("len(strconv.FormatFloat(" + varFieldAccess(vi.Path) + ", 'g', -1, 64))")
+					case "bool":
+						buf.WriteString("5") // max length for "false"
 					}
 				}
-			case "bool":
-				buf.WriteString("5") // max length for "false"
 			default:
 				buf.WriteString("len(" + varFieldAccess(vi.Path) + ")")
 			}
@@ -526,15 +522,9 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 		if len(staticBuf) == 0 {
 			return
 		}
-		if bytes.Contains(staticBuf, []byte("`")) {
-			buf.WriteString("\tb.WriteString(")
-			writeQuotedString(buf, staticBuf)
-			buf.WriteString(")\n")
-		} else {
-			buf.WriteString("\tb.WriteString(`")
-			buf.Write(staticBuf)
-			buf.WriteString("`)\n")
-		}
+		buf.WriteString("\tb.WriteString(")
+		writeQuotedString(buf, staticBuf)
+		buf.WriteString(")\n")
 		staticBuf = staticBuf[:0]
 	}
 
@@ -550,7 +540,7 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 			buf.WriteString("\tb.WriteString(")
 			pathKey := string(bytes.Join(vi.Path, []byte(".")))
 			switch vi.Type {
-			case "int", "float32", "float64":
+			case "int", "float32", "float64", "bool":
 				if localVar, exists := numericVarMap[pathKey]; exists {
 					buf.WriteString(localVar)
 				} else {
@@ -562,10 +552,10 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 						buf.WriteString("strconv.FormatFloat(float64(" + varFieldAccess(vi.Path) + "), 'g', -1, 32)")
 					case "float64":
 						buf.WriteString("strconv.FormatFloat(" + varFieldAccess(vi.Path) + ", 'g', -1, 64)")
+					case "bool":
+						buf.WriteString("strconv.FormatBool(" + varFieldAccess(vi.Path) + ")")
 					}
 				}
-			case "bool":
-				buf.WriteString("strconv.FormatBool(" + varFieldAccess(vi.Path) + ")")
 			default:
 				buf.WriteString(varFieldAccess(vi.Path))
 			}
