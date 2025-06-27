@@ -27,8 +27,7 @@ import (
 	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen"
-	"github.com/omniaura/agentflow/pkg/token"
-	"github.com/omniaura/agentflow/pkg/token/kind"
+	"github.com/omniaura/agentflow/pkg/token/coarse"
 	"github.com/peyton-spencer/caseconv"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
@@ -102,14 +101,16 @@ func GenFile(w io.Writer, f ast.File) error {
 		typeCache := make(map[string]string)
 		for _, t := range p.Nodes {
 			switch t.Kind {
-			case kind.Var:
+			case coarse.Var:
 				vi := t.GetVar(f.Content, typeCache)
 				switch vi.Type {
 				case "int", "bool", "float32", "float64":
 					imports["strconv"] = true
 				}
 				fallthrough
-			case kind.OptionalBlock:
+			case coarse.OptionalBlock:
+				// Call GetVar to populate type cache for later Var tokens
+				t.GetVar(f.Content, typeCache)
 				imports["strings"] = true
 			}
 		}
@@ -138,14 +139,22 @@ func GenFile(w io.Writer, f ast.File) error {
 	}
 
 	for i, p := range f.Prompts {
-		if p.Title.Kind == kind.Unset && len(f.Prompts) > 1 {
+		if p.Title.Kind == coarse.Unset && len(f.Prompts) > 1 {
 			return gen.ErrMissingTitle.F("index: %d", i)
 		}
 
 		// Get the struct name
 		var structName []byte
-		if p.Title.Kind == kind.Title {
-			structName = bytcase.ToCamel(p.Title.Get(f.Content))
+		if p.Title.Kind == coarse.Title {
+			// Extract just the title text, skipping ".title " prefix
+			titleContent := p.Title.Get(f.Content)
+			if len(titleContent) > 7 && string(titleContent[:7]) == ".title " {
+				// Skip ".title " prefix and get just the title text
+				titleText := titleContent[7:]
+				structName = bytcase.ToCamel(titleText)
+			} else {
+				structName = bytcase.ToCamel(titleContent)
+			}
 		} else {
 			structName = bytcase.ToCamel([]byte(f.Name))
 		}
@@ -171,7 +180,7 @@ func GenFile(w io.Writer, f ast.File) error {
 		// Also check for conditionals or any complex tokens that need processing
 		hasComplexTokens := false
 		for _, t := range p.Nodes {
-			if t.Kind == kind.OptionalBlock || t.Kind == kind.ElseBlock || t.Kind == kind.EndTag {
+			if t.Kind == coarse.OptionalBlock || t.Kind == coarse.ElseBlock || t.Kind == coarse.EndTag {
 				hasComplexTokens = true
 				break
 			}
@@ -324,15 +333,18 @@ func goTypeFor(typ string) string {
 	}
 }
 
-func stringTemplate(buf *bytes.Buffer, toks token.Slice, content []byte) {
-	buf.WriteString("\treturn `")
+func stringTemplate(buf *bytes.Buffer, toks []coarse.Token, content []byte) {
+	var fullContent bytes.Buffer
 	for _, t := range toks {
-		buf.Write(t.Get(content))
+		fullContent.Write(t.Get(content))
 	}
-	buf.WriteString("`\n}\n")
+
+	buf.WriteString("\treturn ")
+	buf.WriteString(strconv.Quote(fullContent.String()))
+	buf.WriteString("\n}\n")
 }
 
-func stringTemplateWithStruct(buf *bytes.Buffer, toks token.Slice, content []byte, inputs ast.InputStruct) {
+func stringTemplateWithStruct(buf *bytes.Buffer, toks []coarse.Token, content []byte, inputs ast.InputStruct) {
 	buf.WriteString("\tvar b strings.Builder\n")
 
 	// Create type cache to track variable types
@@ -343,43 +355,36 @@ func stringTemplateWithStruct(buf *bytes.Buffer, toks token.Slice, content []byt
 	var varDecls []string
 	varCounter := 0
 
-	// First pass: identify which numeric variables are actually used for output (kind.Var)
-	usedInOutput := make(map[string]bool)
+	// Pre-declare string conversions for all stringable variables (they're always used twice: length + output)
 	for _, t := range toks {
-		if t.Kind == kind.Var {
-			vi := t.GetVar(content, typeCache)
-			if vi.Type == "int" || vi.Type == "float32" || vi.Type == "float64" {
-				pathKey := string(bytes.Join(vi.Path, []byte(".")))
-				usedInOutput[pathKey] = true
-			}
-		}
-	}
-
-	// Second pass: pre-declare string conversions only for numeric variables used in output
-	for _, t := range toks {
-		if t.Kind == kind.Var || t.Kind == kind.OptionalBlock {
+		switch t.Kind {
+		case coarse.OptionalBlock:
+			t.GetVar(content, typeCache) // populate type cache for later Var tokens
+		case coarse.Var:
 			vi := t.GetVar(content, typeCache)
 			pathKey := string(bytes.Join(vi.Path, []byte(".")))
-			// Only create string conversion if this variable is actually used for output
-			if usedInOutput[pathKey] {
-				if _, exists := numericVarMap[pathKey]; !exists {
-					switch vi.Type {
-					case "int":
-						localVar := "var" + strconv.Itoa(varCounter)
-						numericVarMap[pathKey] = localVar
-						varDecls = append(varDecls, localVar+" := strconv.Itoa("+varFieldAccess(vi.Path)+")")
-						varCounter++
-					case "float32":
-						localVar := "var" + strconv.Itoa(varCounter)
-						numericVarMap[pathKey] = localVar
-						varDecls = append(varDecls, localVar+" := strconv.FormatFloat(float64("+varFieldAccess(vi.Path)+"), 'g', -1, 32)")
-						varCounter++
-					case "float64":
-						localVar := "var" + strconv.Itoa(varCounter)
-						numericVarMap[pathKey] = localVar
-						varDecls = append(varDecls, localVar+" := strconv.FormatFloat("+varFieldAccess(vi.Path)+", 'g', -1, 64)")
-						varCounter++
-					}
+			if _, exists := numericVarMap[pathKey]; !exists {
+				switch vi.Type {
+				case "int":
+					localVar := "var" + strconv.Itoa(varCounter)
+					numericVarMap[pathKey] = localVar
+					varDecls = append(varDecls, localVar+" := strconv.Itoa("+varFieldAccess(vi.Path)+")")
+					varCounter++
+				case "float32":
+					localVar := "var" + strconv.Itoa(varCounter)
+					numericVarMap[pathKey] = localVar
+					varDecls = append(varDecls, localVar+" := strconv.FormatFloat(float64("+varFieldAccess(vi.Path)+"), 'g', -1, 32)")
+					varCounter++
+				case "float64":
+					localVar := "var" + strconv.Itoa(varCounter)
+					numericVarMap[pathKey] = localVar
+					varDecls = append(varDecls, localVar+" := strconv.FormatFloat("+varFieldAccess(vi.Path)+", 'g', -1, 64)")
+					varCounter++
+				case "bool":
+					localVar := "var" + strconv.Itoa(varCounter)
+					numericVarMap[pathKey] = localVar
+					varDecls = append(varDecls, localVar+" := strconv.FormatBool("+varFieldAccess(vi.Path)+")")
+					varCounter++
 				}
 			}
 		}
@@ -405,19 +410,19 @@ func stringTemplateWithStruct(buf *bytes.Buffer, toks token.Slice, content []byt
 	buf.WriteString("\treturn b.String()\n}\n")
 }
 
-func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
+func generateLengthCalculation(buf *bytes.Buffer, toks []coarse.Token, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
 	conditionalStack := []bool{} // Track nested conditionals
 	indentLevel := 1
 
 	for _, t := range toks {
 		switch t.Kind {
-		case kind.Var:
+		case coarse.Var:
 			vi := t.GetVar(content, typeCache)
 			writeIndent(buf, indentLevel)
 			buf.WriteString("length += ")
 			pathKey := string(bytes.Join(vi.Path, []byte(".")))
 			switch vi.Type {
-			case "int", "float32", "float64":
+			case "int", "float32", "float64", "bool":
 				if localVar, exists := numericVarMap[pathKey]; exists {
 					buf.WriteString("len(" + localVar + ")")
 				} else {
@@ -429,16 +434,16 @@ func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []by
 						buf.WriteString("len(strconv.FormatFloat(float64(" + varFieldAccess(vi.Path) + "), 'g', -1, 32))")
 					case "float64":
 						buf.WriteString("len(strconv.FormatFloat(" + varFieldAccess(vi.Path) + ", 'g', -1, 64))")
+					case "bool":
+						buf.WriteString("5") // max length for "false"
 					}
 				}
-			case "bool":
-				buf.WriteString("5") // max length for "false"
 			default:
 				buf.WriteString("len(" + varFieldAccess(vi.Path) + ")")
 			}
 			buf.WriteString("\n")
 
-		case kind.OptionalBlock:
+		case coarse.OptionalBlock:
 			conditionalStack = append(conditionalStack, true)
 			indentLevel++
 			vi := t.GetVar(content, typeCache)
@@ -475,11 +480,11 @@ func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []by
 			}
 			buf.WriteString(" {\n")
 
-		case kind.ElseBlock:
+		case coarse.ElseBlock:
 			writeIndent(buf, indentLevel-1)
 			buf.WriteString("} else {\n")
 
-		case kind.EndTag:
+		case coarse.EndTag:
 			if len(conditionalStack) > 0 {
 				conditionalStack = conditionalStack[:len(conditionalStack)-1]
 				indentLevel--
@@ -508,12 +513,25 @@ func generateLengthCalculation(buf *bytes.Buffer, toks token.Slice, content []by
 	}
 }
 
-func generateStringBuilding(buf *bytes.Buffer, toks token.Slice, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
+func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
 	conditionalStack := []bool{} // Track nested conditionals
+
+	// Buffer for static text segments
+	var staticBuf []byte
+	flushStatic := func() {
+		if len(staticBuf) == 0 {
+			return
+		}
+		buf.WriteString("\tb.WriteString(")
+		writeQuotedString(buf, staticBuf)
+		buf.WriteString(")\n")
+		staticBuf = staticBuf[:0]
+	}
 
 	for _, t := range toks {
 		switch t.Kind {
-		case kind.Var:
+		case coarse.Var:
+			flushStatic()
 			// Add proper indentation based on nesting level
 			for range len(conditionalStack) {
 				buf.WriteRune('\t')
@@ -522,7 +540,7 @@ func generateStringBuilding(buf *bytes.Buffer, toks token.Slice, content []byte,
 			buf.WriteString("\tb.WriteString(")
 			pathKey := string(bytes.Join(vi.Path, []byte(".")))
 			switch vi.Type {
-			case "int", "float32", "float64":
+			case "int", "float32", "float64", "bool":
 				if localVar, exists := numericVarMap[pathKey]; exists {
 					buf.WriteString(localVar)
 				} else {
@@ -534,16 +552,17 @@ func generateStringBuilding(buf *bytes.Buffer, toks token.Slice, content []byte,
 						buf.WriteString("strconv.FormatFloat(float64(" + varFieldAccess(vi.Path) + "), 'g', -1, 32)")
 					case "float64":
 						buf.WriteString("strconv.FormatFloat(" + varFieldAccess(vi.Path) + ", 'g', -1, 64)")
+					case "bool":
+						buf.WriteString("strconv.FormatBool(" + varFieldAccess(vi.Path) + ")")
 					}
 				}
-			case "bool":
-				buf.WriteString("strconv.FormatBool(" + varFieldAccess(vi.Path) + ")")
 			default:
 				buf.WriteString(varFieldAccess(vi.Path))
 			}
 			buf.WriteString(")\n")
 
-		case kind.OptionalBlock:
+		case coarse.OptionalBlock:
+			flushStatic()
 			conditionalStack = append(conditionalStack, true)
 			// Add proper indentation for the if statement
 			for range len(conditionalStack) - 1 {
@@ -582,14 +601,16 @@ func generateStringBuilding(buf *bytes.Buffer, toks token.Slice, content []byte,
 			}
 			buf.WriteString(" {\n")
 
-		case kind.ElseBlock:
+		case coarse.ElseBlock:
+			flushStatic()
 			// Add proper indentation for the else statement
 			for range len(conditionalStack) - 1 {
 				buf.WriteRune('\t')
 			}
 			buf.WriteString("\t} else {\n")
 
-		case kind.EndTag:
+		case coarse.EndTag:
+			flushStatic()
 			if len(conditionalStack) > 0 {
 				conditionalStack = conditionalStack[:len(conditionalStack)-1]
 				// Add proper indentation for the closing brace
@@ -601,27 +622,19 @@ func generateStringBuilding(buf *bytes.Buffer, toks token.Slice, content []byte,
 
 		default:
 			// static text
-			// Add proper indentation based on nesting level
-			for range len(conditionalStack) {
-				buf.WriteRune('\t')
-			}
 			textContent := t.Get(content)
 			if bytes.Equal(textContent, []byte("\n")) {
+				flushStatic()
+				for range len(conditionalStack) {
+					buf.WriteRune('\t')
+				}
 				buf.WriteString("\tb.WriteRune('\\n')\n")
 			} else if len(textContent) > 0 {
-				// Check if content contains backticks - if so, use quoted strings
-				if bytes.Contains(textContent, []byte("`")) {
-					buf.WriteString("\tb.WriteString(")
-					writeQuotedString(buf, textContent)
-					buf.WriteString(")\n")
-				} else {
-					buf.WriteString("\tb.WriteString(`")
-					buf.Write(textContent)
-					buf.WriteString("`)\n")
-				}
+				staticBuf = append(staticBuf, textContent...)
 			}
 		}
 	}
+	flushStatic()
 
 	// Close any remaining open conditionals
 	for len(conditionalStack) > 0 {

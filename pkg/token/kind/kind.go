@@ -24,35 +24,84 @@ type Kind int
 
 const (
 	Unset Kind = iota
-	EndTag
-	OptionalBlock
-	ElseBlock
-	Title
-	Text
-	// TODO: add var parameters
-	// such as:
-	// <!name string>
-	// <!age int>
-	// <!is_admin bool>
-	// <!created_at datetime>
-	// <!meeting_time time>
-	// <!meeting_date date>
-	// <!any_data any>
-	// <!todos string list join="\n">
-	// <!weights float32 list join=",">
-	// <!flags bool list join="," start="[" end="]">
-	// <!names join="\n">
-	Var
-	RawBlock
+	
+	// Basic bracket structure
+	OpenBracket       // "<"
+	CloseBracket      // ">"
+	
+	// Directive types (what comes after <)
+	DirectiveVar      // "!" in "<!username>"
+	DirectiveCond     // "?" in "<?condition>"
+	DirectiveEnd      // "/" in "</tag>"
+	DirectiveElse     // "else" in "<else>"
+	
+	// Title directive
+	TitleDirective    // ".title"
+	TitleText         // "System Prompt" in ".title System Prompt"
+	
+	// Content types (used in variables, conditionals, etc.)
+	VarName           // "username", "user.premium", etc.
+	TypeName          // "int", "bool", "string", "float32", "float64"
+	Operator          // "eq", "gte", "lte", "gt", "lt", "ne"
+	StringValue       // "gold" in "<?tier eq "gold">"
+	IntValue          // "5" in "<?count gte 5>"
+	BoolValue         // "true" in "<?active eq true>"
+	
+	// Content
+	Text              // Regular text content
+	Whitespace        // Spaces, tabs, newlines (separators)
+	
+	// Future extension tokens (for later)
+	// RawBlock       // For future raw block support
+	// Comment        // For future comment support
 )
 
 func (k Kind) IsTag() bool {
 	switch k {
 	case
-		Var,
-		OptionalBlock,
-		ElseBlock,
-		EndTag:
+		OpenBracket, CloseBracket,
+		DirectiveVar, DirectiveCond, DirectiveEnd, DirectiveElse,
+		VarName, TypeName, Operator, StringValue, IntValue, BoolValue:
+		return true
+	}
+	return false
+}
+
+func (k Kind) IsBracket() bool {
+	switch k {
+	case OpenBracket, CloseBracket:
+		return true
+	}
+	return false
+}
+
+func (k Kind) IsDirective() bool {
+	switch k {
+	case DirectiveVar, DirectiveCond, DirectiveEnd, DirectiveElse:
+		return true
+	}
+	return false
+}
+
+func (k Kind) IsValue() bool {
+	switch k {
+	case VarName, TypeName, StringValue, IntValue, BoolValue:
+		return true
+	}
+	return false
+}
+
+func (k Kind) IsContent() bool {
+	switch k {
+	case Text:
+		return true
+	}
+	return false
+}
+
+func (k Kind) IsStructural() bool {
+	switch k {
+	case Whitespace, TitleDirective:
 		return true
 	}
 	return false

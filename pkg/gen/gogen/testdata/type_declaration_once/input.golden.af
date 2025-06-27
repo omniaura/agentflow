@@ -2,6 +2,7 @@
 Name: <!name>
 Age: <!age int>
 Premium: <!premium bool>
+Score: <!score float32>
 
 ## Summary
-Hello <!name>! You are <!age> years old and premium status is <!premium>. 
+Hello <!name>! You are <!age> years old, premium status is <!premium>, and your score is <!score>. 

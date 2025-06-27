@@ -24,8 +24,7 @@ import (
 	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/pkg/assert/require"
 	"github.com/omniaura/agentflow/pkg/ast"
-	"github.com/omniaura/agentflow/pkg/token"
-	"github.com/omniaura/agentflow/pkg/token/kind"
+	"github.com/omniaura/agentflow/pkg/token/coarse"
 	"github.com/peyton-spencer/caseconv"
 )
 
@@ -81,8 +80,8 @@ func TestNewFile(t *testing.T) {
 					Content: singlePrompt,
 					Prompts: []ast.Prompt{
 						{
-							Nodes: token.Slice{
-								{Kind: kind.Text, Start: 0, End: len(singlePrompt)},
+							Nodes: []coarse.Token{
+								{Kind: coarse.Text, Start: 0, End: len(singlePrompt)},
 							},
 						},
 					},
@@ -102,15 +101,15 @@ func TestNewFile(t *testing.T) {
 					Content: content,
 					Prompts: []ast.Prompt{
 						{
-							Title: token.T{Kind: kind.Title, Start: 7, End: 15},
-							Nodes: token.Slice{
-								{Kind: kind.Text, Start: 16, End: 25},
+							Title: coarse.Token{Kind: coarse.Title, Start: 7, End: 15},
+							Nodes: []coarse.Token{
+								{Kind: coarse.Text, Start: 16, End: 25},
 							},
 						},
 						{
-							Title: token.T{Kind: kind.Title, Start: 33, End: 41},
-							Nodes: token.Slice{
-								{Kind: kind.Text, Start: 42, End: 51},
+							Title: coarse.Token{Kind: coarse.Title, Start: 33, End: 41},
+							Nodes: []coarse.Token{
+								{Kind: coarse.Text, Start: 42, End: 51},
 							},
 						},
 					},

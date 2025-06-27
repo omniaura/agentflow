@@ -20,6 +20,7 @@ import (
 
 	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/cmd/af/gen"
+	"github.com/omniaura/agentflow/cmd/af/lsp"
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/logger"
 	"github.com/spf13/cobra"
@@ -41,6 +42,7 @@ func main() {
 	defer cancel()
 
 	Root.AddCommand(gen.CMD())
+	Root.AddCommand(lsp.CMD())
 
 	err := Root.ExecuteContext(ctx)
 	assert.NoError(err)
