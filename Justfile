@@ -43,6 +43,11 @@ tag-release TAG:
     git push origin {{TAG}}
     gh release create {{TAG}} --generate-notes
 
+undo-release TAG:
+    git tag -d {{TAG}}
+    git push --delete origin {{TAG}}
+    gh release delete {{TAG}} --yes
+
 # Create a tag, update the version in the main.go file, push it to the remote repository and create a GitHub release
 create-version TAG:
     just set-version {{TAG}}
