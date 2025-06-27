@@ -1,0 +1,90 @@
+.title System Prompt
+You are a helpful AI assistant named <!assistant_name>. 
+Your purpose is to help users with various tasks.
+
+.title User Authentication
+<?user.is_authenticated bool>
+Welcome back, <!user.name>! Your last login was <!user.last_login>.
+You have <!user.notification_count int> new notifications.
+
+<?user.account_type eq "premium">
+As a premium member, you have access to advanced features.
+Your subscription expires on <!user.subscription_end_date>.
+<else>
+You're using the free tier. Upgrade to premium for more features!
+</user.account_type>
+
+<else>
+Please log in to access your personalized experience.
+Visit our registration page to create a new account.
+</user.is_authenticated>
+
+.title Content Generation
+Generate content based on user preferences:
+
+User's preferred topic: <!content.topic>
+Content length: <!content.length int> words
+Writing style: <!content.style>
+
+<?content.include_examples bool>
+Include practical examples in the response.
+</content.include_examples>
+
+<?content.target_audience eq "technical">
+Use technical terminology and detailed explanations.
+<else>
+Keep the language simple and accessible.
+</content.target_audience>
+
+.title Data Processing
+Process the following user data:
+
+Personal information:
+- Name: <!user.personal.first_name> <!user.personal.last_name>
+- Age: <!user.personal.age int>
+- Location: <!user.personal.city>, <!user.personal.country>
+
+Account settings:
+- Email notifications: <!user.settings.email_notifications bool>
+- Theme preference: <!user.settings.theme>
+- Language: <!user.settings.language>
+
+<?user.personal.age gte 18>
+User is an adult - show all content.
+<?user.personal.age gte 65>
+User qualifies for senior discounts.
+</user.personal.age>
+<else>
+User is a minor - apply content restrictions.
+</user.personal.age>
+
+.title Advanced Conditionals
+<?user.subscription.type eq "enterprise">
+Enterprise features enabled.
+Maximum API calls: <!user.subscription.api_limit int>
+Priority support: <!user.subscription.priority_support bool>
+
+<?user.subscription.custom_integrations bool>
+Custom integrations are available for your account.
+Integration count: <!user.subscription.integration_count int>
+</user.subscription.custom_integrations>
+
+<else>
+Standard subscription active.
+Daily API limit: <!user.subscription.daily_limit int>
+</user.subscription.type>
+
+.title Error Handling
+<?error.occurred bool>
+An error has occurred: <!error.message>
+Error code: <!error.code int>
+Timestamp: <!error.timestamp>
+
+<?error.severity eq "critical">
+This is a critical error that requires immediate attention.
+<else>
+This is a non-critical error that can be resolved later.
+</error.severity>
+</error.occurred>
+
+This is the end of the test file. All major AgentFlow syntax elements should be covered above. 

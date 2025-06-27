@@ -17,7 +17,6 @@ package token
 
 import (
 	"bytes"
-	"log/slog"
 	"strconv"
 	"strings"
 
@@ -49,6 +48,7 @@ func (t T) Get(in []byte) []byte {
 	return in[t.Start:t.End]
 }
 
+
 func (t T) GetWrap(in []byte, left, right byte) []byte {
 	out := make([]byte, 0, len(in)+2)
 	out = append(out, left)
@@ -77,116 +77,484 @@ var (
 	cmdTitle = []byte(".title")
 )
 
+
 func Tokenize(input []byte) (Slice, error) {
 	var tokens []T
-	var ct T
-	startLine := true
-	cmdStart := -1
-	cmdEnd := cmdStart
-	for i, b := range input {
-		if startLine {
-			startLine = false
-			switch b {
-			case '~':
-			case '.':
-				cmdStart = i
-				if ct.Kind != kind.Unset {
-					// trim newlines before the directive
-					// sub := 1
-					// for input[i-sub] == '\n' {
-					// 	sub++
-					// }
-					// ct.End = i - sub + 1
-					if input[i-1] == '\n' {
-						if input[i-2] == '\n' {
-							ct.End = i - 2
-						} else {
-							ct.End = i - 1
-						}
-					} else {
-						ct.End = i
-					}
-					tokens = append(tokens, ct)
-					// log.Trace().Msgf("command start: %+v", ct)
-				} else {
-					// log.Trace().Msgf("kind was previously set: %+v", ct)
-				}
-			case '<':
-			case '\n':
-			default:
-			}
-		}
-
-		if cmdStart != -1 {
-			switch b {
-			case ' ':
-				cmdEnd = i
-				switch {
-				case bytes.Equal(input[cmdStart:cmdEnd], cmdTitle):
-					ct.Kind = kind.Title
-					ct.Start = i + 1
+	i := 0
+	
+	for i < len(input) {
+		// Check for .title directive at start of line
+		if i == 0 || (i > 0 && input[i-1] == '\n') {
+			if i < len(input) && input[i] == '.' {
+				if title := tryParseTitle(input, i); title != nil {
+					tokens = append(tokens, title...)
+					i += titleLength(input, i)
+					continue
 				}
 			}
 		}
-
-		if b == '>' && ct.Kind.IsTag() {
-			ct.End = i
-			tokens = append(tokens, ct)
-			ct = T{}
+		
+		// Check for < with lookahead for valid directives
+		if input[i] == '<' {
+			if tag := tryParseTag(input, i); tag != nil {
+				tokens = append(tokens, tag...)
+				i += tagLength(input, i)
+				continue
+			}
+		}
+		
+		// Check for whitespace
+		if isWhitespace(input[i]) {
+			ws := parseWhitespace(input, i)
+			tokens = append(tokens, ws)
+			i += ws.End - ws.Start
 			continue
 		}
-		if b == '<' && len(input) > i {
-			if ct.Kind != kind.Unset {
-				ct.End = i
-				tokens = append(tokens, ct)
-			}
-			switch input[i+1] {
-			case '!':
-				ct.Kind = kind.Var
-			case '?':
-				ct.Kind = kind.OptionalBlock
-			case '/':
-				ct.Kind = kind.EndTag
-			case 'e':
-				ct.Kind = kind.ElseBlock
-			}
-			ct.Start = i + 2
+		
+		// Regular text content
+		text := parseText(input, i)
+		tokens = append(tokens, text)
+		i += text.End - text.Start
+	}
+	
+	return tokens, nil
+}
+
+// tryParseTitle attempts to parse .title directive
+func tryParseTitle(input []byte, start int) []T {
+	if start+6 >= len(input) || !bytes.HasPrefix(input[start:], []byte(".title")) {
+		return nil
+	}
+	
+	// Check that ".title" is followed by whitespace or end of input
+	if start+6 < len(input) && !isWhitespace(input[start+6]) {
+		return nil
+	}
+	
+	var tokens []T
+	
+	// .title directive
+	tokens = append(tokens, T{
+		Kind:  kind.TitleDirective,
+		Start: start,
+		End:   start + 6,
+	})
+	
+	pos := start + 6
+	
+	// Optional whitespace after .title
+	if pos < len(input) && isWhitespace(input[pos]) {
+		wsStart := pos
+		for pos < len(input) && isWhitespace(input[pos]) && input[pos] != '\n' {
+			pos++
 		}
-
-		if b == '\n' {
-			startLine = true
-			switch ct.Kind {
-			case kind.Text:
-
-			case kind.Title:
-				ct.End = i
-				tokens = append(tokens, ct)
-				ct = T{}
-				continue
-			case kind.Unset:
-				if len(input) > i+1 {
-					switch input[i+1] {
-					case '.':
-						slog.Debug("ignoring text node", "token", ct.Stringify(input))
-						continue
-					}
-				}
-			}
+		tokens = append(tokens, T{
+			Kind:  kind.Whitespace,
+			Start: wsStart,
+			End:   pos,
+		})
+	}
+	
+	// Title text (rest of line)
+	if pos < len(input) && input[pos] != '\n' {
+		textStart := pos
+		for pos < len(input) && input[pos] != '\n' {
+			pos++
 		}
-
-		if ct.Kind == kind.Unset {
-			ct.Kind = kind.Text
-			ct.Start = i
+		// Trim trailing whitespace from title text
+		textEnd := pos
+		for textEnd > textStart && isWhitespace(input[textEnd-1]) {
+			textEnd--
 		}
-
-		if i == len(input)-1 && ct.Kind != kind.Unset {
-			ct.End = i + 1
-			// slog.Debug("end of input, adding token", "token", ct.Stringify(input))
-
-			tokens = append(tokens, ct)
+		if textEnd > textStart {
+			tokens = append(tokens, T{
+				Kind:  kind.TitleText,
+				Start: textStart,
+				End:   textEnd,
+			})
 		}
 	}
-	return tokens, nil
+	
+	return tokens
+}
+
+// tryParseTag attempts to parse < with lookahead for valid directives
+func tryParseTag(input []byte, start int) []T {
+	if start >= len(input) || input[start] != '<' {
+		return nil
+	}
+	
+	// Check what follows <
+	if start+1 >= len(input) {
+		return nil
+	}
+	
+	switch input[start+1] {
+	case '!':
+		return parseVarTag(input, start)
+	case '?':
+		return parseCondTag(input, start)
+	case '/':
+		return parseEndTag(input, start)
+	default:
+		// Check for <else>
+		if start+4 < len(input) && bytes.HasPrefix(input[start:], []byte("<else")) {
+			if start+5 >= len(input) || input[start+5] == '>' {
+				return parseElseTag(input, start)
+			}
+		}
+		return nil
+	}
+}
+
+// parseVarTag parses <!variable> or <!variable type>
+func parseVarTag(input []byte, start int) []T {
+	var tokens []T
+	pos := start
+	
+	// Find closing >
+	closePos := -1
+	for i := start + 2; i < len(input); i++ {
+		if input[i] == '>' {
+			closePos = i
+			break
+		}
+	}
+	if closePos == -1 {
+		return nil
+	}
+	
+	// OpenBracket + DirectiveVar
+	tokens = append(tokens, T{Kind: kind.OpenBracket, Start: pos, End: pos + 1})
+	pos++
+	tokens = append(tokens, T{Kind: kind.DirectiveVar, Start: pos, End: pos + 1})
+	pos++
+	
+	// Parse content between <! and >
+	content := input[pos:closePos]
+	contentTokens := parseVarContent(content, pos)
+	tokens = append(tokens, contentTokens...)
+	
+	// CloseBracket
+	tokens = append(tokens, T{Kind: kind.CloseBracket, Start: closePos, End: closePos + 1})
+	
+	return tokens
+}
+
+// parseCondTag parses <?variable> or <?variable operator value>
+func parseCondTag(input []byte, start int) []T {
+	var tokens []T
+	pos := start
+	
+	// Find closing >
+	closePos := -1
+	for i := start + 2; i < len(input); i++ {
+		if input[i] == '>' {
+			closePos = i
+			break
+		}
+	}
+	if closePos == -1 {
+		return nil
+	}
+	
+	// OpenBracket + DirectiveCond
+	tokens = append(tokens, T{Kind: kind.OpenBracket, Start: pos, End: pos + 1})
+	pos++
+	tokens = append(tokens, T{Kind: kind.DirectiveCond, Start: pos, End: pos + 1})
+	pos++
+	
+	// Parse content between <? and >
+	content := input[pos:closePos]
+	contentTokens := parseCondContent(content, pos)
+	tokens = append(tokens, contentTokens...)
+	
+	// CloseBracket
+	tokens = append(tokens, T{Kind: kind.CloseBracket, Start: closePos, End: closePos + 1})
+	
+	return tokens
+}
+
+// parseEndTag parses </variable>
+func parseEndTag(input []byte, start int) []T {
+	var tokens []T
+	pos := start
+	
+	// Find closing >
+	closePos := -1
+	for i := start + 2; i < len(input); i++ {
+		if input[i] == '>' {
+			closePos = i
+			break
+		}
+	}
+	if closePos == -1 {
+		return nil
+	}
+	
+	// OpenBracket + DirectiveEnd
+	tokens = append(tokens, T{Kind: kind.OpenBracket, Start: pos, End: pos + 1})
+	pos++
+	tokens = append(tokens, T{Kind: kind.DirectiveEnd, Start: pos, End: pos + 1})
+	pos++
+	
+	// Variable name
+	if closePos > pos {
+		tokens = append(tokens, T{Kind: kind.VarName, Start: pos, End: closePos})
+	}
+	
+	// CloseBracket
+	tokens = append(tokens, T{Kind: kind.CloseBracket, Start: closePos, End: closePos + 1})
+	
+	return tokens
+}
+
+// parseElseTag parses <else>
+func parseElseTag(input []byte, start int) []T {
+	var tokens []T
+	
+	// OpenBracket
+	tokens = append(tokens, T{Kind: kind.OpenBracket, Start: start, End: start + 1})
+	
+	// DirectiveElse
+	tokens = append(tokens, T{Kind: kind.DirectiveElse, Start: start + 1, End: start + 5})
+	
+	// CloseBracket
+	tokens = append(tokens, T{Kind: kind.CloseBracket, Start: start + 5, End: start + 6})
+	
+	return tokens
+}
+
+// parseVarContent parses the content inside <!...>
+func parseVarContent(content []byte, offset int) []T {
+	var tokens []T
+	pos := 0
+	
+	// Skip leading whitespace
+	for pos < len(content) && isWhitespace(content[pos]) {
+		pos++
+	}
+	if pos >= len(content) {
+		return tokens
+	}
+	
+	// Variable name (everything until whitespace or end)
+	varStart := pos
+	for pos < len(content) && !isWhitespace(content[pos]) {
+		pos++
+	}
+	if pos > varStart {
+		tokens = append(tokens, T{
+			Kind:  kind.VarName,
+			Start: offset + varStart,
+			End:   offset + pos,
+		})
+	}
+	
+	// Optional whitespace + type
+	if pos < len(content) {
+		// Whitespace
+		wsStart := pos
+		for pos < len(content) && isWhitespace(content[pos]) {
+			pos++
+		}
+		if pos > wsStart {
+			tokens = append(tokens, T{
+				Kind:  kind.Whitespace,
+				Start: offset + wsStart,
+				End:   offset + pos,
+			})
+		}
+		
+		// Type name
+		if pos < len(content) {
+			typeStart := pos
+			for pos < len(content) && !isWhitespace(content[pos]) {
+				pos++
+			}
+			if pos > typeStart {
+				tokens = append(tokens, T{
+					Kind:  kind.TypeName,
+					Start: offset + typeStart,
+					End:   offset + pos,
+				})
+			}
+		}
+	}
+	
+	return tokens
+}
+
+// parseCondContent parses the content inside <?...>
+func parseCondContent(content []byte, offset int) []T {
+	var tokens []T
+	
+	// Split on whitespace and parse each part
+	parts := bytes.Fields(content)
+	pos := 0
+	
+	for i, part := range parts {
+		// Skip to the start of this part
+		for pos < len(content) && isWhitespace(content[pos]) {
+			if i > 0 {
+				// Add whitespace token
+				wsStart := pos
+				for pos < len(content) && isWhitespace(content[pos]) {
+					pos++
+				}
+				tokens = append(tokens, T{
+					Kind:  kind.Whitespace,
+					Start: offset + wsStart,
+					End:   offset + pos,
+				})
+				break
+			}
+			pos++
+		}
+		
+		partStart := pos
+		partEnd := pos + len(part)
+		
+		if i == 0 {
+			// First part is variable name
+			tokens = append(tokens, T{
+				Kind:  kind.VarName,
+				Start: offset + partStart,
+				End:   offset + partEnd,
+			})
+		} else if isOperator(string(part)) {
+			// Operator
+			tokens = append(tokens, T{
+				Kind:  kind.Operator,
+				Start: offset + partStart,
+				End:   offset + partEnd,
+			})
+		} else if isType(string(part)) {
+			// Type
+			tokens = append(tokens, T{
+				Kind:  kind.TypeName,
+				Start: offset + partStart,
+				End:   offset + partEnd,
+			})
+		} else if isBoolValue(string(part)) {
+			// Boolean value
+			tokens = append(tokens, T{
+				Kind:  kind.BoolValue,
+				Start: offset + partStart,
+				End:   offset + partEnd,
+			})
+		} else if isIntValue(string(part)) {
+			// Integer value
+			tokens = append(tokens, T{
+				Kind:  kind.IntValue,
+				Start: offset + partStart,
+				End:   offset + partEnd,
+			})
+		} else {
+			// String value (including quoted strings)
+			tokens = append(tokens, T{
+				Kind:  kind.StringValue,
+				Start: offset + partStart,
+				End:   offset + partEnd,
+			})
+		}
+		
+		pos = partEnd
+	}
+	
+	return tokens
+}
+
+// parseWhitespace parses whitespace characters
+func parseWhitespace(input []byte, start int) T {
+	pos := start
+	for pos < len(input) && isWhitespace(input[pos]) {
+		pos++
+	}
+	return T{
+		Kind:  kind.Whitespace,
+		Start: start,
+		End:   pos,
+	}
+}
+
+// parseText parses regular text content
+func parseText(input []byte, start int) T {
+	pos := start
+	for pos < len(input) {
+		if input[pos] == '<' {
+			// Check if this might be a tag
+			if tryParseTag(input, pos) != nil {
+				break
+			}
+		}
+		if input[pos] == '.' && (pos == 0 || input[pos-1] == '\n') {
+			// Check if this might be a title directive
+			if tryParseTitle(input, pos) != nil {
+				break
+			}
+		}
+		if isWhitespace(input[pos]) {
+			break
+		}
+		pos++
+	}
+	return T{
+		Kind:  kind.Text,
+		Start: start,
+		End:   pos,
+	}
+}
+
+// Helper functions
+func titleLength(input []byte, start int) int {
+	pos := start + 6 // ".title"
+	for pos < len(input) && input[pos] != '\n' {
+		pos++
+	}
+	return pos - start
+}
+
+func tagLength(input []byte, start int) int {
+	for i := start + 1; i < len(input); i++ {
+		if input[i] == '>' {
+			return i - start + 1
+		}
+	}
+	return len(input) - start
+}
+
+func isWhitespace(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r'
+}
+
+func isOperator(s string) bool {
+	operators := []string{"eq", "ne", "gt", "lt", "gte", "lte"}
+	for _, op := range operators {
+		if s == op {
+			return true
+		}
+	}
+	return false
+}
+
+func isType(s string) bool {
+	types := []string{"int", "bool", "string", "float", "float32", "float64"}
+	for _, t := range types {
+		if s == t {
+			return true
+		}
+	}
+	return false
+}
+
+func isBoolValue(s string) bool {
+	return s == "true" || s == "false"
+}
+
+func isIntValue(s string) bool {
+	_, err := strconv.Atoi(s)
+	return err == nil
 }
 
 func (t T) Stringify(in []byte) string {
@@ -244,9 +612,9 @@ type VarInfo struct {
 func (t T) GetVar(in []byte, typeCache map[string]string) VarInfo {
 	b := in[t.Start:t.End]
 
-	// Handle conditional expressions for OptionalBlock tokens
-	if t.Kind == kind.OptionalBlock {
-		return parseConditionalExpression(b, typeCache)
+	// Handle conditional expressions for conditional directive tokens
+	if t.Kind == kind.DirectiveCond {
+		return ParseConditionalExpression(b, typeCache)
 	}
 
 	// Handle regular variable tokens
@@ -275,8 +643,8 @@ func (t T) GetVar(in []byte, typeCache map[string]string) VarInfo {
 	return VarInfo{Path: path, Type: typ}
 }
 
-// parseConditionalExpression parses conditional expressions like "writer.current_streak gte 30"
-func parseConditionalExpression(expr []byte, typeCache map[string]string) VarInfo {
+// ParseConditionalExpression parses conditional expressions like "writer.current_streak gte 30"
+func ParseConditionalExpression(expr []byte, typeCache map[string]string) VarInfo {
 	exprStr := string(expr)
 
 	// List of word operators to check for

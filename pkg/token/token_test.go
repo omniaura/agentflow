@@ -110,13 +110,28 @@ func TestTitle(t *testing.T) {
 				input := joinLines(line1, line2, line2)
 				want := []token.T{
 					{
-						Kind:  kind.Title,
-						Start: len(tCmd),
-						End:   len(tCmd) + len(title),
+						Kind:  kind.TitleDirective,
+						Start: 0,
+						End:   6, // ".title"
+					},
+					{
+						Kind:  kind.Whitespace,
+						Start: 6,
+						End:   7, // " "
+					},
+					{
+						Kind:  kind.TitleText,
+						Start: 7,
+						End:   len(tCmd) + len(title), // "hey prompt"
+					},
+					{
+						Kind:  kind.Whitespace,
+						Start: len(tCmd) + len(title),
+						End:   len(tCmd) + len(title) + 1, // newline
 					},
 					{
 						Kind:  kind.Text,
-						Start: len(tCmd) + len(title) + 1, // newline omitted
+						Start: len(tCmd) + len(title) + 1,
 						End:   len(input),
 					},
 				}
@@ -134,7 +149,7 @@ func TestTitle(t *testing.T) {
 				input := joinLines(line1, helloW, line2, helloW)
 				want := []token.T{
 					{
-						Kind:  kind.Title,
+						Kind:  kind.TitleDirective,
 						Start: len(tCmd),
 						End:   len(tCmd) + len(title1),
 					},
@@ -144,7 +159,7 @@ func TestTitle(t *testing.T) {
 						End:   len(line1) + 1 + len(helloW),
 					},
 					{
-						Kind:  kind.Title,
+						Kind:  kind.TitleDirective,
 						Start: len(line1) + 1 + len(helloW) + 1 + len(tCmd), // +1 for newline
 						End:   len(line1) + 1 + len(helloW) + 1 + len(tCmd) + len(title2),
 					},
@@ -177,7 +192,7 @@ func TestVar(t *testing.T) {
 			def: func() ([]byte, token.Slice, error) {
 				want := token.Slice{
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
@@ -191,7 +206,7 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
@@ -215,7 +230,7 @@ func TestVar(t *testing.T) {
 						End:   len(helloW) + 1,
 					},
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(helloW) + 3,
 						End:   len(line) - 1,
 					},
@@ -229,7 +244,7 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
@@ -253,7 +268,7 @@ func TestVar(t *testing.T) {
 						End:   len(helloW) + 1,
 					},
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(helloW) + 3,
 						End:   len(line) - 1,
 					},
@@ -267,7 +282,7 @@ func TestVar(t *testing.T) {
 				line := bytes.Join([][]byte{var1, helloW, var2}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(varStart),
 						End:   len(var1) - len(varEnd),
 					},
@@ -277,7 +292,7 @@ func TestVar(t *testing.T) {
 						End:   len(line) - len(var1),
 					},
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(line) - len(var1) + 2,
 						End:   len(line) - 1,
 					},
@@ -312,12 +327,12 @@ func TestCombined(t *testing.T) {
 				line := joinLines(line1, line2)
 				want := token.Slice{
 					{
-						Kind:  kind.Title,
+						Kind:  kind.TitleDirective,
 						Start: 7,
 						End:   len(line1),
 					},
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(line1) + 3,
 						End:   len(line1) + 3 + len(varName),
 					},
@@ -339,12 +354,12 @@ func TestCombined(t *testing.T) {
 				line := joinLines(line1, line2, line3, line4)
 				want := token.Slice{
 					{
-						Kind:  kind.Title,
+						Kind:  kind.TitleDirective,
 						Start: 7,
 						End:   len(line1),
 					},
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(line1) + 3,
 						End:   len(line1) + 3 + len(varName),
 					},
@@ -354,12 +369,12 @@ func TestCombined(t *testing.T) {
 						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2,
 					},
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2,
 						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2 + len(varName2),
 					},
-					{kind.Title, 53, 65},
-					{kind.Var, 68, 77},
+					{kind.TitleDirective, 53, 65},
+					{kind.VarName, 68, 77},
 					{kind.Text, 78, 100},
 				}
 				return line, want, nil
@@ -386,7 +401,7 @@ func TestOptionalBlock(t *testing.T) {
 				input := bytes.Join([][]byte{start, text, end}, []byte{'\n'})
 				want := token.Slice{
 					{
-						Kind:  kind.OptionalBlock,
+						Kind:  kind.DirectiveCond,
 						Start: 2,
 						End:   10,
 					},
@@ -396,7 +411,7 @@ func TestOptionalBlock(t *testing.T) {
 						End:   31,
 					},
 					{
-						Kind:  kind.EndTag,
+						Kind:  kind.DirectiveEnd,
 						Start: 33,
 						End:   41,
 					},
@@ -415,7 +430,7 @@ func TestOptionalBlock(t *testing.T) {
 				input := bytes.Join([][]byte{start, text1, varStart, text2, end}, []byte{' '})
 				want := token.Slice{
 					{
-						Kind:  kind.OptionalBlock,
+						Kind:  kind.DirectiveCond,
 						Start: 2,
 						End:   7,
 					},
@@ -425,7 +440,7 @@ func TestOptionalBlock(t *testing.T) {
 						End:   15,
 					},
 					{
-						Kind:  kind.Var,
+						Kind:  kind.VarName,
 						Start: 17,
 						End:   21,
 					},
@@ -435,7 +450,7 @@ func TestOptionalBlock(t *testing.T) {
 						End:   37,
 					},
 					{
-						Kind:  kind.EndTag,
+						Kind:  kind.DirectiveEnd,
 						Start: 39,
 						End:   44,
 					},
@@ -456,7 +471,7 @@ func TestOptionalBlock(t *testing.T) {
 				input := bytes.Join([][]byte{outer, text1, inner, text2, innerEnd, text3, outerEnd}, []byte{'\n'})
 				want := token.Slice{
 					{
-						Kind:  kind.OptionalBlock,
+						Kind:  kind.DirectiveCond,
 						Start: 2,
 						End:   7,
 					},
@@ -466,7 +481,7 @@ func TestOptionalBlock(t *testing.T) {
 						End:   15,
 					},
 					{
-						Kind:  kind.OptionalBlock,
+						Kind:  kind.DirectiveCond,
 						Start: 17,
 						End:   22,
 					},
@@ -476,7 +491,7 @@ func TestOptionalBlock(t *testing.T) {
 						End:   35,
 					},
 					{
-						Kind:  kind.EndTag,
+						Kind:  kind.DirectiveEnd,
 						Start: 37,
 						End:   42,
 					},
@@ -486,7 +501,7 @@ func TestOptionalBlock(t *testing.T) {
 						End:   48,
 					},
 					{
-						Kind:  kind.EndTag,
+						Kind:  kind.DirectiveEnd,
 						Start: 50,
 						End:   55,
 					},

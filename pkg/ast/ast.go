@@ -23,7 +23,7 @@ import (
 	"strings"
 
 	"github.com/omniaura/agentflow/pkg/token"
-	"github.com/omniaura/agentflow/pkg/token/kind"
+	"github.com/omniaura/agentflow/pkg/token/coarse"
 	"github.com/peyton-spencer/caseconv"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
@@ -70,9 +70,9 @@ func (f1 File) Equal(f2 File) bool {
 
 type Prompt struct {
 	// Title is the name of the prompt.
-	Title token.T
+	Title coarse.Token
 	// Nodes are the nodes of the prompt.
-	Nodes token.Slice
+	Nodes []coarse.Token
 }
 
 func (p Prompt) Stringify(content []byte) string {
@@ -81,7 +81,7 @@ func (p Prompt) Stringify(content []byte) string {
 	buf.Write(content[p.Title.Start:p.Title.End])
 	buf.WriteString(", Nodes: ")
 	for i, node := range p.Nodes {
-		buf.WriteString(node.Stringify(content))
+		buf.WriteString(fmt.Sprintf("%v: [%d:%d] %q", node.Kind, node.Start, node.End, node.Get(content)))
 		if i < len(p.Nodes)-1 {
 			buf.WriteString(", ")
 		}
@@ -93,7 +93,7 @@ func (p Prompt) Stringify(content []byte) string {
 func (p Prompt) Vars(content []byte, c caseconv.Case) (vars [][]byte, length int) {
 	vars = make([][]byte, 0, len(p.Nodes))
 	for _, node := range p.Nodes {
-		if node.Kind == kind.Var {
+		if node.Kind == coarse.Var {
 			name := node.Get(content)
 			if slices.ContainsFunc(vars, func(b []byte) bool { return bytes.Equal(b, name) }) {
 				continue
@@ -166,7 +166,7 @@ func (n InputNode) String() string {
 	return buf.String()
 }
 
-func (ii *InputStruct) insertVar(node token.T, content []byte, c caseconv.Case, typeCache map[string]string) {
+func (ii *InputStruct) insertVar(node coarse.Token, content []byte, c caseconv.Case, typeCache map[string]string) {
 	varInfo := node.GetVar(content, typeCache)
 	if len(varInfo.Path) == 0 {
 		return
@@ -260,7 +260,7 @@ func (p Prompt) GetInputs(content []byte, c caseconv.Case) (ii InputStruct, err 
 	// First pass: collect all variable paths to understand the complete structure
 	for _, node := range p.Nodes {
 		switch node.Kind {
-		case kind.Var, kind.OptionalBlock:
+		case coarse.Var, coarse.OptionalBlock:
 			varInfo := node.GetVar(content, typeCache)
 			if len(varInfo.Path) > 0 {
 				pathKey := string(bytes.Join(varInfo.Path, []byte(".")))
@@ -280,7 +280,7 @@ func (p Prompt) GetInputs(content []byte, c caseconv.Case) (ii InputStruct, err 
 	// Second pass: build the struct with complete type information
 	for _, node := range p.Nodes {
 		switch node.Kind {
-		case kind.Var, kind.OptionalBlock:
+		case coarse.Var, coarse.OptionalBlock:
 			ii.insertVar(node, content, c, typeCache)
 		}
 	}
@@ -328,7 +328,15 @@ func (n *InputNode) setStructTypes() {
 }
 
 func (p1 Prompt) Equal(p2 Prompt) bool {
-	return p1.Title == p2.Title && p1.Nodes.Equal(p2.Nodes)
+	if p1.Title != p2.Title || len(p1.Nodes) != len(p2.Nodes) {
+		return false
+	}
+	for i, node := range p1.Nodes {
+		if node != p2.Nodes[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func NewFile(name string, content []byte) (f File, err error) {
@@ -347,11 +355,14 @@ func NewFile(name string, content []byte) (f File, err error) {
 }
 
 func newPrompts(tokens token.Slice) (prompts []Prompt, err error) {
-	for _, t := range tokens {
-		if t.Kind == kind.Title {
+	// Convert granular tokens to coarse tokens for AST compatibility
+	coarseTokens := coarse.Convert(tokens)
+	
+	for _, t := range coarseTokens {
+		if t.Kind == coarse.Title {
 			prompts = append(prompts, Prompt{Title: t})
 		} else if len(prompts) == 0 {
-			prompts = append(prompts, Prompt{Nodes: token.Slice{t}})
+			prompts = append(prompts, Prompt{Nodes: []coarse.Token{t}})
 		} else {
 			prompts[len(prompts)-1].Nodes = append(prompts[len(prompts)-1].Nodes, t)
 		}

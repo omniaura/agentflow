@@ -40,14 +40,14 @@ func TestTokenSlice_Equal(t *testing.T) {
 			name: "equal",
 			a: token.Slice{
 				{
-					Kind:  kind.Title,
+					Kind:  kind.TitleDirective,
 					Start: 0,
 					End:   10,
 				},
 			},
 			b: token.Slice{
 				{
-					Kind:  kind.Title,
+					Kind:  kind.TitleDirective,
 					Start: 0,
 					End:   10,
 				},
@@ -58,14 +58,14 @@ func TestTokenSlice_Equal(t *testing.T) {
 			name: "not equal",
 			a: token.Slice{
 				{
-					Kind:  kind.Title,
+					Kind:  kind.TitleDirective,
 					Start: 0,
 					End:   10,
 				},
 			},
 			b: token.Slice{
 				{
-					Kind:  kind.Title,
+					Kind:  kind.TitleDirective,
 					Start: 0,
 					End:   11,
 				},
@@ -76,7 +76,7 @@ func TestTokenSlice_Equal(t *testing.T) {
 			name: "not equal kind",
 			a: token.Slice{
 				{
-					Kind:  kind.Title,
+					Kind:  kind.TitleDirective,
 					Start: 0,
 					End:   10,
 				},

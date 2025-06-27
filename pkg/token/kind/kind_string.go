@@ -9,18 +9,27 @@ func _() {
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
 	_ = x[Unset-0]
-	_ = x[EndTag-1]
-	_ = x[OptionalBlock-2]
-	_ = x[ElseBlock-3]
-	_ = x[Title-4]
-	_ = x[Text-5]
-	_ = x[Var-6]
-	_ = x[RawBlock-7]
+	_ = x[OpenBracket-1]
+	_ = x[CloseBracket-2]
+	_ = x[DirectiveVar-3]
+	_ = x[DirectiveCond-4]
+	_ = x[DirectiveEnd-5]
+	_ = x[DirectiveElse-6]
+	_ = x[TitleDirective-7]
+	_ = x[TitleText-8]
+	_ = x[VarName-9]
+	_ = x[TypeName-10]
+	_ = x[Operator-11]
+	_ = x[StringValue-12]
+	_ = x[IntValue-13]
+	_ = x[BoolValue-14]
+	_ = x[Text-15]
+	_ = x[Whitespace-16]
 }
 
-const _Kind_name = "UnsetEndTagOptionalBlockElseBlockTitleTextVarRawBlock"
+const _Kind_name = "UnsetOpenBracketCloseBracketDirectiveVarDirectiveCondDirectiveEndDirectiveElseTitleDirectiveTitleTextVarNameTypeNameOperatorStringValueIntValueBoolValueTextWhitespace"
 
-var _Kind_index = [...]uint8{0, 5, 11, 24, 33, 38, 42, 45, 53}
+var _Kind_index = [...]uint8{0, 5, 16, 28, 40, 53, 65, 78, 92, 101, 108, 116, 124, 135, 143, 152, 156, 166}
 
 func (i Kind) String() string {
 	if i < 0 || i >= Kind(len(_Kind_index)-1) {
