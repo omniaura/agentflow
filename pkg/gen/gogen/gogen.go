@@ -520,9 +520,28 @@ func generateLengthCalculation(buf *bytes.Buffer, toks []coarse.Token, content [
 func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
 	conditionalStack := []bool{} // Track nested conditionals
 
+	// Buffer for static text segments
+	var staticBuf []byte
+	flushStatic := func() {
+		if len(staticBuf) == 0 {
+			return
+		}
+		if bytes.Contains(staticBuf, []byte("`")) {
+			buf.WriteString("\tb.WriteString(")
+			writeQuotedString(buf, staticBuf)
+			buf.WriteString(")\n")
+		} else {
+			buf.WriteString("\tb.WriteString(`")
+			buf.Write(staticBuf)
+			buf.WriteString("`)\n")
+		}
+		staticBuf = staticBuf[:0]
+	}
+
 	for _, t := range toks {
 		switch t.Kind {
 		case coarse.Var:
+			flushStatic()
 			// Add proper indentation based on nesting level
 			for range len(conditionalStack) {
 				buf.WriteRune('\t')
@@ -553,6 +572,7 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 			buf.WriteString(")\n")
 
 		case coarse.OptionalBlock:
+			flushStatic()
 			conditionalStack = append(conditionalStack, true)
 			// Add proper indentation for the if statement
 			for range len(conditionalStack) - 1 {
@@ -592,6 +612,7 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 			buf.WriteString(" {\n")
 
 		case coarse.ElseBlock:
+			flushStatic()
 			// Add proper indentation for the else statement
 			for range len(conditionalStack) - 1 {
 				buf.WriteRune('\t')
@@ -599,6 +620,7 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 			buf.WriteString("\t} else {\n")
 
 		case coarse.EndTag:
+			flushStatic()
 			if len(conditionalStack) > 0 {
 				conditionalStack = conditionalStack[:len(conditionalStack)-1]
 				// Add proper indentation for the closing brace
@@ -610,27 +632,19 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 
 		default:
 			// static text
-			// Add proper indentation based on nesting level
-			for range len(conditionalStack) {
-				buf.WriteRune('\t')
-			}
 			textContent := t.Get(content)
 			if bytes.Equal(textContent, []byte("\n")) {
+				flushStatic()
+				for range len(conditionalStack) {
+					buf.WriteRune('\t')
+				}
 				buf.WriteString("\tb.WriteRune('\\n')\n")
 			} else if len(textContent) > 0 {
-				// Check if content contains backticks - if so, use quoted strings
-				if bytes.Contains(textContent, []byte("`")) {
-					buf.WriteString("\tb.WriteString(")
-					writeQuotedString(buf, textContent)
-					buf.WriteString(")\n")
-				} else {
-					buf.WriteString("\tb.WriteString(`")
-					buf.Write(textContent)
-					buf.WriteString("`)\n")
-				}
+				staticBuf = append(staticBuf, textContent...)
 			}
 		}
 	}
+	flushStatic()
 
 	// Close any remaining open conditionals
 	for len(conditionalStack) > 0 {

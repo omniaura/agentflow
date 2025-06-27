@@ -1,0 +1,4 @@
+.title Backtick Interpolation Test
+This is a test with a backtick: `
+And this is a variable inside backticks: `<!variable_name>`
+And a normal variable: <!other_var> 
