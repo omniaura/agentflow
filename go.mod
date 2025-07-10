@@ -6,7 +6,7 @@ require (
 	github.com/peyton-spencer/caseconv v0.2.0
 	github.com/spf13/cobra v1.9.1
 	github.com/tliron/glsp v0.2.2
-	golang.org/x/sync v0.15.0
+	golang.org/x/sync v0.16.0
 )
 
 require (
