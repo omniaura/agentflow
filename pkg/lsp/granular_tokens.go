@@ -33,16 +33,16 @@ func generateGranularSemanticTokens(doc *Document) []protocol.UInteger {
 
 	// Token type indices (must match the order in server.go capabilities)
 	tokenTypeMap := map[string]protocol.UInteger{
-		TokenTypeKeyword:   0, // .title, !, ?, /, else
-		TokenTypeVariable:  1, // variable names
-		TokenTypeString:    2, // string values, title text
-		TokenTypeComment:   3, // comments (unused)
-		TokenTypeOperator:  4, // eq, gte, lte operators
-		TokenTypeType:      5, // type annotations
-		TokenTypeParameter: 6, // int/bool values
-		TokenTypeDecorator: 7, // .title directive
-		TokenTypeFunction:  8, // conditional blocks (unused)
-		TokenTypeProperty:  9, // variable path segments (unused)
+		TokenTypeKeyword:   0,  // .title, !, ?, /, else
+		TokenTypeVariable:  1,  // variable names
+		TokenTypeString:    2,  // string values, title text
+		TokenTypeComment:   3,  // comments (unused)
+		TokenTypeOperator:  4,  // eq, gte, lte operators
+		TokenTypeType:      5,  // type annotations
+		TokenTypeParameter: 6,  // int/bool values
+		TokenTypeDecorator: 7,  // .title directive
+		TokenTypeFunction:  8,  // conditional blocks (unused)
+		TokenTypeProperty:  9,  // variable path segments (unused)
 		TokenTypeTagOpen:   10, // < and >
 		TokenTypeTagClose:  11, // (same as TagOpen)
 	}
@@ -69,11 +69,11 @@ func generateGranularSemanticTokens(doc *Document) []protocol.UInteger {
 		}
 
 		semanticTokens = append(semanticTokens,
-			deltaLine,       // deltaLine
-			deltaChar,       // deltaStart
-			length,          // length
-			tokenTypeIndex,  // tokenType
-			0,               // tokenModifiers (no modifiers needed)
+			deltaLine,      // deltaLine
+			deltaChar,      // deltaStart
+			length,         // length
+			tokenTypeIndex, // tokenType
+			0,              // tokenModifiers (no modifiers needed)
 		)
 
 		lastLine = line
@@ -98,13 +98,13 @@ func generateGranularSemanticTokens(doc *Document) []protocol.UInteger {
 		var tokenType string
 		switch tok.Kind {
 		case kind.TitleDirective:
-			tokenType = TokenTypeKeyword  // Same color as 'else' and other directives
+			tokenType = TokenTypeKeyword // Same color as 'else' and other directives
 		case kind.TitleText:
-			tokenType = TokenTypeFunction  // Title text should be colored like function names
+			tokenType = TokenTypeFunction // Title text should be colored like function names
 		case kind.OpenBracket:
 			tokenType = TokenTypeTagOpen
 		case kind.CloseBracket:
-			tokenType = TokenTypeTagClose  // Properly distinguish open from close brackets
+			tokenType = TokenTypeTagClose // Properly distinguish open from close brackets
 		case kind.DirectiveVar, kind.DirectiveCond, kind.DirectiveEnd, kind.DirectiveElse:
 			tokenType = TokenTypeKeyword
 		case kind.VarName:
@@ -114,11 +114,11 @@ func generateGranularSemanticTokens(doc *Document) []protocol.UInteger {
 		case kind.Operator:
 			tokenType = TokenTypeOperator
 		case kind.StringValue:
-			tokenType = TokenTypeParameter  // String values in conditionals should be colored like parameters
+			tokenType = TokenTypeParameter // String values in conditionals should be colored like parameters
 		case kind.IntValue, kind.BoolValue:
 			tokenType = TokenTypeParameter
 		case kind.Text:
-			tokenType = TokenTypeString    // Regular text content
+			tokenType = TokenTypeString // Regular text content
 		case kind.Whitespace:
 			// Skip whitespace tokens - they don't need semantic highlighting
 			continue

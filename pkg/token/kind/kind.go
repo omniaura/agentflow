@@ -24,33 +24,33 @@ type Kind int
 
 const (
 	Unset Kind = iota
-	
+
 	// Basic bracket structure
-	OpenBracket       // "<"
-	CloseBracket      // ">"
-	
+	OpenBracket  // "<"
+	CloseBracket // ">"
+
 	// Directive types (what comes after <)
-	DirectiveVar      // "!" in "<!username>"
-	DirectiveCond     // "?" in "<?condition>"
-	DirectiveEnd      // "/" in "</tag>"
-	DirectiveElse     // "else" in "<else>"
-	
+	DirectiveVar  // "!" in "<!username>"
+	DirectiveCond // "?" in "<?condition>"
+	DirectiveEnd  // "/" in "</tag>"
+	DirectiveElse // "else" in "<else>"
+
 	// Title directive
-	TitleDirective    // ".title"
-	TitleText         // "System Prompt" in ".title System Prompt"
-	
+	TitleDirective // ".title"
+	TitleText      // "System Prompt" in ".title System Prompt"
+
 	// Content types (used in variables, conditionals, etc.)
-	VarName           // "username", "user.premium", etc.
-	TypeName          // "int", "bool", "string", "float32", "float64"
-	Operator          // "eq", "gte", "lte", "gt", "lt", "ne"
-	StringValue       // "gold" in "<?tier eq "gold">"
-	IntValue          // "5" in "<?count gte 5>"
-	BoolValue         // "true" in "<?active eq true>"
-	
+	VarName     // "username", "user.premium", etc.
+	TypeName    // "int", "bool", "string", "float32", "float64"
+	Operator    // "eq", "gte", "lte", "gt", "lt", "ne"
+	StringValue // "gold" in "<?tier eq "gold">"
+	IntValue    // "5" in "<?count gte 5>"
+	BoolValue   // "true" in "<?active eq true>"
+
 	// Content
-	Text              // Regular text content
-	Whitespace        // Spaces, tabs, newlines (separators)
-	
+	Text       // Regular text content
+	Whitespace // Spaces, tabs, newlines (separators)
+
 	// Future extension tokens (for later)
 	// RawBlock       // For future raw block support
 	// Comment        // For future comment support

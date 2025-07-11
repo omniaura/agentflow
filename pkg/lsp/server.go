@@ -468,7 +468,7 @@ func textDocumentHover(context *glsp.Context, params *protocol.HoverParams) (*pr
 		if len(variable.DotPath) > 1 {
 			hoverContent += fmt.Sprintf("\n\nNested path: %s", joinString(variable.DotPath, " → "))
 		}
-		
+
 		result := &protocol.Hover{
 			Contents: protocol.MarkupContent{
 				Kind:  protocol.MarkupKindMarkdown,
@@ -502,7 +502,7 @@ func textDocumentHover(context *glsp.Context, params *protocol.HoverParams) (*pr
 	operatorInfo := doc.GetOperatorAt(pos)
 	if operatorInfo != nil {
 		hoverContent := formatOperatorHover(operatorInfo)
-		
+
 		result := &protocol.Hover{
 			Contents: protocol.MarkupContent{
 				Kind:  protocol.MarkupKindMarkdown,
@@ -658,7 +658,7 @@ func textDocumentSemanticTokensFull(context *glsp.Context, params *protocol.Sema
 // publishDiagnostics sends diagnostic information to the client
 func publishDiagnostics(context *glsp.Context, doc *Document) {
 	start := time.Now()
-	
+
 	// Initialize with an empty array (never nil) to avoid client errors
 	diagnostics := []protocol.Diagnostic{}
 

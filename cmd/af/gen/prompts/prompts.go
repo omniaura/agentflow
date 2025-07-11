@@ -16,7 +16,6 @@ limitations under the License.
 package prompts
 
 import (
-	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -31,15 +30,12 @@ import (
 )
 
 var (
-	Dir  string
-	Lang string
+	Dir string
 )
 
 func flags(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().StringVarP(&Dir,
 		"dir", "d", ".", "Directory to read .af files from. Defaults to current directory.")
-	cmd.Flags().StringVarP(&Lang,
-		"lang", "l", "go", "Language to generate prompts for. Only 'go' is supported.")
 	return cmd
 }
 
@@ -82,32 +78,22 @@ The generated prompts will be written next to their corresponding .af files.`,
 					if err != nil {
 						return err
 					}
+					// Place the output file in the same directory as the .af file, with _af.go suffix
+					outFileName := ff.Name + "_af.go"
+					outFilePath := filepath.Join(filepath.Dir(name), outFileName)
 
-					// Create a subdirectory for all languages
-					pkgDir := filepath.Join(filepath.Dir(name), ff.Name)
-					if err := os.MkdirAll(pkgDir, 0755); err != nil {
-						return fmt.Errorf("failed to create package directory: %w", err)
-					}
+					// Compute package name from directory
+					dirName := filepath.Base(filepath.Dir(name))
 
-					// Generate the output file in the subdirectory
-					outFileName := ff.Name + "." + Lang
-					outFilePath := filepath.Join(pkgDir, outFileName)
 					outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 					if err != nil {
 						return err
 					}
 					defer outFile.Close()
 
-					var genErr error
-					switch Lang {
-					case "go":
-						genErr = gogen.GenFile(outFile, ff)
-					default:
-						return fmt.Errorf("unsupported language: %s (only 'go' is supported)", Lang)
-					}
-
-					if genErr != nil {
-						return genErr
+					err = gogen.GenFile(outFile, ff, dirName)
+					if err != nil {
+						return err
 					}
 					slog.Info("Generated", "file", outFilePath)
 					return nil
