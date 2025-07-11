@@ -357,7 +357,7 @@ func NewFile(name string, content []byte) (f File, err error) {
 func newPrompts(tokens token.Slice) (prompts []Prompt, err error) {
 	// Convert granular tokens to coarse tokens for AST compatibility
 	coarseTokens := coarse.Convert(tokens)
-	
+
 	for _, t := range coarseTokens {
 		if t.Kind == coarse.Title {
 			prompts = append(prompts, Prompt{Title: t})

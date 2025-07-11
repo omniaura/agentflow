@@ -65,7 +65,7 @@ func TestGenerate(t *testing.T) {
 
 			// Generate output
 			var buf strings.Builder
-			gogen.GenFile(&buf, file)
+			gogen.GenFile(&buf, file, testCaseName)
 			got := buf.String()
 
 			// Read expected output

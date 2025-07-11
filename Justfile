@@ -31,11 +31,11 @@ set-version-nocommit TAG:
     go test ./pkg/gen/gogen -update
 
 # Set the version, commit, and push
-set-version TAG:
-    just set-version-nocommit {{TAG}}
-    git add cfg/cfg.go pkg/gen/gogen/testdata/*
-    git commit -m "Update version to {{TAG}}"
-    git push origin main
+# set-version TAG:
+#     just set-version-nocommit {{TAG}}
+#     git add cfg/cfg.go pkg/gen/gogen/testdata/*
+#     git commit -m "Update version to {{TAG}}"
+#     git push origin main
 
 # Tag the current commit, push the tag, and create a GitHub release
 tag-release TAG:
@@ -49,10 +49,10 @@ undo-release TAG:
     gh release delete {{TAG}} --yes
 
 # Create a tag, update the version in the main.go file, push it to the remote repository and create a GitHub release
-create-version TAG:
-    just set-version {{TAG}}
-    just tag-release {{TAG}}
-alias cv := create-version
+# create-version TAG:
+#     just set-version {{TAG}}
+#     just tag-release {{TAG}}
+# alias cv := create-version
 
 merge-dependabot:
 	./scripts/github/merge_dependabot.sh

@@ -48,7 +48,6 @@ func (t T) Get(in []byte) []byte {
 	return in[t.Start:t.End]
 }
 
-
 func (t T) GetWrap(in []byte, left, right byte) []byte {
 	out := make([]byte, 0, len(in)+2)
 	out = append(out, left)
@@ -77,11 +76,10 @@ var (
 	cmdTitle = []byte(".title")
 )
 
-
 func Tokenize(input []byte) (Slice, error) {
 	var tokens []T
 	i := 0
-	
+
 	for i < len(input) {
 		// Check for .title directive at start of line
 		if i == 0 || (i > 0 && input[i-1] == '\n') {
@@ -93,7 +91,7 @@ func Tokenize(input []byte) (Slice, error) {
 				}
 			}
 		}
-		
+
 		// Check for < with lookahead for valid directives
 		if input[i] == '<' {
 			if tag := tryParseTag(input, i); tag != nil {
@@ -102,7 +100,7 @@ func Tokenize(input []byte) (Slice, error) {
 				continue
 			}
 		}
-		
+
 		// Check for whitespace
 		if isWhitespace(input[i]) {
 			ws := parseWhitespace(input, i)
@@ -110,13 +108,13 @@ func Tokenize(input []byte) (Slice, error) {
 			i += ws.End - ws.Start
 			continue
 		}
-		
+
 		// Regular text content
 		text := parseText(input, i)
 		tokens = append(tokens, text)
 		i += text.End - text.Start
 	}
-	
+
 	return tokens, nil
 }
 
@@ -125,23 +123,23 @@ func tryParseTitle(input []byte, start int) []T {
 	if start+6 >= len(input) || !bytes.HasPrefix(input[start:], []byte(".title")) {
 		return nil
 	}
-	
+
 	// Check that ".title" is followed by whitespace or end of input
 	if start+6 < len(input) && !isWhitespace(input[start+6]) {
 		return nil
 	}
-	
+
 	var tokens []T
-	
+
 	// .title directive
 	tokens = append(tokens, T{
 		Kind:  kind.TitleDirective,
 		Start: start,
 		End:   start + 6,
 	})
-	
+
 	pos := start + 6
-	
+
 	// Optional whitespace after .title
 	if pos < len(input) && isWhitespace(input[pos]) {
 		wsStart := pos
@@ -154,7 +152,7 @@ func tryParseTitle(input []byte, start int) []T {
 			End:   pos,
 		})
 	}
-	
+
 	// Title text (rest of line)
 	if pos < len(input) && input[pos] != '\n' {
 		textStart := pos
@@ -174,7 +172,7 @@ func tryParseTitle(input []byte, start int) []T {
 			})
 		}
 	}
-	
+
 	return tokens
 }
 
@@ -183,12 +181,12 @@ func tryParseTag(input []byte, start int) []T {
 	if start >= len(input) || input[start] != '<' {
 		return nil
 	}
-	
+
 	// Check what follows <
 	if start+1 >= len(input) {
 		return nil
 	}
-	
+
 	switch input[start+1] {
 	case '!':
 		return parseVarTag(input, start)
@@ -211,7 +209,7 @@ func tryParseTag(input []byte, start int) []T {
 func parseVarTag(input []byte, start int) []T {
 	var tokens []T
 	pos := start
-	
+
 	// Find closing >
 	closePos := -1
 	for i := start + 2; i < len(input); i++ {
@@ -223,21 +221,21 @@ func parseVarTag(input []byte, start int) []T {
 	if closePos == -1 {
 		return nil
 	}
-	
+
 	// OpenBracket + DirectiveVar
 	tokens = append(tokens, T{Kind: kind.OpenBracket, Start: pos, End: pos + 1})
 	pos++
 	tokens = append(tokens, T{Kind: kind.DirectiveVar, Start: pos, End: pos + 1})
 	pos++
-	
+
 	// Parse content between <! and >
 	content := input[pos:closePos]
 	contentTokens := parseVarContent(content, pos)
 	tokens = append(tokens, contentTokens...)
-	
+
 	// CloseBracket
 	tokens = append(tokens, T{Kind: kind.CloseBracket, Start: closePos, End: closePos + 1})
-	
+
 	return tokens
 }
 
@@ -245,7 +243,7 @@ func parseVarTag(input []byte, start int) []T {
 func parseCondTag(input []byte, start int) []T {
 	var tokens []T
 	pos := start
-	
+
 	// Find closing >
 	closePos := -1
 	for i := start + 2; i < len(input); i++ {
@@ -257,21 +255,21 @@ func parseCondTag(input []byte, start int) []T {
 	if closePos == -1 {
 		return nil
 	}
-	
+
 	// OpenBracket + DirectiveCond
 	tokens = append(tokens, T{Kind: kind.OpenBracket, Start: pos, End: pos + 1})
 	pos++
 	tokens = append(tokens, T{Kind: kind.DirectiveCond, Start: pos, End: pos + 1})
 	pos++
-	
+
 	// Parse content between <? and >
 	content := input[pos:closePos]
 	contentTokens := parseCondContent(content, pos)
 	tokens = append(tokens, contentTokens...)
-	
+
 	// CloseBracket
 	tokens = append(tokens, T{Kind: kind.CloseBracket, Start: closePos, End: closePos + 1})
-	
+
 	return tokens
 }
 
@@ -279,7 +277,7 @@ func parseCondTag(input []byte, start int) []T {
 func parseEndTag(input []byte, start int) []T {
 	var tokens []T
 	pos := start
-	
+
 	// Find closing >
 	closePos := -1
 	for i := start + 2; i < len(input); i++ {
@@ -291,37 +289,37 @@ func parseEndTag(input []byte, start int) []T {
 	if closePos == -1 {
 		return nil
 	}
-	
+
 	// OpenBracket + DirectiveEnd
 	tokens = append(tokens, T{Kind: kind.OpenBracket, Start: pos, End: pos + 1})
 	pos++
 	tokens = append(tokens, T{Kind: kind.DirectiveEnd, Start: pos, End: pos + 1})
 	pos++
-	
+
 	// Variable name
 	if closePos > pos {
 		tokens = append(tokens, T{Kind: kind.VarName, Start: pos, End: closePos})
 	}
-	
+
 	// CloseBracket
 	tokens = append(tokens, T{Kind: kind.CloseBracket, Start: closePos, End: closePos + 1})
-	
+
 	return tokens
 }
 
 // parseElseTag parses <else>
 func parseElseTag(input []byte, start int) []T {
 	var tokens []T
-	
+
 	// OpenBracket
 	tokens = append(tokens, T{Kind: kind.OpenBracket, Start: start, End: start + 1})
-	
+
 	// DirectiveElse
 	tokens = append(tokens, T{Kind: kind.DirectiveElse, Start: start + 1, End: start + 5})
-	
+
 	// CloseBracket
 	tokens = append(tokens, T{Kind: kind.CloseBracket, Start: start + 5, End: start + 6})
-	
+
 	return tokens
 }
 
@@ -329,7 +327,7 @@ func parseElseTag(input []byte, start int) []T {
 func parseVarContent(content []byte, offset int) []T {
 	var tokens []T
 	pos := 0
-	
+
 	// Skip leading whitespace
 	for pos < len(content) && isWhitespace(content[pos]) {
 		pos++
@@ -337,7 +335,7 @@ func parseVarContent(content []byte, offset int) []T {
 	if pos >= len(content) {
 		return tokens
 	}
-	
+
 	// Variable name (everything until whitespace or end)
 	varStart := pos
 	for pos < len(content) && !isWhitespace(content[pos]) {
@@ -350,7 +348,7 @@ func parseVarContent(content []byte, offset int) []T {
 			End:   offset + pos,
 		})
 	}
-	
+
 	// Optional whitespace + type
 	if pos < len(content) {
 		// Whitespace
@@ -365,7 +363,7 @@ func parseVarContent(content []byte, offset int) []T {
 				End:   offset + pos,
 			})
 		}
-		
+
 		// Type name
 		if pos < len(content) {
 			typeStart := pos
@@ -381,18 +379,18 @@ func parseVarContent(content []byte, offset int) []T {
 			}
 		}
 	}
-	
+
 	return tokens
 }
 
 // parseCondContent parses the content inside <?...>
 func parseCondContent(content []byte, offset int) []T {
 	var tokens []T
-	
+
 	// Split on whitespace and parse each part
 	parts := bytes.Fields(content)
 	pos := 0
-	
+
 	for i, part := range parts {
 		// Skip to the start of this part
 		for pos < len(content) && isWhitespace(content[pos]) {
@@ -411,10 +409,10 @@ func parseCondContent(content []byte, offset int) []T {
 			}
 			pos++
 		}
-		
+
 		partStart := pos
 		partEnd := pos + len(part)
-		
+
 		if i == 0 {
 			// First part is variable name
 			tokens = append(tokens, T{
@@ -458,10 +456,10 @@ func parseCondContent(content []byte, offset int) []T {
 				End:   offset + partEnd,
 			})
 		}
-		
+
 		pos = partEnd
 	}
-	
+
 	return tokens
 }
 
@@ -786,19 +784,19 @@ func inferTypeFromOperand(operand string) string {
 // isNumericLiteral checks if a string represents a numeric literal (int or float)
 func isNumericLiteral(operand string) bool {
 	operand = strings.TrimSpace(operand)
-	
+
 	// Check for floating point numbers
 	if strings.Contains(operand, ".") {
 		if _, err := strconv.ParseFloat(operand, 64); err == nil {
 			return true
 		}
 	}
-	
+
 	// Check for integers
 	if _, err := strconv.Atoi(operand); err == nil {
 		return true
 	}
-	
+
 	return false
 }
 
