@@ -150,18 +150,48 @@ func TestTitle(t *testing.T) {
 				want := []token.T{
 					{
 						Kind:  kind.TitleDirective,
+						Start: 0,
+						End:   6, // ".title"
+					},
+					{
+						Kind:  kind.Whitespace,
+						Start: 6,
+						End:   7, // " "
+					},
+					{
+						Kind:  kind.TitleText,
 						Start: len(tCmd),
 						End:   len(tCmd) + len(title1),
 					},
 					{
+						Kind:  kind.Whitespace,
+						Start: len(tCmd) + len(title1),
+						End:   len(tCmd) + len(title1) + 1, // newline
+					},
+					{
 						Kind:  kind.Text,
 						Start: len(line1) + 1, // +1 for newline
-						End:   len(line1) + 1 + len(helloW),
+						End:   len(line1) + 1 + len(helloW) + 1, // +1 for newline
 					},
 					{
 						Kind:  kind.TitleDirective,
+						Start: len(line1) + 1 + len(helloW) + 1,
+						End:   len(line1) + 1 + len(helloW) + 1 + 6, // ".title"
+					},
+					{
+						Kind:  kind.Whitespace,
+						Start: len(line1) + 1 + len(helloW) + 1 + 6,
+						End:   len(line1) + 1 + len(helloW) + 1 + 6 + 1, // " "
+					},
+					{
+						Kind:  kind.TitleText,
 						Start: len(line1) + 1 + len(helloW) + 1 + len(tCmd), // +1 for newline
 						End:   len(line1) + 1 + len(helloW) + 1 + len(tCmd) + len(title2),
+					},
+					{
+						Kind:  kind.Whitespace,
+						Start: len(line1) + 1 + len(helloW) + 1 + len(tCmd) + len(title2),
+						End:   len(line1) + 1 + len(helloW) + 1 + len(tCmd) + len(title2) + 1, // newline
 					},
 					{
 						Kind:  kind.Text,

@@ -1,0 +1,48 @@
+AgentFlow Framework Analysis and Improvement Plan
+=================================================
+
+## Repository Summary
+AgentFlow is a Go-based template engine for AI prompt engineering that:
+- Provides a custom .af syntax for dynamic prompt templates
+- Supports type-safe variable interpolation (string, int, bool, float32, float64)
+- Includes conditional logic blocks
+- Generates efficient Go code from templates
+- Offers CLI tools and LSP support for IDE integration
+
+## Critical Issues Identified
+1. **CRITICAL: Tokenization and Parsing Bugs** ⚠️
+   - Multiple test failures in pkg/token and pkg/ast
+   - Tokenizer splits text into individual words instead of preserving text blocks
+   - AST parser includes ".title" directive in title names
+   - These bugs break core functionality
+
+## Improvement Priorities
+
+### 1. CRITICAL (Current Focus) 🔥
+- [x] Fix tokenization logic to preserve text blocks ✅
+- [x] Fix AST parsing to correctly handle title directives ✅
+- [ ] Ensure all existing tests pass (AST ✅, Token partial, Gen failing)
+- [ ] Add regression tests for fixed issues
+
+### 2. HIGH PRIORITY
+- [ ] Improve error handling and error messages
+- [ ] Add comprehensive input validation
+- [ ] Optimize string building performance
+- [ ] Improve test coverage
+
+### 3. MEDIUM PRIORITY
+- [ ] Add more template features (loops, functions, includes)
+- [ ] Support for additional target languages
+- [ ] Better IDE integration and syntax highlighting
+- [ ] Package management for generated code
+
+### 4. LOW PRIORITY
+- [ ] Enhanced documentation and examples
+- [ ] Performance benchmarking and optimization
+- [ ] Plugin system for extensibility
+- [ ] Web-based template editor
+
+## Current Work
+- Branch: fix-tokenization-parsing-bugs
+- Focus: Fixing core tokenization and AST parsing issues
+- Goal: Make all tests pass and ensure reliable template parsing

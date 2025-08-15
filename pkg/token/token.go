@@ -101,15 +101,7 @@ func Tokenize(input []byte) (Slice, error) {
 			}
 		}
 
-		// Check for whitespace
-		if isWhitespace(input[i]) {
-			ws := parseWhitespace(input, i)
-			tokens = append(tokens, ws)
-			i += ws.End - ws.Start
-			continue
-		}
-
-		// Regular text content
+		// Regular text content (including whitespace when not significant)
 		text := parseText(input, i)
 		tokens = append(tokens, text)
 		i += text.End - text.Start
@@ -171,6 +163,15 @@ func tryParseTitle(input []byte, start int) []T {
 				End:   textEnd,
 			})
 		}
+	}
+
+	// Include the newline after title as whitespace if present
+	if pos < len(input) && input[pos] == '\n' {
+		tokens = append(tokens, T{
+			Kind:  kind.Whitespace,
+			Start: pos,
+			End:   pos + 1,
+		})
 	}
 
 	return tokens
@@ -492,9 +493,9 @@ func parseText(input []byte, start int) T {
 				break
 			}
 		}
-		if isWhitespace(input[pos]) {
-			break
-		}
+
+		// For text parsing, continue through whitespace unless we hit a special token
+		// This allows "hello world" to be parsed as a single text token
 		pos++
 	}
 	return T{
@@ -508,6 +509,10 @@ func parseText(input []byte, start int) T {
 func titleLength(input []byte, start int) int {
 	pos := start + 6 // ".title"
 	for pos < len(input) && input[pos] != '\n' {
+		pos++
+	}
+	// Include the newline if present
+	if pos < len(input) && input[pos] == '\n' {
 		pos++
 	}
 	return pos - start
