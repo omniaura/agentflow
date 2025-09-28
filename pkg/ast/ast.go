@@ -350,13 +350,13 @@ func NewFile(name string, content []byte) (f File, err error) {
 	}
 	f.Name = strings.TrimSuffix(name, ".af")
 	f.Content = content
-	f.Prompts, err = newPrompts(tokens)
+	f.Prompts, err = newPrompts(tokens, content)
 	return
 }
 
-func newPrompts(tokens token.Slice) (prompts []Prompt, err error) {
+func newPrompts(tokens token.Slice, content []byte) (prompts []Prompt, err error) {
 	// Convert granular tokens to coarse tokens for AST compatibility
-	coarseTokens := coarse.Convert(tokens)
+	coarseTokens := coarse.Convert(tokens, content)
 
 	for _, t := range coarseTokens {
 		if t.Kind == coarse.Title {

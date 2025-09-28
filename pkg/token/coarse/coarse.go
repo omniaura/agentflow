@@ -86,27 +86,26 @@ func (t Token) GetVar(in []byte, typeCache map[string]string) token.VarInfo {
 }
 
 // Convert converts fine-grained tokens to coarse-grained tokens for AST compatibility
-func Convert(tokens token.Slice) []Token {
+func Convert(tokens token.Slice, input []byte) []Token {
 	var coarse []Token
 	i := 0
 
 	for i < len(tokens) {
 		switch tokens[i].Kind {
 		case kind.TitleDirective:
-			// Find the extent of the title (directive + whitespace + text)
-			start := tokens[i].Start
-			end := tokens[i].End
-			i++
+			// Find the extent of the title text (not including the directive)
+			var titleStart, titleEnd int
+			i++ // Skip the directive token
 
 			// Skip optional whitespace
 			if i < len(tokens) && tokens[i].Kind == kind.Whitespace {
-				end = tokens[i].End
 				i++
 			}
 
 			// Include title text if present
 			if i < len(tokens) && tokens[i].Kind == kind.TitleText {
-				end = tokens[i].End
+				titleStart = tokens[i].Start
+				titleEnd = tokens[i].End
 				i++
 			}
 
@@ -118,11 +117,14 @@ func Convert(tokens token.Slice) []Token {
 				}
 			}
 
-			coarse = append(coarse, Token{
-				Kind:  Title,
-				Start: start,
-				End:   end,
-			})
+			// Only add title token if we found title text
+			if titleEnd > titleStart {
+				coarse = append(coarse, Token{
+					Kind:  Title,
+					Start: titleStart,
+					End:   titleEnd,
+				})
+			}
 
 		case kind.OpenBracket:
 			// Group bracket sequences into logical units
@@ -192,6 +194,14 @@ func Convert(tokens token.Slice) []Token {
 				}
 				end = tokens[i].End
 				i++
+			}
+
+			// Trim trailing newlines if followed by a title directive
+			if i < len(tokens) && tokens[i].Kind == kind.TitleDirective {
+				// Check if the text ends with a newline and trim it
+				if end > start && input[end-1] == '\n' {
+					end--
+				}
 			}
 
 			coarse = append(coarse, Token{
