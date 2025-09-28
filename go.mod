@@ -4,7 +4,7 @@ go 1.24.0
 
 require (
 	github.com/peyton-spencer/caseconv v0.2.0
-	github.com/spf13/cobra v1.9.1
+	github.com/spf13/cobra v1.10.1
 	github.com/tliron/glsp v0.2.2
 	golang.org/x/sync v0.17.0
 )
@@ -23,7 +23,7 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.1 // indirect
 	github.com/sourcegraph/jsonrpc2 v0.2.1 // indirect
-	github.com/spf13/pflag v1.0.6 // indirect
+	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/tliron/commonlog v0.2.8 // indirect
 	github.com/tliron/kutil v0.3.11 // indirect
 	golang.org/x/crypto v0.39.0 // indirect
