@@ -220,12 +220,12 @@ func TestVar(t *testing.T) {
 		{
 			name: "one",
 			def: func() ([]byte, token.Slice, error) {
+				// <!var1> => OpenBracket, DirectiveVar, VarName, CloseBracket
 				want := token.Slice{
-					{
-						Kind:  kind.VarName,
-						Start: len(varStart),
-						End:   len(var1) - len(varEnd),
-					},
+					{Kind: kind.OpenBracket, Start: 0, End: 1},
+					{Kind: kind.DirectiveVar, Start: 1, End: 2},
+					{Kind: kind.VarName, Start: 2, End: 6},
+					{Kind: kind.CloseBracket, Start: 6, End: 7},
 				}
 				return var1, want, nil
 			},
@@ -233,18 +233,14 @@ func TestVar(t *testing.T) {
 		{
 			name: "start of text line",
 			def: func() ([]byte, token.Slice, error) {
+				// "<!var1> hello world"
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				want := token.Slice{
-					{
-						Kind:  kind.VarName,
-						Start: len(varStart),
-						End:   len(var1) - len(varEnd),
-					},
-					{
-						Kind:  kind.Text,
-						Start: len(var1),
-						End:   len(line),
-					},
+					{Kind: kind.OpenBracket, Start: 0, End: 1},
+					{Kind: kind.DirectiveVar, Start: 1, End: 2},
+					{Kind: kind.VarName, Start: 2, End: 6},
+					{Kind: kind.CloseBracket, Start: 6, End: 7},
+					{Kind: kind.Text, Start: len(var1), End: len(line)},
 				}
 				return line, want, nil
 			},
@@ -252,18 +248,14 @@ func TestVar(t *testing.T) {
 		{
 			name: "end of text line",
 			def: func() ([]byte, token.Slice, error) {
+				// "hello world <!var1>"
 				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
 				want := token.Slice{
-					{
-						Kind:  kind.Text,
-						Start: 0,
-						End:   len(helloW) + 1,
-					},
-					{
-						Kind:  kind.VarName,
-						Start: len(helloW) + 3,
-						End:   len(line) - 1,
-					},
+					{Kind: kind.Text, Start: 0, End: len(helloW) + 1},
+					{Kind: kind.OpenBracket, Start: len(helloW) + 1, End: len(helloW) + 2},
+					{Kind: kind.DirectiveVar, Start: len(helloW) + 2, End: len(helloW) + 3},
+					{Kind: kind.VarName, Start: len(helloW) + 3, End: len(line) - 1},
+					{Kind: kind.CloseBracket, Start: len(line) - 1, End: len(line)},
 				}
 				return line, want, nil
 			},
@@ -271,18 +263,14 @@ func TestVar(t *testing.T) {
 		{
 			name: "start of multiline text",
 			def: func() ([]byte, token.Slice, error) {
+				// "<!var1> hello world"
 				line := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				want := token.Slice{
-					{
-						Kind:  kind.VarName,
-						Start: len(varStart),
-						End:   len(var1) - len(varEnd),
-					},
-					{
-						Kind:  kind.Text,
-						Start: len(var1),
-						End:   len(line),
-					},
+					{Kind: kind.OpenBracket, Start: 0, End: 1},
+					{Kind: kind.DirectiveVar, Start: 1, End: 2},
+					{Kind: kind.VarName, Start: 2, End: 6},
+					{Kind: kind.CloseBracket, Start: 6, End: 7},
+					{Kind: kind.Text, Start: len(var1), End: len(line)},
 				}
 				return line, want, nil
 			},
@@ -290,18 +278,14 @@ func TestVar(t *testing.T) {
 		{
 			name: "end of multiline text",
 			def: func() ([]byte, token.Slice, error) {
+				// "hello world <!var1>"
 				line := bytes.Join([][]byte{helloW, var1}, []byte{' '})
 				want := token.Slice{
-					{
-						Kind:  kind.Text,
-						Start: 0,
-						End:   len(helloW) + 1,
-					},
-					{
-						Kind:  kind.VarName,
-						Start: len(helloW) + 3,
-						End:   len(line) - 1,
-					},
+					{Kind: kind.Text, Start: 0, End: len(helloW) + 1},
+					{Kind: kind.OpenBracket, Start: len(helloW) + 1, End: len(helloW) + 2},
+					{Kind: kind.DirectiveVar, Start: len(helloW) + 2, End: len(helloW) + 3},
+					{Kind: kind.VarName, Start: len(helloW) + 3, End: len(line) - 1},
+					{Kind: kind.CloseBracket, Start: len(line) - 1, End: len(line)},
 				}
 				return line, want, nil
 			},
@@ -309,23 +293,19 @@ func TestVar(t *testing.T) {
 		{
 			name: "start and end of multiline text",
 			def: func() ([]byte, token.Slice, error) {
+				// "<!var1> hello world <!var2>"
 				line := bytes.Join([][]byte{var1, helloW, var2}, []byte{' '})
+				v2Start := len(var1) + 1 + len(helloW) + 1 // after "<!var1> hello world "
 				want := token.Slice{
-					{
-						Kind:  kind.VarName,
-						Start: len(varStart),
-						End:   len(var1) - len(varEnd),
-					},
-					{
-						Kind:  kind.Text,
-						Start: len(var1),
-						End:   len(line) - len(var1),
-					},
-					{
-						Kind:  kind.VarName,
-						Start: len(line) - len(var1) + 2,
-						End:   len(line) - 1,
-					},
+					{Kind: kind.OpenBracket, Start: 0, End: 1},
+					{Kind: kind.DirectiveVar, Start: 1, End: 2},
+					{Kind: kind.VarName, Start: 2, End: 6},
+					{Kind: kind.CloseBracket, Start: 6, End: 7},
+					{Kind: kind.Text, Start: len(var1), End: v2Start},
+					{Kind: kind.OpenBracket, Start: v2Start, End: v2Start + 1},
+					{Kind: kind.DirectiveVar, Start: v2Start + 1, End: v2Start + 2},
+					{Kind: kind.VarName, Start: v2Start + 2, End: v2Start + 2 + len(varName2)},
+					{Kind: kind.CloseBracket, Start: len(line) - 1, End: len(line)},
 				}
 				return line, want, nil
 			},
@@ -339,10 +319,7 @@ func TestVar(t *testing.T) {
 func TestCombined(t *testing.T) {
 	tCmd := []byte(".title ")
 	title := []byte("hey prompt")
-	// title2 := []byte("hey prompt 2")
 	line1 := append(tCmd, title...)
-	// line2 := helloW
-	// input := joinLines(line1, line2, line2)
 	varStart := []byte("<!")
 	varName := []byte("var1")
 	varName2 := []byte("var2")
@@ -353,24 +330,21 @@ func TestCombined(t *testing.T) {
 		{
 			name: "title and var",
 			def: func() ([]byte, token.Slice, error) {
+				// ".title hey prompt\n<!var1> hello world"
 				line2 := bytes.Join([][]byte{var1, helloW}, []byte{' '})
 				line := joinLines(line1, line2)
+				// line1 = ".title hey prompt" (len 17)
+				// line2 = "<!var1> hello world" starts at offset 18
 				want := token.Slice{
-					{
-						Kind:  kind.TitleDirective,
-						Start: 7,
-						End:   len(line1),
-					},
-					{
-						Kind:  kind.VarName,
-						Start: len(line1) + 3,
-						End:   len(line1) + 3 + len(varName),
-					},
-					{
-						Kind:  kind.Text,
-						Start: len(line1) + 3 + len(varName) + 1,
-						End:   len(line),
-					},
+					{Kind: kind.TitleDirective, Start: 0, End: 6},
+					{Kind: kind.Whitespace, Start: 6, End: 7},
+					{Kind: kind.TitleText, Start: 7, End: len(line1)},
+					{Kind: kind.Whitespace, Start: len(line1), End: len(line1) + 1}, // newline
+					{Kind: kind.OpenBracket, Start: len(line1) + 1, End: len(line1) + 2},
+					{Kind: kind.DirectiveVar, Start: len(line1) + 2, End: len(line1) + 3},
+					{Kind: kind.VarName, Start: len(line1) + 3, End: len(line1) + 3 + len(varName)},
+					{Kind: kind.CloseBracket, Start: len(line1) + 3 + len(varName), End: len(line1) + 3 + len(varName) + 1},
+					{Kind: kind.Text, Start: len(line1) + 3 + len(varName) + 1, End: len(line)},
 				}
 				return line, want, nil
 			},
@@ -378,34 +352,61 @@ func TestCombined(t *testing.T) {
 		{
 			name: "two titles and var",
 			def: func() ([]byte, token.Slice, error) {
+				// ".title hey prompt\n<!var1> hello world <!var2>\n.title hey prompt 3\n<!camelVar1> say hello to the user"
 				line2 := bytes.Join([][]byte{var1, helloW, var2}, []byte{' '})
 				line3 := []byte(".title hey prompt 3")
 				line4 := []byte("<!camelVar1> say hello to the user")
 				line := joinLines(line1, line2, line3, line4)
+				// Offsets:
+				// line1: [0:17] ".title hey prompt"
+				// \n at 17
+				// line2: [18:44] "<!var1> hello world <!var2>"
+				// \n at 44
+				// line3: [45:64] ".title hey prompt 3"
+				// \n at 64
+				// line4: [65:99] "<!camelVar1> say hello to the user"
+				l1End := len(line1)           // 17
+				l2Start := l1End + 1          // 18
+				l2End := l2Start + len(line2) // 44
+				l3Start := l2End + 1          // 45
+				l3End := l3Start + len(line3) // 64
+				l4Start := l3End + 1          // 65
+
+				// var2 starts at: l2Start + len(var1) + 1 + len(helloW) + 1
+				v2Start := l2Start + len(var1) + 1 + len(helloW) + 1
+
 				want := token.Slice{
-					{
-						Kind:  kind.TitleDirective,
-						Start: 7,
-						End:   len(line1),
-					},
-					{
-						Kind:  kind.VarName,
-						Start: len(line1) + 3,
-						End:   len(line1) + 3 + len(varName),
-					},
-					{
-						Kind:  kind.Text,
-						Start: len(line1) + 3 + len(varName) + 1,
-						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2,
-					},
-					{
-						Kind:  kind.VarName,
-						Start: len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2,
-						End:   len(line1) + 3 + len(varName) + 1 + len(helloW) + 2 + 2 + len(varName2),
-					},
-					{kind.TitleDirective, 53, 65},
-					{kind.VarName, 68, 77},
-					{kind.Text, 78, 100},
+					// .title hey prompt
+					{Kind: kind.TitleDirective, Start: 0, End: 6},
+					{Kind: kind.Whitespace, Start: 6, End: 7},
+					{Kind: kind.TitleText, Start: 7, End: l1End},
+					{Kind: kind.Whitespace, Start: l1End, End: l2Start}, // newline
+					// <!var1>
+					{Kind: kind.OpenBracket, Start: l2Start, End: l2Start + 1},
+					{Kind: kind.DirectiveVar, Start: l2Start + 1, End: l2Start + 2},
+					{Kind: kind.VarName, Start: l2Start + 2, End: l2Start + 2 + len(varName)},
+					{Kind: kind.CloseBracket, Start: l2Start + 2 + len(varName), End: l2Start + 2 + len(varName) + 1},
+					// " hello world "
+					{Kind: kind.Text, Start: l2Start + len(var1), End: v2Start},
+					// <!var2>
+					{Kind: kind.OpenBracket, Start: v2Start, End: v2Start + 1},
+					{Kind: kind.DirectiveVar, Start: v2Start + 1, End: v2Start + 2},
+					{Kind: kind.VarName, Start: v2Start + 2, End: v2Start + 2 + len(varName2)},
+					{Kind: kind.CloseBracket, Start: v2Start + 2 + len(varName2), End: l2End},
+					// "\n" text between line2 and line3
+					{Kind: kind.Text, Start: l2End, End: l2End + 1},
+					// .title hey prompt 3
+					{Kind: kind.TitleDirective, Start: l3Start, End: l3Start + 6},
+					{Kind: kind.Whitespace, Start: l3Start + 6, End: l3Start + 7},
+					{Kind: kind.TitleText, Start: l3Start + 7, End: l3End},
+					{Kind: kind.Whitespace, Start: l3End, End: l4Start}, // newline
+					// <!camelVar1>
+					{Kind: kind.OpenBracket, Start: l4Start, End: l4Start + 1},
+					{Kind: kind.DirectiveVar, Start: l4Start + 1, End: l4Start + 2},
+					{Kind: kind.VarName, Start: l4Start + 2, End: l4Start + 11},
+					{Kind: kind.CloseBracket, Start: l4Start + 11, End: l4Start + 12},
+					// " say hello to the user"
+					{Kind: kind.Text, Start: l4Start + 12, End: len(line)},
 				}
 				return line, want, nil
 			},
@@ -425,26 +426,29 @@ func TestOptionalBlock(t *testing.T) {
 		{
 			name: "simple optional block",
 			def: func() ([]byte, token.Slice, error) {
+				// "<?optional>\nsome optional text\n</optional>"
 				start := []byte("<?optional>")
 				text := []byte("some optional text")
 				end := []byte("</optional>")
 				input := bytes.Join([][]byte{start, text, end}, []byte{'\n'})
+				// <?optional> at [0:11]
+				// \n at 11
+				// text at [12:30]
+				// \n at 30
+				// </optional> at [31:42]
 				want := token.Slice{
-					{
-						Kind:  kind.DirectiveCond,
-						Start: 2,
-						End:   10,
-					},
-					{
-						Kind:  kind.Text,
-						Start: 11,
-						End:   31,
-					},
-					{
-						Kind:  kind.DirectiveEnd,
-						Start: 33,
-						End:   41,
-					},
+					// <?optional>
+					{Kind: kind.OpenBracket, Start: 0, End: 1},
+					{Kind: kind.DirectiveCond, Start: 1, End: 2},
+					{Kind: kind.VarName, Start: 2, End: 10},
+					{Kind: kind.CloseBracket, Start: 10, End: 11},
+					// "\nsome optional text\n"
+					{Kind: kind.Text, Start: 11, End: 31},
+					// </optional>
+					{Kind: kind.OpenBracket, Start: 31, End: 32},
+					{Kind: kind.DirectiveEnd, Start: 32, End: 33},
+					{Kind: kind.VarName, Start: 33, End: 41},
+					{Kind: kind.CloseBracket, Start: 41, End: 42},
 				}
 				return input, want, nil
 			},
@@ -452,38 +456,38 @@ func TestOptionalBlock(t *testing.T) {
 		{
 			name: "optional block with variable",
 			def: func() ([]byte, token.Slice, error) {
+				// "<?block> Hello <!name>  how are you? </block>"
 				start := []byte("<?block>")
 				text1 := []byte("Hello")
-				varStart := []byte("<!name>")
+				varTag := []byte("<!name>")
 				text2 := []byte(" how are you?")
 				end := []byte("</block>")
-				input := bytes.Join([][]byte{start, text1, varStart, text2, end}, []byte{' '})
+				input := bytes.Join([][]byte{start, text1, varTag, text2, end}, []byte{' '})
+				// <?block> at [0:8]
+				// " Hello " at [8:15]
+				// <!name> at [15:22]
+				// "  how are you? " at [22:37]
+				// </block> at [37:45]
 				want := token.Slice{
-					{
-						Kind:  kind.DirectiveCond,
-						Start: 2,
-						End:   7,
-					},
-					{
-						Kind:  kind.Text,
-						Start: 8,
-						End:   15,
-					},
-					{
-						Kind:  kind.VarName,
-						Start: 17,
-						End:   21,
-					},
-					{
-						Kind:  kind.Text,
-						Start: 22,
-						End:   37,
-					},
-					{
-						Kind:  kind.DirectiveEnd,
-						Start: 39,
-						End:   44,
-					},
+					// <?block>
+					{Kind: kind.OpenBracket, Start: 0, End: 1},
+					{Kind: kind.DirectiveCond, Start: 1, End: 2},
+					{Kind: kind.VarName, Start: 2, End: 7},
+					{Kind: kind.CloseBracket, Start: 7, End: 8},
+					// " Hello "
+					{Kind: kind.Text, Start: 8, End: 15},
+					// <!name>
+					{Kind: kind.OpenBracket, Start: 15, End: 16},
+					{Kind: kind.DirectiveVar, Start: 16, End: 17},
+					{Kind: kind.VarName, Start: 17, End: 21},
+					{Kind: kind.CloseBracket, Start: 21, End: 22},
+					// "  how are you? "
+					{Kind: kind.Text, Start: 22, End: 37},
+					// </block>
+					{Kind: kind.OpenBracket, Start: 37, End: 38},
+					{Kind: kind.DirectiveEnd, Start: 38, End: 39},
+					{Kind: kind.VarName, Start: 39, End: 44},
+					{Kind: kind.CloseBracket, Start: 44, End: 45},
 				}
 				return input, want, nil
 			},
@@ -491,6 +495,7 @@ func TestOptionalBlock(t *testing.T) {
 		{
 			name: "nested optional blocks",
 			def: func() ([]byte, token.Slice, error) {
+				// "<?outer>\nstart\n<?inner>\ninner text\n</inner>\nend\n</outer>"
 				outer := []byte("<?outer>")
 				text1 := []byte("start")
 				inner := []byte("<?inner>")
@@ -499,42 +504,40 @@ func TestOptionalBlock(t *testing.T) {
 				text3 := []byte("end")
 				outerEnd := []byte("</outer>")
 				input := bytes.Join([][]byte{outer, text1, inner, text2, innerEnd, text3, outerEnd}, []byte{'\n'})
+				// <?outer> at [0:8]
+				// \nstart\n at [8:15]
+				// <?inner> at [15:23]
+				// \ninner text\n at [23:35]
+				// </inner> at [35:43]
+				// \nend\n at [43:48]
+				// </outer> at [48:56]
 				want := token.Slice{
-					{
-						Kind:  kind.DirectiveCond,
-						Start: 2,
-						End:   7,
-					},
-					{
-						Kind:  kind.Text,
-						Start: 8,
-						End:   15,
-					},
-					{
-						Kind:  kind.DirectiveCond,
-						Start: 17,
-						End:   22,
-					},
-					{
-						Kind:  kind.Text,
-						Start: 23,
-						End:   35,
-					},
-					{
-						Kind:  kind.DirectiveEnd,
-						Start: 37,
-						End:   42,
-					},
-					{
-						Kind:  kind.Text,
-						Start: 43,
-						End:   48,
-					},
-					{
-						Kind:  kind.DirectiveEnd,
-						Start: 50,
-						End:   55,
-					},
+					// <?outer>
+					{Kind: kind.OpenBracket, Start: 0, End: 1},
+					{Kind: kind.DirectiveCond, Start: 1, End: 2},
+					{Kind: kind.VarName, Start: 2, End: 7},
+					{Kind: kind.CloseBracket, Start: 7, End: 8},
+					// "\nstart\n"
+					{Kind: kind.Text, Start: 8, End: 15},
+					// <?inner>
+					{Kind: kind.OpenBracket, Start: 15, End: 16},
+					{Kind: kind.DirectiveCond, Start: 16, End: 17},
+					{Kind: kind.VarName, Start: 17, End: 22},
+					{Kind: kind.CloseBracket, Start: 22, End: 23},
+					// "\ninner text\n"
+					{Kind: kind.Text, Start: 23, End: 35},
+					// </inner>
+					{Kind: kind.OpenBracket, Start: 35, End: 36},
+					{Kind: kind.DirectiveEnd, Start: 36, End: 37},
+					{Kind: kind.VarName, Start: 37, End: 42},
+					{Kind: kind.CloseBracket, Start: 42, End: 43},
+					// "\nend\n"
+					{Kind: kind.Text, Start: 43, End: 48},
+					// </outer>
+					{Kind: kind.OpenBracket, Start: 48, End: 49},
+					{Kind: kind.DirectiveEnd, Start: 49, End: 50},
+					{Kind: kind.VarName, Start: 50, End: 55},
+					{Kind: kind.CloseBracket, Start: 55, End: 56},
 				}
 				return input, want, nil
 			},

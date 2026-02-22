@@ -198,8 +198,7 @@ func Convert(tokens token.Slice, input []byte) []Token {
 
 			// Trim trailing newlines if followed by a title directive
 			if i < len(tokens) && tokens[i].Kind == kind.TitleDirective {
-				// Check if the text ends with a newline and trim it
-				if end > start && input[end-1] == '\n' {
+				for end > start && input[end-1] == '\n' {
 					end--
 				}
 			}
