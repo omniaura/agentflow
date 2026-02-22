@@ -82,8 +82,16 @@ The generated prompts will be written next to their corresponding .af files.`,
 					outFileName := ff.Name + "_af.go"
 					outFilePath := filepath.Join(filepath.Dir(name), outFileName)
 
-					// Compute package name from directory
+					// Compute package name from directory.
+					// When .af files are in the root scan directory, filepath.Base(".")
+					// returns "." which is not a valid Go package name. Fall back to
+					// $GOPACKAGE which go generate sets automatically.
 					dirName := filepath.Base(filepath.Dir(name))
+					if dirName == "." {
+						if pkg := os.Getenv("GOPACKAGE"); pkg != "" {
+							dirName = pkg
+						}
+					}
 
 					outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 					if err != nil {

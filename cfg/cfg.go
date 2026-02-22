@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var Version = "0.5.2"
+var Version = "0.5.3"
 var (
 	FlagLogLevel string
 	// MaxLineLen is the maximum line length for code generation.
