@@ -1,0 +1,14 @@
+.title Injection Test
+This prompt tests operand sanitization.
+
+<?count int lt 10>
+Low count message.
+</count>
+
+<?name eq "safe_name">
+Name matched.
+</name>
+
+<?active bool eq true>
+Active user.
+</active>

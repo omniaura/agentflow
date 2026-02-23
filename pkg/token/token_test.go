@@ -421,6 +421,207 @@ func joinLines(in ...[]byte) []byte {
 	return bytes.Join(in, []byte{'\n'})
 }
 
+// TestOperandSanitization tests that malicious operands in conditional expressions
+// are properly sanitized to prevent code injection in generated Go code.
+func TestOperandSanitization(t *testing.T) {
+	tests := []struct {
+		name        string
+		expr        string
+		typeCache   map[string]string // pre-populated type cache
+		wantOperand string
+		checkSafe   bool // if true, verify the operand is a safe Go literal
+	}{
+		// Safe operands should pass through correctly
+		{
+			name:        "safe integer operand",
+			expr:        "count gte 10",
+			wantOperand: "10",
+		},
+		{
+			name:        "safe string operand",
+			expr:        `name eq "Bob"`,
+			wantOperand: `"Bob"`,
+		},
+		{
+			name:        "safe bool operand",
+			expr:        "active eq true",
+			wantOperand: "true",
+		},
+		{
+			name:        "safe unquoted string operand gets quoted",
+			expr:        "status eq pending",
+			wantOperand: `"pending"`,
+		},
+		{
+			name:        "safe float operand",
+			expr:        "score gte 3.14",
+			wantOperand: "3.14",
+		},
+
+		// Integer injection: when type cache says int, malicious operands get sanitized to "0"
+		{
+			name:        "integer injection with semicolon",
+			expr:        `count gte 0; os.Exit(1); var x =`,
+			typeCache:   map[string]string{"count": "int"},
+			wantOperand: "0",
+		},
+		{
+			name:        "integer injection with logical OR",
+			expr:        `count gte 0 || panic("injected")`,
+			typeCache:   map[string]string{"count": "int"},
+			wantOperand: "0",
+		},
+		{
+			name:        "numeric operand with embedded function call",
+			expr:        `score lte 100+exec("malicious")`,
+			typeCache:   map[string]string{"score": "int"},
+			wantOperand: "0",
+		},
+
+		// Bool injection: invalid bool values get sanitized to "false"
+		{
+			name:        "bool injection with function call",
+			expr:        "active eq true || injectedFunc()",
+			typeCache:   map[string]string{"active": "bool"},
+			wantOperand: "false",
+		},
+		{
+			name:        "bool injection with semicolons",
+			expr:        "enabled eq true; os.Remove(\"/etc\"); var x =",
+			typeCache:   map[string]string{"enabled": "bool"},
+			wantOperand: "false",
+		},
+
+		// String injection: malicious content gets safely quoted via strconv.Quote
+		// The generated code will be a valid Go string literal (no code breakout)
+		{
+			name:        "string injection with quote breakout attempt",
+			expr:        `name eq "foo" + os.Exit(0) + "`,
+			wantOperand: `"foo\" + os.Exit(0) + "`,
+			checkSafe:   true,
+		},
+		{
+			name:        "string injection with unquoted malicious code",
+			expr:        `role eq admin"; os.Remove("/etc"); //`,
+			wantOperand: `"admin\"; os.Remove(\"/etc\"); //"`,
+			checkSafe:   true,
+		},
+
+		// Variable path injection: invalid identifiers in dot-paths get safely quoted
+		{
+			name:        "variable path injection with semicolons",
+			expr:        `score gte config.max; os.Exit(0); x.y`,
+			checkSafe:   true,
+		},
+		{
+			name:        "variable path with parentheses injection",
+			expr:        "score gte config.exec()",
+			checkSafe:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			typeCache := make(map[string]string)
+			if tt.typeCache != nil {
+				for k, v := range tt.typeCache {
+					typeCache[k] = v
+				}
+			}
+			vi := token.ParseConditionalExpression([]byte(tt.expr), typeCache)
+
+			if tt.wantOperand != "" && vi.Operand != tt.wantOperand {
+				t.Errorf("operand = %q, want %q", vi.Operand, tt.wantOperand)
+			}
+
+			if tt.checkSafe {
+				assertSafeOperand(t, vi.Operand)
+			}
+		})
+	}
+}
+
+// assertSafeOperand verifies that an operand string is a safe Go literal that
+// cannot break out and execute arbitrary code. A safe operand is one of:
+//   - A valid integer literal (only digits and optional leading minus)
+//   - A valid float literal
+//   - A valid boolean literal ("true" or "false")
+//   - A properly quoted Go string literal (starts and ends with ")
+//   - A valid Go field access (input.FieldName pattern)
+func assertSafeOperand(t *testing.T, operand string) {
+	t.Helper()
+
+	// Check if it's a valid quoted string (starts and ends with unescaped ")
+	if len(operand) >= 2 && operand[0] == '"' && operand[len(operand)-1] == '"' {
+		// Verify internal quotes are properly escaped - no unescaped " inside
+		inner := operand[1 : len(operand)-1]
+		escaped := false
+		for _, c := range inner {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				continue
+			}
+			if c == '"' {
+				t.Errorf("operand %q contains unescaped internal quote - potential injection", operand)
+				return
+			}
+		}
+		return // Properly quoted string is safe
+	}
+
+	// Check if it's a valid bool
+	if operand == "true" || operand == "false" {
+		return
+	}
+
+	// Check if it's a valid number (no embedded code)
+	isNum := true
+	hasDot := false
+	for i, c := range operand {
+		if c == '-' && i == 0 {
+			continue
+		}
+		if c == '.' && !hasDot {
+			hasDot = true
+			continue
+		}
+		if c < '0' || c > '9' {
+			isNum = false
+			break
+		}
+	}
+	if isNum && len(operand) > 0 {
+		return
+	}
+
+	// Check if it's a valid field access (input.Something.Something)
+	if strings.HasPrefix(operand, "input.") {
+		parts := strings.Split(operand[6:], ".")
+		allValid := true
+		for _, part := range parts {
+			if len(part) == 0 {
+				allValid = false
+				break
+			}
+			for _, c := range part {
+				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
+					allValid = false
+					break
+				}
+			}
+		}
+		if allValid {
+			return
+		}
+	}
+
+	t.Errorf("operand %q is not a safe Go literal (could allow code injection)", operand)
+}
+
 func TestOptionalBlock(t *testing.T) {
 	testcases := []TestCase{
 		{

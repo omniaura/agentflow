@@ -662,8 +662,8 @@ func ParseConditionalExpression(expr []byte, typeCache map[string]string) VarInf
 			// Parse variable path and type
 			varInfo := parseVariablePart(varPart, typeCache)
 
-			// Check if operand is a variable reference (contains dot notation but is not a numeric literal)
-			if strings.Contains(operandPart, ".") && !strings.Contains(operandPart, "\"") && !strings.Contains(operandPart, "'") && !isNumericLiteral(operandPart) {
+			// Check if operand is a valid variable reference (dot notation with valid identifiers)
+			if isValidVariableRef(operandPart) {
 				// Operand is another variable - convert to Go field access
 				operandPath := strings.Split(operandPart, ".")
 				var operandFieldAccess strings.Builder
@@ -700,30 +700,54 @@ func ParseConditionalExpression(expr []byte, typeCache map[string]string) VarInf
 	return varInfo
 }
 
-// formatOperandForGeneration formats operands for code generation
+// formatOperandForGeneration formats and sanitizes operands for safe code generation.
+// It validates that operands contain only expected values for their type to prevent
+// code injection through crafted .af files.
 func formatOperandForGeneration(operand, varType string) string {
 	operand = strings.TrimSpace(operand)
 
 	switch varType {
 	case "string":
-		// Ensure string operands are properly quoted
-		if !strings.HasPrefix(operand, "\"") && !strings.HasPrefix(operand, "'") {
-			return "\"" + operand + "\""
+		// Strip surrounding quotes if present, then safely re-quote using strconv.Quote
+		// which properly escapes all special characters, preventing code injection.
+		inner := stripQuotes(operand)
+		return strconv.Quote(inner)
+	case "int":
+		// Validate that the operand is a valid integer literal
+		if _, err := strconv.Atoi(operand); err == nil {
+			return operand
 		}
-		return operand
-	case "int", "float32", "float64":
-		// Numeric types - use as-is
-		return operand
+		// Invalid integer operand - return zero value to prevent injection
+		return "0"
+	case "float32", "float64":
+		// Validate that the operand is a valid float literal
+		if _, err := strconv.ParseFloat(operand, 64); err == nil {
+			return operand
+		}
+		// Invalid float operand - return zero value to prevent injection
+		return "0"
 	case "bool":
-		// Boolean types - use as-is
-		return operand
-	default:
-		// Default to quoted string
-		if !strings.HasPrefix(operand, "\"") && !strings.HasPrefix(operand, "'") {
-			return "\"" + operand + "\""
+		// Only allow exact boolean literals
+		if operand == "true" || operand == "false" {
+			return operand
 		}
-		return operand
+		// Invalid boolean operand - return false to prevent injection
+		return "false"
+	default:
+		// Default to safely quoted string
+		inner := stripQuotes(operand)
+		return strconv.Quote(inner)
 	}
+}
+
+// stripQuotes removes surrounding double or single quotes from a string.
+func stripQuotes(s string) string {
+	if len(s) >= 2 {
+		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+			return s[1 : len(s)-1]
+		}
+	}
+	return s
 }
 
 // parseVariablePart parses the variable name and optional explicit type
@@ -814,4 +838,44 @@ func hasComparisonOperator(content string) bool {
 		}
 	}
 	return false
+}
+
+// isValidVariableRef checks if a string is a valid dot-separated variable reference
+// where each segment is a valid identifier (e.g., "config.max_score").
+// It must contain at least one dot and not be a numeric literal, quoted string, or empty.
+func isValidVariableRef(s string) bool {
+	if !strings.Contains(s, ".") {
+		return false
+	}
+	if strings.Contains(s, "\"") || strings.Contains(s, "'") {
+		return false
+	}
+	if isNumericLiteral(s) {
+		return false
+	}
+	parts := strings.Split(s, ".")
+	for _, part := range parts {
+		if !isValidIdentifier(part) {
+			return false
+		}
+	}
+	return true
+}
+
+// isValidIdentifier checks if a string is a valid Go-style identifier
+// (letters, digits, and underscores, not starting with a digit).
+func isValidIdentifier(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for i, r := range s {
+		if r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			continue
+		}
+		if i > 0 && r >= '0' && r <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
