@@ -1,0 +1,64 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+version: 2
+
+project_name: agentflow
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: af
+    main: ./cmd/af
+    binary: af
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/omniaura/agentflow/cfg.Version={{.Version}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README*
+      - LICENSE*
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  mode: keep-existing
+  github:
+    owner: omniaura
+    name: agentflow
+
+changelog:
+  disable: true
+
+brews:
+  - name: agentflow
+    repository:
+      owner: omniaura
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Formula
+    homepage: https://agentflow.sh
+    description: Convenient code generator for AI agents
+    license: Apache-2.0
+    install: |
+      bin.install "af"
+    test: |
+      system "#{bin}/af", "--version"
