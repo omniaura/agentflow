@@ -26,12 +26,14 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats:
+      - tar.gz
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     files:
       - README*
       - LICENSE*
@@ -48,17 +50,14 @@ release:
 changelog:
   disable: true
 
-brews:
+homebrew_casks:
   - name: agentflow
     repository:
       owner: omniaura
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    directory: Formula
+    directory: Casks
     homepage: https://agentflow.sh
     description: Convenient code generator for AI agents
-    license: Apache-2.0
-    install: |
-      bin.install "af"
-    test: |
-      system "#{bin}/af", "--version"
+    binaries:
+      - af
