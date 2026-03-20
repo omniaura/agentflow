@@ -18,6 +18,7 @@ package lsp
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"time"
 
 	"github.com/omniaura/agentflow/pkg/ptrconv"
@@ -25,6 +26,8 @@ import (
 	protocol "github.com/tliron/glsp/protocol_3_16"
 	"github.com/tliron/glsp/server"
 )
+
+const maxJSONPositionValue = 1_000_000
 
 var (
 	version   = "0.1.0"
@@ -243,14 +246,8 @@ func textDocumentDidChange(context *glsp.Context, params *protocol.DidChangeText
 			changeEvent.Text = v.Text
 			if v.Range != nil {
 				changeEvent.Range = &Range{
-					Start: Position{
-						Line:      int(v.Range.Start.Line),
-						Character: int(v.Range.Start.Character),
-					},
-					End: Position{
-						Line:      int(v.Range.End.Line),
-						Character: int(v.Range.End.Character),
-					},
+					Start: protocolPositionToPosition(v.Range.Start),
+					End:   protocolPositionToPosition(v.Range.End),
 				}
 				slog.Debug("Change has range",
 					"uri", uri,
@@ -261,7 +258,7 @@ func textDocumentDidChange(context *glsp.Context, params *protocol.DidChangeText
 					"endChar", changeEvent.Range.End.Character)
 			}
 			if v.RangeLength != nil {
-				rangeLength := int(*v.RangeLength)
+				rangeLength := protocolUIntegerToInt(*v.RangeLength)
 				changeEvent.RangeLength = &rangeLength
 				slog.Debug("Change has range length",
 					"uri", uri,
@@ -290,48 +287,32 @@ func textDocumentDidChange(context *glsp.Context, params *protocol.DidChangeText
 					"changeIndex", i,
 					"textLength", len(text))
 				// Try to extract range if it exists
-				if rangeData, rangeOk := v["range"]; rangeOk && rangeData != nil {
-					if rangeMap, rangeMapOk := rangeData.(map[string]any); rangeMapOk {
-						if startData, startOk := rangeMap["start"].(map[string]any); startOk {
-							if endData, endOk := rangeMap["end"].(map[string]any); endOk {
-								if startLine, ok := startData["line"].(float64); ok {
-									if startChar, ok := startData["character"].(float64); ok {
-										if endLine, ok := endData["line"].(float64); ok {
-											if endChar, ok := endData["character"].(float64); ok {
-												changeEvent.Range = &Range{
-													Start: Position{
-														Line:      int(startLine),
-														Character: int(startChar),
-													},
-													End: Position{
-														Line:      int(endLine),
-														Character: int(endChar),
-													},
-												}
-												slog.Debug("Extracted range from map change",
-													"uri", uri,
-													"changeIndex", i,
-													"startLine", int(startLine),
-													"startChar", int(startChar),
-													"endLine", int(endLine),
-													"endChar", int(endChar))
-											}
-										}
-									}
-								}
-							}
-						}
-					}
+				if parsedRange, ok := parseRangeFromMap(v); ok {
+					changeEvent.Range = parsedRange
+					slog.Debug("Extracted range from map change",
+						"uri", uri,
+						"changeIndex", i,
+						"startLine", parsedRange.Start.Line,
+						"startChar", parsedRange.Start.Character,
+						"endLine", parsedRange.End.Line,
+						"endChar", parsedRange.End.Character)
 				}
 				// Try to extract rangeLength if it exists
 				if rangeLengthData, rangeLengthOk := v["rangeLength"]; rangeLengthOk && rangeLengthData != nil {
 					if rangeLengthFloat, ok := rangeLengthData.(float64); ok {
-						rangeLength := int(rangeLengthFloat)
-						changeEvent.RangeLength = &rangeLength
-						slog.Debug("Extracted range length from map change",
-							"uri", uri,
-							"changeIndex", i,
-							"rangeLength", rangeLength)
+						rangeLength, rangeLengthOK := jsonFloatToInt(rangeLengthFloat)
+						if !rangeLengthOK {
+							slog.Warn("Ignoring invalid range length from map change",
+								"uri", uri,
+								"changeIndex", i,
+								"rangeLength", rangeLengthFloat)
+						} else {
+							changeEvent.RangeLength = &rangeLength
+							slog.Debug("Extracted range length from map change",
+								"uri", uri,
+								"changeIndex", i,
+								"rangeLength", rangeLength)
+						}
 					}
 				}
 			}
@@ -404,10 +385,7 @@ func textDocumentCompletion(context *glsp.Context, params *protocol.CompletionPa
 		return []protocol.CompletionItem{}, nil
 	}
 
-	pos := Position{
-		Line:      int(line),
-		Character: int(character),
-	}
+	pos := protocolPositionToPosition(params.Position)
 
 	items := doc.GetCompletionItems(pos)
 	slog.Info("Completion items generated",
@@ -457,10 +435,7 @@ func textDocumentHover(context *glsp.Context, params *protocol.HoverParams) (*pr
 		return nil, nil
 	}
 
-	pos := Position{
-		Line:      int(line),
-		Character: int(character),
-	}
+	pos := protocolPositionToPosition(params.Position)
 
 	variable := doc.GetVariableAt(pos)
 	if variable != nil {
@@ -730,4 +705,95 @@ func getClientName(clientInfo interface{}) string {
 		}
 	}
 	return "unknown"
+}
+
+func protocolPositionToPosition(pos protocol.Position) Position {
+	return Position{
+		Line:      protocolUIntegerToInt(pos.Line),
+		Character: protocolUIntegerToInt(pos.Character),
+	}
+}
+
+func protocolUIntegerToInt(value protocol.UInteger) int {
+	if uint64(value) > uint64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(value)
+}
+
+func protocolIntegerToInt(value protocol.Integer) int {
+	if value < 0 {
+		return 0
+	}
+	if uint64(value) > uint64(math.MaxInt) {
+		return math.MaxInt
+	}
+	return int(value)
+}
+
+func parseRangeFromMap(change map[string]any) (*Range, bool) {
+	rangeData, ok := change["range"]
+	if !ok || rangeData == nil {
+		return nil, false
+	}
+
+	rangeMap, ok := rangeData.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+
+	start, ok := parsePositionMap(rangeMap["start"])
+	if !ok {
+		return nil, false
+	}
+
+	end, ok := parsePositionMap(rangeMap["end"])
+	if !ok {
+		return nil, false
+	}
+
+	return &Range{Start: start, End: end}, true
+}
+
+func parsePositionMap(raw any) (Position, bool) {
+	positionMap, ok := raw.(map[string]any)
+	if !ok {
+		return Position{}, false
+	}
+
+	line, ok := jsonNumberField(positionMap, "line")
+	if !ok {
+		return Position{}, false
+	}
+
+	character, ok := jsonNumberField(positionMap, "character")
+	if !ok {
+		return Position{}, false
+	}
+
+	return Position{Line: line, Character: character}, true
+}
+
+func jsonNumberField(values map[string]any, key string) (int, bool) {
+	raw, ok := values[key]
+	if !ok {
+		return 0, false
+	}
+
+	value, ok := raw.(float64)
+	if !ok {
+		return 0, false
+	}
+
+	return jsonFloatToInt(value)
+}
+
+func jsonFloatToInt(value float64) (int, bool) {
+	if value < 0 || value > maxJSONPositionValue {
+		return 0, false
+	}
+	if math.Trunc(value) != value {
+		return 0, false
+	}
+	return int(value), true
 }

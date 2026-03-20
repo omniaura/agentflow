@@ -132,18 +132,45 @@ func Convert(tokens token.Slice, input []byte) []Token {
 				switch tokens[i+1].Kind {
 				case kind.DirectiveVar:
 					// Variable: <! ... >
-					coarse = append(coarse, groupVariableTokens(tokens, i))
-					i = skipToClosingBracket(tokens, i) + 1
+					if tok, ok := groupVariableTokens(tokens, i); ok {
+						coarse = append(coarse, tok)
+						i = skipToClosingBracket(tokens, i) + 1
+					} else {
+						coarse = append(coarse, Token{
+							Kind:  Text,
+							Start: tokens[i].Start,
+							End:   tokens[i].End,
+						})
+						i++
+					}
 
 				case kind.DirectiveCond:
 					// Conditional: <? ... >
-					coarse = append(coarse, groupConditionalTokens(tokens, i))
-					i = skipToClosingBracket(tokens, i) + 1
+					if tok, ok := groupConditionalTokens(tokens, i); ok {
+						coarse = append(coarse, tok)
+						i = skipToClosingBracket(tokens, i) + 1
+					} else {
+						coarse = append(coarse, Token{
+							Kind:  Text,
+							Start: tokens[i].Start,
+							End:   tokens[i].End,
+						})
+						i++
+					}
 
 				case kind.DirectiveEnd:
 					// End tag: </ ... >
-					coarse = append(coarse, groupEndTagTokens(tokens, i))
-					i = skipToClosingBracket(tokens, i) + 1
+					if tok, ok := groupEndTagTokens(tokens, i); ok {
+						coarse = append(coarse, tok)
+						i = skipToClosingBracket(tokens, i) + 1
+					} else {
+						coarse = append(coarse, Token{
+							Kind:  Text,
+							Start: tokens[i].Start,
+							End:   tokens[i].End,
+						})
+						i++
+					}
 
 				case kind.DirectiveElse:
 					// Else: <else>
@@ -218,31 +245,40 @@ func Convert(tokens token.Slice, input []byte) []Token {
 	return coarse
 }
 
-func groupVariableTokens(tokens token.Slice, start int) Token {
+func groupVariableTokens(tokens token.Slice, start int) (Token, bool) {
 	end := skipToClosingBracket(tokens, start)
+	if !validGroupedRange(tokens, start, end) {
+		return Token{}, false
+	}
 	return Token{
 		Kind:  Var,
 		Start: tokens[start+2].Start, // Skip < and ! to get to content
 		End:   tokens[end-1].End,     // End before >
-	}
+	}, true
 }
 
-func groupConditionalTokens(tokens token.Slice, start int) Token {
+func groupConditionalTokens(tokens token.Slice, start int) (Token, bool) {
 	end := skipToClosingBracket(tokens, start)
+	if !validGroupedRange(tokens, start, end) {
+		return Token{}, false
+	}
 	return Token{
 		Kind:  OptionalBlock,
 		Start: tokens[start+2].Start, // Skip < and ? to get to content
 		End:   tokens[end-1].End,     // End before >
-	}
+	}, true
 }
 
-func groupEndTagTokens(tokens token.Slice, start int) Token {
+func groupEndTagTokens(tokens token.Slice, start int) (Token, bool) {
 	end := skipToClosingBracket(tokens, start)
+	if !validGroupedRange(tokens, start, end) {
+		return Token{}, false
+	}
 	return Token{
 		Kind:  EndTag,
 		Start: tokens[start+2].Start, // Skip < and / to get to content
 		End:   tokens[end-1].End,     // End before >
-	}
+	}, true
 }
 
 func skipToClosingBracket(tokens token.Slice, start int) int {
@@ -252,4 +288,17 @@ func skipToClosingBracket(tokens token.Slice, start int) int {
 		}
 	}
 	return len(tokens) - 1
+}
+
+func validGroupedRange(tokens token.Slice, start, end int) bool {
+	if start < 0 || end < 0 || start >= len(tokens) || end >= len(tokens) {
+		return false
+	}
+	if end-start < 3 {
+		return false
+	}
+	if tokens[end].Kind != kind.CloseBracket {
+		return false
+	}
+	return start+2 <= end-1
 }
