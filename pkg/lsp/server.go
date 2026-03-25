@@ -279,43 +279,11 @@ func textDocumentDidChange(context *glsp.Context, params *protocol.DidChangeText
 				"uri", uri,
 				"changeIndex", i,
 				"change", v)
-			// Fallback: try to extract as a map[string]any and get the text
-			if text, textOk := v["text"].(string); textOk {
-				changeEvent.Text = text
-				slog.Debug("Extracted text from map change",
-					"uri", uri,
-					"changeIndex", i,
-					"textLength", len(text))
-				// Try to extract range if it exists
-				if parsedRange, ok := parseRangeFromMap(v); ok {
-					changeEvent.Range = parsedRange
-					slog.Debug("Extracted range from map change",
-						"uri", uri,
-						"changeIndex", i,
-						"startLine", parsedRange.Start.Line,
-						"startChar", parsedRange.Start.Character,
-						"endLine", parsedRange.End.Line,
-						"endChar", parsedRange.End.Character)
-				}
-				// Try to extract rangeLength if it exists
-				if rangeLengthData, rangeLengthOk := v["rangeLength"]; rangeLengthOk && rangeLengthData != nil {
-					if rangeLengthFloat, ok := rangeLengthData.(float64); ok {
-						rangeLength, rangeLengthOK := jsonFloatToInt(rangeLengthFloat)
-						if !rangeLengthOK {
-							slog.Warn("Ignoring invalid range length from map change",
-								"uri", uri,
-								"changeIndex", i,
-								"rangeLength", rangeLengthFloat)
-						} else {
-							changeEvent.RangeLength = &rangeLength
-							slog.Debug("Extracted range length from map change",
-								"uri", uri,
-								"changeIndex", i,
-								"rangeLength", rangeLength)
-						}
-					}
-				}
+			parsedChange, ok := parseChangeEventFromMap(v, uri, i)
+			if !ok {
+				continue
 			}
+			changeEvent = parsedChange
 		}
 		changes = append(changes, changeEvent)
 	}
@@ -729,6 +697,53 @@ func protocolIntegerToInt(value protocol.Integer) int {
 		return math.MaxInt
 	}
 	return int(value)
+}
+
+func parseChangeEventFromMap(change map[string]any, uri string, changeIndex int) (TextDocumentContentChangeEvent, bool) {
+	text, textOk := change["text"].(string)
+	if !textOk {
+		slog.Warn("Ignoring map change without string text",
+			"uri", uri,
+			"changeIndex", changeIndex)
+		return TextDocumentContentChangeEvent{}, false
+	}
+
+	changeEvent := TextDocumentContentChangeEvent{Text: text}
+	slog.Debug("Extracted text from map change",
+		"uri", uri,
+		"changeIndex", changeIndex,
+		"textLength", len(text))
+
+	if parsedRange, ok := parseRangeFromMap(change); ok {
+		changeEvent.Range = parsedRange
+		slog.Debug("Extracted range from map change",
+			"uri", uri,
+			"changeIndex", changeIndex,
+			"startLine", parsedRange.Start.Line,
+			"startChar", parsedRange.Start.Character,
+			"endLine", parsedRange.End.Line,
+			"endChar", parsedRange.End.Character)
+	}
+
+	if rangeLengthData, rangeLengthOk := change["rangeLength"]; rangeLengthOk && rangeLengthData != nil {
+		if rangeLengthFloat, ok := rangeLengthData.(float64); ok {
+			rangeLength, rangeLengthOK := jsonFloatToInt(rangeLengthFloat)
+			if !rangeLengthOK {
+				slog.Warn("Ignoring invalid range length from map change",
+					"uri", uri,
+					"changeIndex", changeIndex,
+					"rangeLength", rangeLengthFloat)
+			} else {
+				changeEvent.RangeLength = &rangeLength
+				slog.Debug("Extracted range length from map change",
+					"uri", uri,
+					"changeIndex", changeIndex,
+					"rangeLength", rangeLength)
+			}
+		}
+	}
+
+	return changeEvent, true
 }
 
 func parseRangeFromMap(change map[string]any) (*Range, bool) {
