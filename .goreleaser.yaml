@@ -61,3 +61,7 @@ homebrew_casks:
     description: Convenient code generator for AI agents
     binaries:
       - af
+    hooks:
+      post:
+        install: |
+          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/af"]

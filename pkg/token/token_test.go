@@ -581,6 +581,7 @@ func assertSafeOperand(t *testing.T, operand string) {
 	// Check if it's a valid number (no embedded code)
 	isNum := true
 	hasDot := false
+	hasDigit := false
 	for i, c := range operand {
 		if c == '-' && i == 0 {
 			continue
@@ -589,12 +590,14 @@ func assertSafeOperand(t *testing.T, operand string) {
 			hasDot = true
 			continue
 		}
-		if c < '0' || c > '9' {
-			isNum = false
-			break
+		if c >= '0' && c <= '9' {
+			hasDigit = true
+			continue
 		}
+		isNum = false
+		break
 	}
-	if isNum && len(operand) > 0 {
+	if isNum && hasDigit {
 		return
 	}
 
@@ -607,7 +610,15 @@ func assertSafeOperand(t *testing.T, operand string) {
 				allValid = false
 				break
 			}
-			for _, c := range part {
+			for i, c := range part {
+				if i == 0 {
+					// First rune must be letter or underscore per Go spec
+					if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_') {
+						allValid = false
+						break
+					}
+					continue
+				}
 				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') {
 					allValid = false
 					break
