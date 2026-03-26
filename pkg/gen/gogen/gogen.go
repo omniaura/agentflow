@@ -187,7 +187,9 @@ func GenFile(w io.Writer, f ast.File, dirName string) error {
 		}
 
 		if hasVariables || hasComplexTokens {
-			stringTemplateWithStruct(&buf, p.Nodes, f.Content, inputs)
+			if err := stringTemplateWithStruct(&buf, p.Nodes, f.Content, inputs); err != nil {
+				return err
+			}
 		} else {
 			stringTemplate(&buf, p.Nodes, f.Content)
 		}
@@ -344,7 +346,7 @@ func stringTemplate(buf *bytes.Buffer, toks []coarse.Token, content []byte) {
 	buf.WriteString("\n}\n")
 }
 
-func stringTemplateWithStruct(buf *bytes.Buffer, toks []coarse.Token, content []byte, inputs ast.InputStruct) {
+func stringTemplateWithStruct(buf *bytes.Buffer, toks []coarse.Token, content []byte, inputs ast.InputStruct) error {
 	buf.WriteString("\tvar b strings.Builder\n")
 
 	// Create type cache to track variable types
@@ -399,18 +401,23 @@ func stringTemplateWithStruct(buf *bytes.Buffer, toks []coarse.Token, content []
 
 	// First pass: Generate length calculation code
 	buf.WriteString("\tlength := 0\n")
-	generateLengthCalculation(buf, toks, content, typeCache, numericVarMap, inputs)
+	if err := generateLengthCalculation(buf, toks, content, typeCache, numericVarMap, inputs); err != nil {
+		return err
+	}
 
 	// Grow the buffer
 	buf.WriteString("\tb.Grow(length)\n")
 
 	// Second pass: Generate the actual string building code
-	generateStringBuilding(buf, toks, content, typeCache, numericVarMap, inputs)
+	if err := generateStringBuilding(buf, toks, content, typeCache, numericVarMap, inputs); err != nil {
+		return err
+	}
 
 	buf.WriteString("\treturn b.String()\n}\n")
+	return nil
 }
 
-func generateLengthCalculation(buf *bytes.Buffer, toks []coarse.Token, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
+func generateLengthCalculation(buf *bytes.Buffer, toks []coarse.Token, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) error {
 	conditionalStack := []bool{} // Track nested conditionals
 	indentLevel := 1
 
@@ -452,10 +459,14 @@ func generateLengthCalculation(buf *bytes.Buffer, toks []coarse.Token, content [
 
 			// Generate conditional expression
 			if vi.Operator != "" {
+				goOp, err := convertWordOperatorToGo(vi.Operator)
+				if err != nil {
+					return err
+				}
 				// Custom operator expression
 				buf.WriteString(varFieldAccess(vi.Path))
 				buf.WriteString(" ")
-				buf.WriteString(convertWordOperatorToGo(vi.Operator))
+				buf.WriteString(goOp)
 				buf.WriteString(" ")
 				buf.WriteString(vi.Operand) // Use vi.Operand directly (already formatted)
 			} else {
@@ -511,9 +522,11 @@ func generateLengthCalculation(buf *bytes.Buffer, toks []coarse.Token, content [
 		writeIndent(buf, indentLevel)
 		buf.WriteString("}\n")
 	}
+
+	return nil
 }
 
-func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) {
+func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []byte, typeCache map[string]string, numericVarMap map[string]string, inputs ast.InputStruct) error {
 	conditionalStack := []bool{} // Track nested conditionals
 
 	// Buffer for static text segments
@@ -573,10 +586,14 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 
 			// Generate conditional expression
 			if vi.Operator != "" {
+				goOp, err := convertWordOperatorToGo(vi.Operator)
+				if err != nil {
+					return err
+				}
 				// Custom operator expression
 				buf.WriteString(varFieldAccess(vi.Path))
 				buf.WriteString(" ")
-				buf.WriteString(convertWordOperatorToGo(vi.Operator))
+				buf.WriteString(goOp)
 				buf.WriteString(" ")
 				buf.WriteString(vi.Operand) // Use vi.Operand directly (already formatted)
 			} else {
@@ -645,6 +662,8 @@ func generateStringBuilding(buf *bytes.Buffer, toks []coarse.Token, content []by
 		}
 		buf.WriteString("\t}\n")
 	}
+
+	return nil
 }
 
 func writeIndent(buf *bytes.Buffer, level int) {
@@ -676,22 +695,22 @@ func writeQuotedString(buf *bytes.Buffer, content []byte) {
 }
 
 // convertWordOperatorToGo converts word operators to Go operators
-func convertWordOperatorToGo(wordOp string) string {
+func convertWordOperatorToGo(wordOp string) (string, error) {
 	switch wordOp {
 	case "gte":
-		return ">="
+		return ">=", nil
 	case "lte":
-		return "<="
+		return "<=", nil
 	case "gt":
-		return ">"
+		return ">", nil
 	case "lt":
-		return "<"
+		return "<", nil
 	case "eq":
-		return "=="
+		return "==", nil
 	case "ne":
-		return "!="
+		return "!=", nil
 	default:
-		return wordOp // fallback
+		return "", fmt.Errorf("unsupported conditional operator %q", wordOp)
 	}
 }
 
