@@ -47,17 +47,7 @@ func CMD() *cobra.Command {
 The generated prompts will be written next to their corresponding .af files.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
-			// Use filepath.Walk to recursively find all .af files
-			var files []string
-			err := filepath.WalkDir(Dir, func(path string, d fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if !d.IsDir() && filepath.Ext(path) == ".af" {
-					files = append(files, path)
-				}
-				return nil
-			})
+			files, err := collectAFFiles(Dir)
 			assert.NoError(err)
 
 			group, _ := errgroup.WithContext(ctx)
@@ -115,4 +105,29 @@ The generated prompts will be written next to their corresponding .af files.`,
 		},
 	}
 	return flags(cmd)
+}
+
+func collectAFFiles(dir string) ([]string, error) {
+	var files []string
+
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.Type()&fs.ModeSymlink != 0 {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if !d.IsDir() && filepath.Ext(path) == ".af" {
+			files = append(files, path)
+		}
+
+		return nil
+	})
+
+	return files, err
 }

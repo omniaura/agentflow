@@ -17,6 +17,7 @@ package lsp
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -29,6 +30,10 @@ import (
 	"github.com/omniaura/agentflow/pkg/token/kind"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
+
+const maxOpenDocuments = 128
+
+var ErrTooManyOpenDocuments = errors.New("too many open documents")
 
 // Document represents a text document being managed by the LSP server
 type Document struct {
@@ -104,6 +109,11 @@ func (dm *DocumentManager) OpenDocument(document protocol.TextDocumentItem) (*Do
 			"uri", uri,
 			"existingVersion", existing.Version,
 			"newVersion", document.Version)
+	} else if len(dm.documents) >= maxOpenDocuments {
+		slog.Error("Document limit reached",
+			"uri", uri,
+			"maxOpenDocuments", maxOpenDocuments)
+		return nil, ErrTooManyOpenDocuments
 	}
 
 	docBytes := []byte(document.Text)

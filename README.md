@@ -22,7 +22,10 @@ A powerful template engine for AI prompt engineering with type-safe variable int
   - [Conditional Prompts](#conditional-prompts)
   - [Complex Nested Structures](#complex-nested-structures)
 - [Generated Code](#generated-code)
+- [go:generate Workflow](#gogenerate-workflow)
+- [LSP Server](#lsp-server)
 - [CLI Usage](#cli-usage)
+- [Releases](#releases)
 
 ## Installation
 
@@ -53,6 +56,10 @@ Consider upgrading to premium for additional features.
 Generate Go code:
 
     af gen prompts examples/
+
+Or, if you pin AgentFlow as a project-scoped Go tool:
+
+    go tool af gen prompts examples/
 
 ## AgentFlow (.af) Syntax
 
@@ -282,6 +289,54 @@ func (input *Template) String() string {
 }
 ```
 
+## go:generate Workflow
+
+AgentFlow works well as a checked-in Go tool dependency so prompt generation is repeatable for every contributor and CI job.
+
+1. Add the tool to your module:
+
+       go get -tool github.com/omniaura/agentflow/cmd/af@latest
+
+2. Add a generate directive next to your `.af` files:
+
+```go
+//go:generate go tool af gen prompts .
+```
+
+3. Regenerate code whenever templates change:
+
+       go generate ./...
+
+When `go generate` runs, AgentFlow respects `$GOPACKAGE`, so generating files from a package root works without extra flags.
+
+## LSP Server
+
+AgentFlow ships with a language server for `.af` files.
+
+Start it over stdio for editor integrations:
+
+    af lsp
+
+Or, if you use the Go tool workflow:
+
+    go tool af lsp
+
+Available flags:
+
+- `--mode stdio|tcp` - transport to use; `stdio` is the default for editors
+- `--port 4389` - TCP port when `--mode tcp` is selected
+- `--debug` - verbose logging to stderr
+
+Current editor features include:
+
+- semantic tokens for AgentFlow directives and variables
+- diagnostics from the parser
+- hover details for variables and conditional operators
+- completion for directives, variables, types, and operators
+- document symbols for prompt titles and variables
+
+The companion VS Code extension lives at `https://github.com/omniaura/agentflow-vscode` and can launch the LSP automatically.
+
 ## CLI Usage
 
 Generate Go code from .af templates:
@@ -290,7 +345,12 @@ Generate Go code from .af templates:
 
 **Options:**
 - `-d, --dir`: Directory containing .af files (default: current directory)
-- `-l, --lang`: Target language (currently only 'go' supported)
 
 **Example:**
     af gen prompts examples/simple
+
+## Releases
+
+Release history and changelogs are tracked in GitHub Releases:
+
+- `https://github.com/omniaura/agentflow/releases`
