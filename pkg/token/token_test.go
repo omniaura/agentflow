@@ -170,7 +170,7 @@ func TestTitle(t *testing.T) {
 					},
 					{
 						Kind:  kind.Text,
-						Start: len(line1) + 1, // +1 for newline
+						Start: len(line1) + 1,                   // +1 for newline
 						End:   len(line1) + 1 + len(helloW) + 1, // +1 for newline
 					},
 					{
@@ -438,6 +438,11 @@ func TestOperandSanitization(t *testing.T) {
 			wantOperand: "10",
 		},
 		{
+			name:        "safe signed integer operand",
+			expr:        "count gte -10",
+			wantOperand: "-10",
+		},
+		{
 			name:        "safe string operand",
 			expr:        `name eq "Bob"`,
 			wantOperand: `"Bob"`,
@@ -457,6 +462,11 @@ func TestOperandSanitization(t *testing.T) {
 			expr:        "score gte 3.14",
 			wantOperand: "3.14",
 		},
+		{
+			name:        "safe signed float operand",
+			expr:        "score gte -.5",
+			wantOperand: "-.5",
+		},
 
 		// Integer injection: when type cache says int, malicious operands get sanitized to "0"
 		{
@@ -475,6 +485,18 @@ func TestOperandSanitization(t *testing.T) {
 			name:        "numeric operand with embedded function call",
 			expr:        `score lte 100+exec("malicious")`,
 			typeCache:   map[string]string{"score": "int"},
+			wantOperand: "0",
+		},
+		{
+			name:        "integer injection with exponent syntax",
+			expr:        `count gte 1e9`,
+			typeCache:   map[string]string{"count": "int"},
+			wantOperand: "0",
+		},
+		{
+			name:        "float injection with exponent syntax",
+			expr:        `score gte 1.2e9`,
+			typeCache:   map[string]string{"score": "float64"},
 			wantOperand: "0",
 		},
 
@@ -509,14 +531,14 @@ func TestOperandSanitization(t *testing.T) {
 
 		// Variable path injection: invalid identifiers in dot-paths get safely quoted
 		{
-			name:        "variable path injection with semicolons",
-			expr:        `score gte config.max; os.Exit(0); x.y`,
-			checkSafe:   true,
+			name:      "variable path injection with semicolons",
+			expr:      `score gte config.max; os.Exit(0); x.y`,
+			checkSafe: true,
 		},
 		{
-			name:        "variable path with parentheses injection",
-			expr:        "score gte config.exec()",
-			checkSafe:   true,
+			name:      "variable path with parentheses injection",
+			expr:      "score gte config.exec()",
+			checkSafe: true,
 		},
 	}
 
