@@ -26,6 +26,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -36,6 +37,7 @@ var (
 func flags(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().StringVarP(&Dir,
 		"dir", "d", ".", "Directory to read .af files from. Defaults to current directory.")
+	viper.BindPFlag("gen.dir", cmd.Flags().Lookup("dir"))
 	return cmd
 }
 
