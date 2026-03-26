@@ -708,36 +708,81 @@ func formatOperandForGeneration(operand, varType string) string {
 
 	switch varType {
 	case "string":
-		// Strip surrounding quotes if present, then safely re-quote using strconv.Quote
-		// which properly escapes all special characters, preventing code injection.
 		inner := stripQuotes(operand)
 		return strconv.Quote(inner)
 	case "int":
-		// Validate that the operand is a valid integer literal
-		if _, err := strconv.Atoi(operand); err == nil {
+		if isStrictIntLiteral(operand) {
 			return operand
 		}
-		// Invalid integer operand - return zero value to prevent injection
 		return "0"
 	case "float32", "float64":
-		// Validate that the operand is a valid float literal
-		if _, err := strconv.ParseFloat(operand, 64); err == nil {
+		if isStrictFloatLiteral(operand) {
 			return operand
 		}
-		// Invalid float operand - return zero value to prevent injection
 		return "0"
 	case "bool":
-		// Only allow exact boolean literals
 		if operand == "true" || operand == "false" {
 			return operand
 		}
-		// Invalid boolean operand - return false to prevent injection
 		return "false"
 	default:
-		// Default to safely quoted string
 		inner := stripQuotes(operand)
 		return strconv.Quote(inner)
 	}
+}
+
+func isStrictIntLiteral(operand string) bool {
+	if operand == "" {
+		return false
+	}
+
+	start := 0
+	if operand[0] == '+' || operand[0] == '-' {
+		if len(operand) == 1 {
+			return false
+		}
+		start = 1
+	}
+
+	for i := start; i < len(operand); i++ {
+		if operand[i] < '0' || operand[i] > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+func isStrictFloatLiteral(operand string) bool {
+	if operand == "" {
+		return false
+	}
+
+	start := 0
+	if operand[0] == '+' || operand[0] == '-' {
+		if len(operand) == 1 {
+			return false
+		}
+		start = 1
+	}
+
+	hasDigit := false
+	hasDot := false
+	for i := start; i < len(operand); i++ {
+		switch operand[i] {
+		case '.':
+			if hasDot {
+				return false
+			}
+			hasDot = true
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+			hasDigit = true
+		default:
+			return false
+		}
+	}
+
+	return hasDot && hasDigit
 }
 
 // stripQuotes removes surrounding double or single quotes from a string.
