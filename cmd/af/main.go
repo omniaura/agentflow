@@ -24,6 +24,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/logger"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var Root = &cobra.Command{
@@ -35,6 +36,8 @@ var Root = &cobra.Command{
 }
 
 func main() {
+	cobra.OnInitialize(cfg.InitConfig)
+
 	Root.PersistentFlags().StringVar(&cfg.FlagLogLevel, "log", "debug", "Log level")
 
 	ctx := context.Background()
@@ -43,6 +46,9 @@ func main() {
 
 	Root.AddCommand(gen.CMD())
 	Root.AddCommand(lsp.CMD())
+
+	// Bind persistent flags to viper after all commands are added
+	viper.BindPFlag("log", Root.PersistentFlags().Lookup("log"))
 
 	err := Root.ExecuteContext(ctx)
 	assert.NoError(err)

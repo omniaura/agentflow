@@ -19,6 +19,7 @@ import (
 	"github.com/omniaura/agentflow/cfg"
 	"github.com/omniaura/agentflow/cmd/af/gen/prompts"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func CMD() *cobra.Command {
@@ -27,6 +28,7 @@ func CMD() *cobra.Command {
 		Short: "Generate code from .af files",
 	}
 	cmd.PersistentFlags().IntVar(&cfg.MaxLineLen, "max-line-len", 80, "Maximum line length")
+	viper.BindPFlag("max-line-len", cmd.PersistentFlags().Lookup("max-line-len"))
 	cmd.AddCommand(prompts.CMD())
 	return cmd
 }

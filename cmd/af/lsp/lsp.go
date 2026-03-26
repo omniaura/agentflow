@@ -27,6 +27,7 @@ import (
 
 	"github.com/omniaura/agentflow/pkg/lsp"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var (
@@ -226,6 +227,9 @@ The LSP server provides:
 	cmd.Flags().StringVar(&Mode, "mode", "stdio", "Communication mode: 'stdio' or 'tcp'")
 	cmd.Flags().IntVar(&Port, "port", 4389, "TCP port to listen on (when mode is 'tcp')")
 	cmd.Flags().BoolVar(&Debug, "debug", false, "Enable debug logging")
+	viper.BindPFlag("lsp.mode", cmd.Flags().Lookup("mode"))
+	viper.BindPFlag("lsp.port", cmd.Flags().Lookup("port"))
+	viper.BindPFlag("lsp.debug", cmd.Flags().Lookup("debug"))
 	return cmd
 }
 
