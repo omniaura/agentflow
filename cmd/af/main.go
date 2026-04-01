@@ -27,29 +27,32 @@ import (
 	"github.com/spf13/viper"
 )
 
-var Root = &cobra.Command{
-	Version:          cfg.Version, // This line will be updated by the sync-version script
-	Use:              "af",
-	Short:            "AgentFlow CLI",
-	Long:             "AgentFlow is a CLI for bootstrapping AI agents.",
-	PersistentPreRun: func(cmd *cobra.Command, args []string) { logger.Setup() },
+func newRootCommand() *cobra.Command {
+	root := &cobra.Command{
+		Version:          cfg.Version, // This line will be updated by the sync-version script
+		Use:              "af",
+		Short:            "AgentFlow CLI",
+		Long:             "AgentFlow is a CLI for bootstrapping AI agents.",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) { logger.Setup() },
+	}
+
+	root.PersistentFlags().StringVar(&cfg.FlagLogLevel, "log", "debug", "Log level")
+	root.AddCommand(gen.CMD())
+	root.AddCommand(lsp.CMD())
+
+	// Bind persistent flags to viper after all commands are added.
+	viper.BindPFlag("log", root.PersistentFlags().Lookup("log"))
+
+	return root
 }
 
 func main() {
 	cobra.OnInitialize(cfg.InitConfig)
 
-	Root.PersistentFlags().StringVar(&cfg.FlagLogLevel, "log", "debug", "Log level")
-
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	Root.AddCommand(gen.CMD())
-	Root.AddCommand(lsp.CMD())
-
-	// Bind persistent flags to viper after all commands are added
-	viper.BindPFlag("log", Root.PersistentFlags().Lookup("log"))
-
-	err := Root.ExecuteContext(ctx)
+	err := newRootCommand().ExecuteContext(ctx)
 	assert.NoError(err)
 }
