@@ -36,14 +36,17 @@ func TestNewRootCommandDefaults(t *testing.T) {
 		t.Fatalf("expected viper log debug, got %q", got)
 	}
 
+	if _, _, err := cmd.Find([]string{"demo"}); err != nil {
+		t.Fatalf("expected demo subcommand, got error %v", err)
+	}
 	if _, _, err := cmd.Find([]string{"gen"}); err != nil {
 		t.Fatalf("expected gen subcommand, got error %v", err)
 	}
 	if _, _, err := cmd.Find([]string{"lsp"}); err != nil {
 		t.Fatalf("expected lsp subcommand, got error %v", err)
 	}
-	if len(cmd.Commands()) != 2 {
-		t.Fatalf("expected 2 subcommands, got %d", len(cmd.Commands()))
+	if len(cmd.Commands()) != 3 {
+		t.Fatalf("expected 3 subcommands, got %d", len(cmd.Commands()))
 	}
 }
 

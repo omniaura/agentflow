@@ -19,6 +19,7 @@ import (
 	"context"
 
 	"github.com/omniaura/agentflow/cfg"
+	"github.com/omniaura/agentflow/cmd/af/demo"
 	"github.com/omniaura/agentflow/cmd/af/gen"
 	"github.com/omniaura/agentflow/cmd/af/lsp"
 	"github.com/omniaura/agentflow/pkg/assert"
@@ -37,6 +38,7 @@ func newRootCommand() *cobra.Command {
 	}
 
 	root.PersistentFlags().StringVar(&cfg.FlagLogLevel, "log", "debug", "Log level")
+	root.AddCommand(demo.CMD())
 	root.AddCommand(gen.CMD())
 	root.AddCommand(lsp.CMD())
 
