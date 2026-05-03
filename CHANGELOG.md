@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.1](https://github.com/omniaura/agentflow/compare/v0.8.0...v0.8.1) (2026-05-03)
+
+
+### Bug Fixes
+
+* **ci:** repair Go Coverage workflow (closes [#67](https://github.com/omniaura/agentflow/issues/67)) ([#70](https://github.com/omniaura/agentflow/issues/70)) ([196ae64](https://github.com/omniaura/agentflow/commit/196ae640b74355288d2efc9ae03d307a4a06d635))
+
 ## [0.8.0](https://github.com/omniaura/agentflow/compare/v0.7.0...v0.8.0) (2026-05-03)
 
 
