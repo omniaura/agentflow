@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/omniaura/agentflow/compare/v0.8.1...v0.9.0) (2026-05-03)
+
+
+### Features
+
+* **fmt:** canonical formatter for .af files ([#73](https://github.com/omniaura/agentflow/issues/73)) ([745186a](https://github.com/omniaura/agentflow/commit/745186a47f77c4427517523f854a409395063429)), closes [#72](https://github.com/omniaura/agentflow/issues/72)
+
 ## [0.8.1](https://github.com/omniaura/agentflow/compare/v0.8.0...v0.8.1) (2026-05-03)
 
 
