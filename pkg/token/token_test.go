@@ -253,6 +253,17 @@ func TestMarkdownHeadingIsNotComment(t *testing.T) {
 	}
 }
 
+func TestEmojiMarkdownHeadingIsNotComment(t *testing.T) {
+	input := []byte("# 📚 Rendered heading")
+	want := token.Slice{{Kind: kind.Text, Start: 0, End: len(input)}}
+
+	got, err := token.Tokenize(input)
+	require.NoError(t, err)
+	if !want.Equal(got) {
+		t.Fatalf("tokens not equal\nWANT:\n%s\nGOT:\n%s", want.Stringify(input), got.Stringify(input))
+	}
+}
+
 func TestVar(t *testing.T) {
 	varStart := []byte("<!")
 	varName := []byte("var1")

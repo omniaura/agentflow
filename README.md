@@ -67,7 +67,7 @@ AgentFlow uses a simple but powerful syntax for creating dynamic prompt template
 
 ### Comments
 
-Single-`#` lines document templates without rendering into generated output. Markdown headings that start with `##` still render as normal text.
+Single-`#` lines document templates without rendering into generated output. Markdown headings that start with `##`, or with a single `#` followed by an emoji, still render as normal text.
 
 ```af
 .title System Prompt

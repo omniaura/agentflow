@@ -527,10 +527,13 @@ func parseComment(input []byte, start int) T {
 }
 
 func isCommentStart(input []byte, pos int) bool {
-	return pos < len(input) &&
-		input[pos] == '#' &&
-		(pos+1 >= len(input) || input[pos+1] != '#') &&
-		(pos == 0 || input[pos-1] == '\n')
+	if pos >= len(input) || input[pos] != '#' || (pos > 0 && input[pos-1] != '\n') {
+		return false
+	}
+	if pos+1 < len(input) && input[pos+1] == '#' {
+		return false
+	}
+	return pos+2 >= len(input) || input[pos+1] != ' ' || input[pos+2] < 0x80
 }
 
 // Helper functions
