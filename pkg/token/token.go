@@ -81,6 +81,13 @@ func Tokenize(input []byte) (Slice, error) {
 	i := 0
 
 	for i < len(input) {
+		if isCommentStart(input, i) {
+			comment := parseComment(input, i)
+			tokens = append(tokens, comment)
+			i += comment.End - comment.Start
+			continue
+		}
+
 		// Check for .title directive at start of line
 		if i == 0 || (i > 0 && input[i-1] == '\n') {
 			if i < len(input) && input[i] == '.' {
@@ -487,6 +494,9 @@ func parseText(input []byte, start int) T {
 				break
 			}
 		}
+		if isCommentStart(input, pos) {
+			break
+		}
 		if input[pos] == '.' && (pos == 0 || input[pos-1] == '\n') {
 			// Check if this might be a title directive
 			if tryParseTitle(input, pos) != nil {
@@ -503,6 +513,27 @@ func parseText(input []byte, start int) T {
 		Start: start,
 		End:   pos,
 	}
+}
+
+func parseComment(input []byte, start int) T {
+	pos := start
+	for pos < len(input) && input[pos] != '\n' {
+		pos++
+	}
+	if pos < len(input) && input[pos] == '\n' {
+		pos++
+	}
+	return T{Kind: kind.Comment, Start: start, End: pos}
+}
+
+func isCommentStart(input []byte, pos int) bool {
+	if pos >= len(input) || input[pos] != '#' || (pos > 0 && input[pos-1] != '\n') {
+		return false
+	}
+	if pos+1 < len(input) && input[pos+1] == '#' {
+		return false
+	}
+	return pos+2 >= len(input) || input[pos+1] != ' ' || input[pos+2] < 0x80
 }
 
 // Helper functions

@@ -117,6 +117,8 @@ func generateGranularSemanticTokens(doc *Document) []protocol.UInteger {
 			tokenType = TokenTypeParameter // String values in conditionals should be colored like parameters
 		case kind.IntValue, kind.BoolValue:
 			tokenType = TokenTypeParameter
+		case kind.Comment:
+			tokenType = TokenTypeComment
 		case kind.Text:
 			tokenType = TokenTypeString // Regular text content
 		case kind.Whitespace:

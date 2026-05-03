@@ -50,10 +50,10 @@ const (
 	// Content
 	Text       // Regular text content
 	Whitespace // Spaces, tabs, newlines (separators)
+	Comment    // "# comment" line comments
 
 	// Future extension tokens (for later)
 	// RawBlock       // For future raw block support
-	// Comment        // For future comment support
 )
 
 func (k Kind) IsTag() bool {
@@ -93,7 +93,7 @@ func (k Kind) IsValue() bool {
 
 func (k Kind) IsContent() bool {
 	switch k {
-	case Text:
+	case Text, Comment:
 		return true
 	}
 	return false

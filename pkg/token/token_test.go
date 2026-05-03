@@ -209,6 +209,61 @@ func TestTitle(t *testing.T) {
 	}
 }
 
+func TestComment(t *testing.T) {
+	input := []byte(".title Demo\n# used by onboarding only\nHello <!name>")
+	want := token.Slice{
+		{Kind: kind.TitleDirective, Start: 0, End: 6},
+		{Kind: kind.Whitespace, Start: 6, End: 7},
+		{Kind: kind.TitleText, Start: 7, End: 11},
+		{Kind: kind.Whitespace, Start: 11, End: 12},
+		{Kind: kind.Comment, Start: 12, End: 38},
+		{Kind: kind.Text, Start: 38, End: 44},
+		{Kind: kind.OpenBracket, Start: 44, End: 45},
+		{Kind: kind.DirectiveVar, Start: 45, End: 46},
+		{Kind: kind.VarName, Start: 46, End: 50},
+		{Kind: kind.CloseBracket, Start: 50, End: 51},
+	}
+
+	got, err := token.Tokenize(input)
+	require.NoError(t, err)
+	if !want.Equal(got) {
+		t.Fatalf("tokens not equal\nWANT:\n%s\nGOT:\n%s", want.Stringify(input), got.Stringify(input))
+	}
+}
+
+func TestHashInsideTextIsNotComment(t *testing.T) {
+	input := []byte("Use # literally in rendered text")
+	want := token.Slice{{Kind: kind.Text, Start: 0, End: len(input)}}
+
+	got, err := token.Tokenize(input)
+	require.NoError(t, err)
+	if !want.Equal(got) {
+		t.Fatalf("tokens not equal\nWANT:\n%s\nGOT:\n%s", want.Stringify(input), got.Stringify(input))
+	}
+}
+
+func TestMarkdownHeadingIsNotComment(t *testing.T) {
+	input := []byte("## Rendered heading")
+	want := token.Slice{{Kind: kind.Text, Start: 0, End: len(input)}}
+
+	got, err := token.Tokenize(input)
+	require.NoError(t, err)
+	if !want.Equal(got) {
+		t.Fatalf("tokens not equal\nWANT:\n%s\nGOT:\n%s", want.Stringify(input), got.Stringify(input))
+	}
+}
+
+func TestEmojiMarkdownHeadingIsNotComment(t *testing.T) {
+	input := []byte("# 📚 Rendered heading")
+	want := token.Slice{{Kind: kind.Text, Start: 0, End: len(input)}}
+
+	got, err := token.Tokenize(input)
+	require.NoError(t, err)
+	if !want.Equal(got) {
+		t.Fatalf("tokens not equal\nWANT:\n%s\nGOT:\n%s", want.Stringify(input), got.Stringify(input))
+	}
+}
+
 func TestVar(t *testing.T) {
 	varStart := []byte("<!")
 	varName := []byte("var1")

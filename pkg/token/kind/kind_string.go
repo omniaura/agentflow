@@ -25,11 +25,12 @@ func _() {
 	_ = x[BoolValue-14]
 	_ = x[Text-15]
 	_ = x[Whitespace-16]
+	_ = x[Comment-17]
 }
 
-const _Kind_name = "UnsetOpenBracketCloseBracketDirectiveVarDirectiveCondDirectiveEndDirectiveElseTitleDirectiveTitleTextVarNameTypeNameOperatorStringValueIntValueBoolValueTextWhitespace"
+const _Kind_name = "UnsetOpenBracketCloseBracketDirectiveVarDirectiveCondDirectiveEndDirectiveElseTitleDirectiveTitleTextVarNameTypeNameOperatorStringValueIntValueBoolValueTextWhitespaceComment"
 
-var _Kind_index = [...]uint8{0, 5, 16, 28, 40, 53, 65, 78, 92, 101, 108, 116, 124, 135, 143, 152, 156, 166}
+var _Kind_index = [...]uint8{0, 5, 16, 28, 40, 53, 65, 78, 92, 101, 108, 116, 124, 135, 143, 152, 156, 166, 173}
 
 func (i Kind) String() string {
 	if i < 0 || i >= Kind(len(_Kind_index)-1) {
