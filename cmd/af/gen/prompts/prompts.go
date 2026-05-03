@@ -16,11 +16,15 @@ limitations under the License.
 package prompts
 
 import (
+	"bufio"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/ast"
@@ -28,10 +32,18 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/term"
 )
 
 var (
 	Dir string
+
+	interactiveInput  io.Reader = os.Stdin
+	interactiveOutput io.Writer = os.Stdout
+	isInteractiveTTY            = func() bool {
+		file, ok := interactiveInput.(*os.File)
+		return ok && term.IsTerminal(int(file.Fd()))
+	}
 )
 
 func flags(cmd *cobra.Command) *cobra.Command {
@@ -49,7 +61,7 @@ func CMD() *cobra.Command {
 The generated prompts will be written next to their corresponding .af files.`,
 		Run: func(cmd *cobra.Command, args []string) {
 			ctx := cmd.Context()
-			files, err := collectAFFiles(Dir)
+			files, err := resolveAFFiles(cmd)
 			assert.NoError(err)
 
 			group, _ := errgroup.WithContext(ctx)
@@ -132,4 +144,92 @@ func collectAFFiles(dir string) ([]string, error) {
 	})
 
 	return files, err
+}
+
+func resolveAFFiles(cmd *cobra.Command) ([]string, error) {
+	files, err := collectAFFiles(Dir)
+	if err != nil {
+		return nil, err
+	}
+
+	if !shouldPromptForFileSelection(cmd, files) {
+		return files, nil
+	}
+
+	selected, err := promptForAFFiles(files)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(selected) == 0 {
+		return files, nil
+	}
+
+	return selected, nil
+}
+
+func shouldPromptForFileSelection(cmd *cobra.Command, files []string) bool {
+	if len(files) <= 1 {
+		return false
+	}
+	if cmd.Flags().Changed("dir") {
+		return false
+	}
+	return isInteractiveTTY()
+}
+
+func promptForAFFiles(files []string) ([]string, error) {
+	_, err := fmt.Fprintf(interactiveOutput, "Select .af files to generate (comma-separated numbers, blank or 'all' for all):\n")
+	if err != nil {
+		return nil, err
+	}
+
+	for i, file := range files {
+		if _, err := fmt.Fprintf(interactiveOutput, "  %d. %s\n", i+1, file); err != nil {
+			return nil, err
+		}
+	}
+
+	if _, err := fmt.Fprint(interactiveOutput, "> "); err != nil {
+		return nil, err
+	}
+
+	selection, err := bufio.NewReader(interactiveInput).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return nil, err
+	}
+
+	selection = strings.TrimSpace(selection)
+	if selection == "" || strings.EqualFold(selection, "all") {
+		return files, nil
+	}
+
+	chosen := make([]string, 0, len(files))
+	seen := make(map[int]struct{}, len(files))
+
+	for _, part := range strings.Split(selection, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		index, err := strconv.Atoi(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid selection %q: enter comma-separated numbers", part)
+		}
+		if index < 1 || index > len(files) {
+			return nil, fmt.Errorf("invalid selection %q: choose between 1 and %d", part, len(files))
+		}
+		if _, ok := seen[index]; ok {
+			continue
+		}
+		seen[index] = struct{}{}
+		chosen = append(chosen, files[index-1])
+	}
+
+	if len(chosen) == 0 {
+		return nil, fmt.Errorf("no files selected")
+	}
+
+	return chosen, nil
 }
