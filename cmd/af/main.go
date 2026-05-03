@@ -22,6 +22,7 @@ import (
 	"github.com/omniaura/agentflow/cmd/af/demo"
 	fmtcmd "github.com/omniaura/agentflow/cmd/af/fmt"
 	"github.com/omniaura/agentflow/cmd/af/gen"
+	lintcmd "github.com/omniaura/agentflow/cmd/af/lint"
 	"github.com/omniaura/agentflow/cmd/af/lsp"
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/logger"
@@ -42,6 +43,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(demo.CMD())
 	root.AddCommand(fmtcmd.CMD())
 	root.AddCommand(gen.CMD())
+	root.AddCommand(lintcmd.CMD())
 	root.AddCommand(lsp.CMD())
 
 	// Bind persistent flags to viper after all commands are added.
