@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/omniaura/agentflow/compare/v0.6.0...v0.7.0) (2026-05-03)
+
+
+### Features
+
+* add interactive prompt selection ([#64](https://github.com/omniaura/agentflow/issues/64)) ([3657295](https://github.com/omniaura/agentflow/commit/3657295c8554db74549e425273a1d56116c11fde))
+
 ## [0.6.0](https://github.com/omniaura/agentflow/compare/v0.5.3...v0.6.0) (2026-03-26)
 
 
