@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/omniaura/agentflow/compare/v0.9.0...v0.10.0) (2026-05-03)
+
+
+### Features
+
+* **lint:** add af lint command ([#77](https://github.com/omniaura/agentflow/issues/77)) ([2e5b6e1](https://github.com/omniaura/agentflow/commit/2e5b6e1afac8c7f614ed6d341f131c40f350faf1)), closes [#75](https://github.com/omniaura/agentflow/issues/75)
+
 ## [0.9.0](https://github.com/omniaura/agentflow/compare/v0.8.1...v0.9.0) (2026-05-03)
 
 
