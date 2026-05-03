@@ -182,6 +182,33 @@ func TestConvertGroupsTitleAndTrimsInterPromptWhitespace(t *testing.T) {
 	}
 }
 
+func TestConvertSkipsComments(t *testing.T) {
+	input := []byte(".title Demo\n# internal note\nHello")
+	tokens := token.Slice{
+		{Kind: kind.TitleDirective, Start: 0, End: 6},
+		{Kind: kind.Whitespace, Start: 6, End: 7},
+		{Kind: kind.TitleText, Start: 7, End: 11},
+		{Kind: kind.Whitespace, Start: 11, End: 12},
+		{Kind: kind.Comment, Start: 12, End: 28},
+		{Kind: kind.Text, Start: 28, End: 33},
+	}
+
+	got := Convert(tokens, input)
+	want := []Token{
+		{Kind: Title, Start: 7, End: 11},
+		{Kind: Text, Start: 28, End: 33},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d tokens, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("token %d mismatch: got %+v want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 func TestConvertTreatsStandaloneBracketAsText(t *testing.T) {
 	input := []byte("<")
 	tokens := token.Slice{{Kind: kind.OpenBracket, Start: 0, End: 1}}

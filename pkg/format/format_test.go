@@ -89,6 +89,11 @@ Body two.
 			in:   ".title Demo\r\n\r\nLine with spaces.   \r\nLast line\t",
 			want: ".title Demo\n\nLine with spaces.\nLast line\n",
 		},
+		{
+			name: "preserves comments",
+			in:   ".title   Demo\n# internal note   \nHello <! name >\n",
+			want: ".title Demo\n\n# internal note\nHello <!name>\n",
+		},
 	}
 
 	for _, tt := range tests {

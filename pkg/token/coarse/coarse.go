@@ -201,6 +201,9 @@ func Convert(tokens token.Slice, input []byte) []Token {
 				i++
 			}
 
+		case kind.Comment:
+			i++
+
 		case kind.Text, kind.Whitespace:
 			// Skip whitespace that precedes a title directive (inter-prompt whitespace)
 			if tokens[i].Kind == kind.Whitespace && i+1 < len(tokens) && tokens[i+1].Kind == kind.TitleDirective {
