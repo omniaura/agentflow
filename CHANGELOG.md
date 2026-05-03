@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/omniaura/agentflow/compare/v0.7.0...v0.8.0) (2026-05-03)
+
+
+### Features
+
+* add demo init command ([#68](https://github.com/omniaura/agentflow/issues/68)) ([32c5322](https://github.com/omniaura/agentflow/commit/32c5322819ce036d21ba2c41832e0b60439ad1be))
+
 ## [0.7.0](https://github.com/omniaura/agentflow/compare/v0.6.0...v0.7.0) (2026-05-03)
 
 
