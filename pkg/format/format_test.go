@@ -87,7 +87,12 @@ Body two.
 		{
 			name: "trailing whitespace and final newline",
 			in:   ".title Demo\r\n\r\nLine with spaces.   \r\nLast line\t",
-			want: ".title Demo\n\nLine with spaces.\nLast line\n",
+			want: ".title Demo\n\nLine with spaces.   \nLast line\n",
+		},
+		{
+			name: "body whitespace kept except around the body",
+			in:   ".title Notes  \n\n\n  indented\nhard break  \n   \nend  \n\n.title Next\nx\n",
+			want: ".title Notes\n\n  indented\nhard break  \n   \nend\n\n.title Next\n\nx\n",
 		},
 	}
 

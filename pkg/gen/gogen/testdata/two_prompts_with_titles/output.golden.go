@@ -30,10 +30,8 @@ func (input *GoodbyeUser) String() string {
 	length := 0
 	length += 15
 	length += len(input.Username)
-	length += 1
 	b.Grow(length)
 	b.WriteString("say goodbye to ")
 	b.WriteString(input.Username)
-	b.WriteString(" ")
 	return b.String()
 }
