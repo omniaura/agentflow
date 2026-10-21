@@ -17,18 +17,22 @@ package prompts
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
+	"github.com/omniaura/agentflow/pkg/lint"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
@@ -60,65 +64,147 @@ func CMD() *cobra.Command {
 		Long: `Generate prompts from .af files in the input directory.
 The generated prompts will be written next to their corresponding .af files.`,
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := cmd.Context()
 			files, err := resolveAFFiles(cmd)
 			assert.NoError(err)
-
-			group, _ := errgroup.WithContext(ctx)
-			for _, name := range files {
-				group.Go(func() error {
-					file, err := os.Open(name)
-					if err != nil {
-						return err
-					}
-					defer file.Close()
-					f, err := io.ReadAll(file)
-					if err != nil {
-						return err
-					}
-
-					fName := filepath.Base(file.Name())
-					ff, err := ast.NewFile(fName, f)
-					if err != nil {
-						return err
-					}
-					// Place the output file in the same directory as the .af file, with _af.go suffix
-					outFileName := ff.Name + "_af.go"
-					outFilePath := filepath.Join(filepath.Dir(name), outFileName)
-
-					// Compute package name from directory.
-					// When .af files are in the root scan directory, filepath.Base(".")
-					// returns "." which is not a valid Go package name. Fall back to
-					// $GOPACKAGE which go generate sets automatically.
-					dirName := filepath.Base(filepath.Dir(name))
-					if dirName == "." {
-						if pkg := os.Getenv("GOPACKAGE"); pkg != "" {
-							dirName = pkg
-						}
-					}
-
-					outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-					if err != nil {
-						return err
-					}
-					defer outFile.Close()
-
-					err = gogen.GenFile(outFile, ff, dirName)
-					if err != nil {
-						return err
-					}
-					slog.Info("Generated", "file", outFilePath)
-					return nil
-				})
-			}
-
-			if err := group.Wait(); err != nil {
+			if err := generate(files, os.Stderr); err != nil {
 				slog.Error("Error", "error", err)
 				os.Exit(1)
 			}
 		},
 	}
 	return flags(cmd)
+}
+
+// generate writes each .af file's _af.go only after the whole file has been
+// generated, so a failure leaves any existing output byte-identical. Every
+// failure is reported to errOut before generate returns an error.
+func generate(files []string, errOut io.Writer) error {
+	files = slices.Sorted(slices.Values(files))
+	failures := make([][]string, len(files))
+	var group errgroup.Group
+	for i, name := range files {
+		group.Go(func() error {
+			src, err := genFile(name)
+			if err != nil {
+				failures[i] = diagnose(name, src, err)
+			}
+			return nil
+		})
+	}
+	group.Wait()
+
+	failed := 0
+	for _, msgs := range failures {
+		if len(msgs) == 0 {
+			continue
+		}
+		failed++
+		for _, msg := range msgs {
+			fmt.Fprintln(errOut, msg)
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d .af files failed to generate", failed, len(files))
+	}
+	return nil
+}
+
+// genFile generates the _af.go for one .af file. It returns the .af source,
+// when it could be read, so errors can be mapped to positions.
+func genFile(name string) ([]byte, error) {
+	src, err := os.ReadFile(name)
+	if err != nil {
+		return nil, err
+	}
+	ff, err := ast.NewFile(filepath.Base(name), src)
+	if err != nil {
+		return src, err
+	}
+	// Place the output file in the same directory as the .af file, with _af.go suffix
+	outFilePath := filepath.Join(filepath.Dir(name), ff.Name+"_af.go")
+
+	// Compute package name from directory.
+	// When .af files are in the root scan directory, filepath.Base(".")
+	// returns "." which is not a valid Go package name. Fall back to
+	// $GOPACKAGE which go generate sets automatically.
+	dirName := filepath.Base(filepath.Dir(name))
+	if dirName == "." {
+		if pkg := os.Getenv("GOPACKAGE"); pkg != "" {
+			dirName = pkg
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := gogen.GenFile(&buf, ff, dirName); err != nil {
+		return src, err
+	}
+	changed, err := writeFileAtomic(outFilePath, buf.Bytes())
+	if err != nil {
+		return src, err
+	}
+	if changed {
+		slog.Info("Generated", "file", outFilePath)
+	} else {
+		slog.Info("Unchanged", "file", outFilePath)
+	}
+	return src, nil
+}
+
+// diagnose formats a generation error as file:line:col: message lines. It
+// prefers the generator's own position, then lint errors, then the bare error.
+func diagnose(name string, src []byte, err error) []string {
+	var pe *gogen.PosError
+	if src != nil && errors.As(err, &pe) {
+		line, col := lint.Position(src, pe.Offset)
+		return []string{fmt.Sprintf("%s:%d:%d: prompt %s: %v", name, line, col, pe.Prompt, pe.Err)}
+	}
+	if src != nil {
+		var msgs []string
+		diagnostics, lintErr := lint.Lint(name, src)
+		if lintErr == nil {
+			for _, d := range diagnostics {
+				if d.Severity == lint.SeverityError {
+					msgs = append(msgs, fmt.Sprintf("%s:%d:%d: %s", d.File, d.Line, d.Column, d.Message))
+				}
+			}
+		}
+		if len(msgs) > 0 {
+			return msgs
+		}
+	}
+	return []string{fmt.Sprintf("%s: %v", name, err)}
+}
+
+// writeFileAtomic replaces path with data via a temp file and rename in the
+// same directory. It skips the write when the contents are unchanged so mtimes
+// stay stable for build caching.
+func writeFileAtomic(path string, data []byte) (changed bool, err error) {
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
+		return false, nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err != nil {
+			tmp.Close()
+			os.Remove(tmp.Name())
+		}
+	}()
+	if _, err = tmp.Write(data); err != nil {
+		return false, err
+	}
+	if err = tmp.Chmod(0644); err != nil {
+		return false, err
+	}
+	if err = tmp.Close(); err != nil {
+		return false, err
+	}
+	if err = os.Rename(tmp.Name(), path); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func collectAFFiles(dir string) ([]string, error) {
