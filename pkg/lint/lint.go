@@ -286,6 +286,11 @@ func lineStarts(src []byte) []int {
 	return starts
 }
 
+// Position returns the 1-based line and column of a byte offset in src.
+func Position(src []byte, offset int) (line, column int) {
+	return position(lineStarts(src), offset)
+}
+
 func position(starts []int, offset int) (int, int) {
 	line := 0
 	for i := range starts {

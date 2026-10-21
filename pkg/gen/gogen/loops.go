@@ -97,7 +97,7 @@ func genLoopFile(w io.Writer, f ast.File, dir string) error {
 			return varFieldAccess(bytes.Split([]byte(path), []byte("."))), nil
 		}
 		for ni, n := range p.Nodes {
-			fail := func(err error) error { return fmt.Errorf("%s prompt %s byte %d: %w", f.Name, name, n.Start, err) }
+			fail := func(err error) error { return &PosError{File: f.Name, Prompt: name, Offset: n.Start, Err: err} }
 			switch n.Kind {
 			case coarse.LoopBlock:
 				parts := strings.Fields(string(n.Get(f.Content)))
@@ -282,3 +282,17 @@ func validValueType(s string) bool {
 	e, err := parser.ParseExpr(s)
 	return err == nil && validElementType(e)
 }
+
+// PosError reports a generation failure at a byte offset in a prompt's .af source.
+type PosError struct {
+	File   string
+	Prompt string
+	Offset int
+	Err    error
+}
+
+func (e *PosError) Error() string {
+	return fmt.Sprintf("%s prompt %s byte %d: %v", e.File, e.Prompt, e.Offset, e.Err)
+}
+
+func (e *PosError) Unwrap() error { return e.Err }
