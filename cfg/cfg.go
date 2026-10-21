@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-var Version = "0.5.3" // x-release-please-version
 var (
 	FlagLogLevel string
 	// MaxLineLen is the maximum line length for code generation.
@@ -59,7 +58,12 @@ func LogLevel() slog.Level {
 	}
 }
 
+// testVersion pins the generated-code header so golden files stay stable
+// across releases.
+const testVersion = "0.5.3"
+
 func TestMode() {
+	Version = testVersion
 	MaxLineLen = 80
 	FlagLogLevel = "DEBUG"
 }

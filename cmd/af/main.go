@@ -32,7 +32,7 @@ import (
 
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
-		Version:          cfg.Version, // This line will be updated by the sync-version script
+		Version:          cfg.Version,
 		Use:              "af",
 		Short:            "AgentFlow CLI",
 		Long:             "AgentFlow is a CLI for bootstrapping AI agents.",
