@@ -22,6 +22,13 @@ Default.
 	}
 }
 
+func TestLintAcceptsTypedComparison(t *testing.T) {
+	diagnostics := lintString(t, ".title Test\n<?age int gte 18>\nAdult\n<else>\nMinor\n</age>\n")
+	if len(diagnostics) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diagnostics)
+	}
+}
+
 func TestLintRules(t *testing.T) {
 	tests := []struct {
 		name string
@@ -39,6 +46,8 @@ func TestLintRules(t *testing.T) {
 		{"invalid end path", ".title Test\n</user.>\n", "AF007"},
 		{"invalid type", ".title Test\n<!count float>\n", "AF008"},
 		{"symbolic operator", ".title Test\n<?count >= 3>\n</count>\n", "AF009"},
+		{"typed symbolic operator", ".title Test\n<?count int >= 3>\n</count>\n", "AF009"},
+		{"typed comparison with invalid type", ".title Test\n<?count float gte 3>\n</count>\n", "AF008"},
 		{"inconsistent type", ".title Test\n<!count int> <!count bool>\n", "AF101"},
 		{"duplicate title", ".title Hello User\nOne\n.title hello user\nTwo\n", "AF102"},
 		{"empty title", ".title   \nBody\n", "AF103"},

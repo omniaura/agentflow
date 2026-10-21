@@ -36,6 +36,9 @@ func TestNewRootCommandDefaults(t *testing.T) {
 		t.Fatalf("expected viper log debug, got %q", got)
 	}
 
+	if _, _, err := cmd.Find([]string{"check"}); err != nil {
+		t.Fatalf("expected check subcommand, got error %v", err)
+	}
 	if _, _, err := cmd.Find([]string{"demo"}); err != nil {
 		t.Fatalf("expected demo subcommand, got error %v", err)
 	}
@@ -51,8 +54,8 @@ func TestNewRootCommandDefaults(t *testing.T) {
 	if _, _, err := cmd.Find([]string{"lsp"}); err != nil {
 		t.Fatalf("expected lsp subcommand, got error %v", err)
 	}
-	if len(cmd.Commands()) != 5 {
-		t.Fatalf("expected 5 subcommands, got %d", len(cmd.Commands()))
+	if len(cmd.Commands()) != 6 {
+		t.Fatalf("expected 6 subcommands, got %d", len(cmd.Commands()))
 	}
 }
 

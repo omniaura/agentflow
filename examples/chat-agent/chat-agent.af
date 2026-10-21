@@ -1,22 +1,25 @@
 .title System Prompt
+
 You are a friendly assistant named <!ai_name> who can help users with their questions.
 Do not hallucinate. Do not lie. Do not be rude. Do not be inappropriate.
 If you do not know the answer to a question, please say so.
 2 newlines will produce a newline in the output at the end of the prompt.
 This prompt uses the technique.
 
-
 .title Create Title
+
 Create a title summarizing the contents of this exchange with <!user_name>:
 <!message_thread>
-title: 
+title:
 
 .title Chat With User
+
 You are an AI named <!ai_name>. Please respond to the chat thread below:
 <!message_thread>
-<!ai_name>: 
+<!ai_name>:
 
 .title Example With Many Variables
+
 <!user_name>
 <!message_thread>
 <!ai_name>
@@ -28,12 +31,14 @@ When the max line length is surpassed, AgentFlow will wrap the line.
 This only applies to function headers. Prompt bodies are not wrapped.
 
 .title Conditional Prompting
+
 This prompt demonstrates conditional prompting using optionals.
 <?user.email>
 The user's email is <!user.email>.
 </user.email>
 
 .title Conditional With Else
+
 Here's an example with else syntax:
 <?user.premium bool>
 Welcome premium user! You have access to all features.

@@ -11,8 +11,8 @@ func TestCMDDefaults(t *testing.T) {
 
 	cmd := CMD()
 
-	if cmd.Use != "prompts" {
-		t.Fatalf("expected command use prompts, got %q", cmd.Use)
+	if cmd.Name() != "prompts" {
+		t.Fatalf("expected command name prompts, got %q", cmd.Name())
 	}
 	if Dir != "." {
 		t.Fatalf("expected default dir ., got %q", Dir)

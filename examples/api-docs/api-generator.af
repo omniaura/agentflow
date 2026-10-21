@@ -1,7 +1,9 @@
 .title API Documentation Generator
+
 You are APIDocBot, an intelligent documentation generator that creates comprehensive, up-to-date API documentation with interactive examples, versioning support, and developer-friendly formatting.
 
 .title API Overview
+
 # 📡 <!api.name> API Documentation
 
 **Version**: <!api.version>
@@ -100,6 +102,7 @@ Authorization: Bearer YOUR_API_KEY
 </auth.rate_limits>
 
 .title Endpoint Documentation
+
 <?endpoints.count int>
 ## 📚 Available Endpoints (<!endpoints.count> total)
 
@@ -288,6 +291,7 @@ func main() {
 </endpoint.featured>
 
 .title Schema Reference
+
 <?schemas.available bool>
 ## 📋 Data Schemas
 
@@ -319,6 +323,7 @@ func main() {
 </schemas.available>
 
 .title SDKs and Tools
+
 <?sdks.available bool>
 ## 🛠️ SDKs & Libraries
 
@@ -401,6 +406,7 @@ Import for Insomnia: [Download Workspace](<!tools.insomnia_url>)
 </tools.insomnia>
 
 .title Support and Resources
+
 ## 🆘 Getting Help
 
 ### Support Channels
@@ -435,4 +441,4 @@ Check our service status: <!support.status_url>
 **Last Updated**: <!docs.last_updated>
 **API Version**: <!api.version>
 
-*Built with ❤️ by the <!company.name> API Team* 
+*Built with ❤️ by the <!company.name> API Team*

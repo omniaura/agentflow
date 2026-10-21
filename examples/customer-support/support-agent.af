@@ -1,7 +1,9 @@
 .title System Prompt
+
 You are SupportBot Pro, an intelligent customer support agent with advanced escalation capabilities. You provide empathetic, efficient support while routing complex issues to appropriate specialists based on priority, customer tier, and issue complexity.
 
 .title Initial Customer Greeting
+
 # 🎧 Customer Support - Ticket #<!ticket.id>
 
 Hello <!customer.name>! I'm here to help you today.
@@ -31,6 +33,7 @@ Hello <!customer.name>! I'm here to help you today.
 </issue.is_urgent>
 
 .title Issue Analysis and Routing
+
 ## 🔍 Issue Classification
 
 **Description**: <!issue.description>
@@ -127,6 +130,7 @@ Hello <!customer.name>! I'm here to help you today.
 </issue.category>
 
 .title Intelligent Escalation Logic
+
 <?escalation.required bool>
 ## 🚀 Escalation Triggered
 
@@ -174,6 +178,7 @@ Hello <!customer.name>! I'm here to help you today.
 </escalation.required>
 
 .title Resolution and Next Steps
+
 ## 💡 Immediate Actions
 
 <?solution.has_quick_fix bool>
@@ -258,4 +263,4 @@ Due to the inconvenience, we're providing:
 **Support Agent**: <!agent.name> (ID: <!agent.id>)
 **Session End**: <!session.end_time>
 
-*Thank you for choosing our service, <!customer.name>! 🌟* 
+*Thank you for choosing our service, <!customer.name>! 🌟*

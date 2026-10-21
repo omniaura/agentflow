@@ -59,11 +59,18 @@ func flags(cmd *cobra.Command) *cobra.Command {
 
 func CMD() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "prompts",
+		Use:   "prompts [dir]",
 		Short: "Generate prompts",
 		Long: `Generate prompts from .af files in the input directory.
 The generated prompts will be written next to their corresponding .af files.`,
+		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) == 1 {
+				if cmd.Flags().Changed("dir") {
+					assert.NoError(fmt.Errorf("pass the directory as an argument or with --dir, not both"))
+				}
+				Dir = args[0]
+			}
 			files, err := resolveAFFiles(cmd)
 			assert.NoError(err)
 			if err := generate(files, os.Stderr); err != nil {
@@ -86,7 +93,7 @@ func generate(files []string, errOut io.Writer) error {
 		group.Go(func() error {
 			src, err := genFile(name)
 			if err != nil {
-				failures[i] = diagnose(name, src, err)
+				failures[i] = Diagnose(name, src, err)
 			}
 			return nil
 		})
@@ -116,29 +123,11 @@ func genFile(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	ff, err := ast.NewFile(filepath.Base(name), src)
+	outFilePath, code, err := Render(name, src)
 	if err != nil {
 		return src, err
 	}
-	// Place the output file in the same directory as the .af file, with _af.go suffix
-	outFilePath := filepath.Join(filepath.Dir(name), ff.Name+"_af.go")
-
-	// Compute package name from directory.
-	// When .af files are in the root scan directory, filepath.Base(".")
-	// returns "." which is not a valid Go package name. Fall back to
-	// $GOPACKAGE which go generate sets automatically.
-	dirName := filepath.Base(filepath.Dir(name))
-	if dirName == "." {
-		if pkg := os.Getenv("GOPACKAGE"); pkg != "" {
-			dirName = pkg
-		}
-	}
-
-	var buf bytes.Buffer
-	if err := gogen.GenFile(&buf, ff, dirName); err != nil {
-		return src, err
-	}
-	changed, err := writeFileAtomic(outFilePath, buf.Bytes())
+	changed, err := writeFileAtomic(outFilePath, code)
 	if err != nil {
 		return src, err
 	}
@@ -150,9 +139,44 @@ func genFile(name string) ([]byte, error) {
 	return src, nil
 }
 
-// diagnose formats a generation error as file:line:col: message lines. It
+// OutputPath returns the _af.go path generated for the .af file name.
+func OutputPath(name string) string {
+	return strings.TrimSuffix(name, ".af") + "_af.go"
+}
+
+// Render generates the Go source for the .af file name with contents src,
+// and returns it with the path it belongs at. Nothing is written.
+func Render(name string, src []byte) (outPath string, code []byte, err error) {
+	ff, err := ast.NewFile(filepath.Base(name), src)
+	if err != nil {
+		return "", nil, err
+	}
+	var buf bytes.Buffer
+	if err := gogen.GenFile(&buf, ff, packageDir(name)); err != nil {
+		return "", nil, err
+	}
+	return OutputPath(name), buf.Bytes(), nil
+}
+
+// packageDir returns the directory name the generated package is named after.
+// For files in the current directory it prefers $GOPACKAGE, which go generate
+// sets, and otherwise uses the absolute directory name instead of ".".
+func packageDir(name string) string {
+	dir := filepath.Dir(name)
+	if dir == "." {
+		if pkg := os.Getenv("GOPACKAGE"); pkg != "" {
+			return pkg
+		}
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	return filepath.Base(dir)
+}
+
+// Diagnose formats a generation error as file:line:col: message lines. It
 // prefers the generator's own position, then lint errors, then the bare error.
-func diagnose(name string, src []byte, err error) []string {
+func Diagnose(name string, src []byte, err error) []string {
 	var pe *gogen.PosError
 	if src != nil && errors.As(err, &pe) {
 		line, col := lint.Position(src, pe.Offset)

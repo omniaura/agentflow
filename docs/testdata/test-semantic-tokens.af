@@ -1,8 +1,10 @@
 .title System Prompt
-You are a helpful AI assistant named <!assistant_name>. 
+
+You are a helpful AI assistant named <!assistant_name>.
 Your purpose is to help users with various tasks.
 
 .title User Authentication
+
 <?user.is_authenticated bool>
 Welcome back, <!user.name>! Your last login was <!user.last_login>.
 You have <!user.notification_count int> new notifications.
@@ -20,6 +22,7 @@ Visit our registration page to create a new account.
 </user.is_authenticated>
 
 .title Content Generation
+
 Generate content based on user preferences:
 
 User's preferred topic: <!content.topic>
@@ -37,6 +40,7 @@ Keep the language simple and accessible.
 </content.target_audience>
 
 .title Data Processing
+
 Process the following user data:
 
 Personal information:
@@ -59,6 +63,7 @@ User is a minor - apply content restrictions.
 </user.personal.age>
 
 .title Advanced Conditionals
+
 <?user.subscription.type eq "enterprise">
 Enterprise features enabled.
 Maximum API calls: <!user.subscription.api_limit int>
@@ -75,6 +80,7 @@ Daily API limit: <!user.subscription.daily_limit int>
 </user.subscription.type>
 
 .title Error Handling
+
 <?error.occurred bool>
 An error has occurred: <!error.message>
 Error code: <!error.code int>
@@ -87,4 +93,4 @@ This is a non-critical error that can be resolved later.
 </error.severity>
 </error.occurred>
 
-This is the end of the test file. All major AgentFlow syntax elements should be covered above. 
+This is the end of the test file. All major AgentFlow syntax elements should be covered above.

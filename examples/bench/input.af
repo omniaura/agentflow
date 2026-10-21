@@ -1,4 +1,5 @@
 .title Test Type Cache
+
 <?age gte 18>
 You are <!age> years old
 </age>
