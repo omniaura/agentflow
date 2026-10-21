@@ -74,32 +74,33 @@ func (input *WritingSessionIntroduction) String() string {
 	if input.Writer.CurrentStreak != 0 {
 		length += 26
 		length += len(var1)
-		length += 20
-		if input.Writer.CurrentStreak >= 30 {
-			length += 67
-		}
-		length += 37
-		length += len(input.Project.Title)
+		length += 19
+	}
+	length += 2
+	if input.Writer.CurrentStreak >= 30 {
+		length += 67
+	}
+	length += 37
+	length += len(input.Project.Title)
+	length += 12
+	length += len(input.Project.Genre)
+	length += 22
+	length += len(input.Project.Audience)
+	length += 21
+	length += len(var2)
+	length += 8
+	if input.Project.CompletionPercentage != 0 {
+		length += 15
+		length += len(var3)
 		length += 12
-		length += len(input.Project.Genre)
-		length += 22
-		length += len(input.Project.Audience)
-		length += 21
-		length += len(var2)
-		length += 8
-		if input.Project.CompletionPercentage != 0 {
-			length += 15
-			length += len(var3)
-			length += 12
-			if input.Project.CompletionPercentage >= 75 {
-				length += 53
-			}
-			length += 2
-			if input.Project.CompletionPercentage < 25 {
-				length += 65
-			}
-			length += 1
+		if input.Project.CompletionPercentage >= 75 {
+			length += 53
 		}
+		length += 2
+		if input.Project.CompletionPercentage < 25 {
+			length += 65
+		}
+		length += 1
 	}
 	b.Grow(length)
 	b.WriteString("# ✍️ Creative Writing Session\n\nWelcome back, ")
@@ -116,32 +117,33 @@ func (input *WritingSessionIntroduction) String() string {
 	if input.Writer.CurrentStreak != 0 {
 		b.WriteString("\n🔥 **Writing Streak**: ")
 		b.WriteString(var1)
-		b.WriteString(" days! Keep it up!\n\n")
-		if input.Writer.CurrentStreak >= 30 {
-			b.WriteString("\n🏆 **Master Writer**: 30+ day streak! You're a writing machine!\n")
+		b.WriteString(" days! Keep it up!\n")
+	}
+	b.WriteString("\n\n")
+	if input.Writer.CurrentStreak >= 30 {
+		b.WriteString("\n🏆 **Master Writer**: 30+ day streak! You're a writing machine!\n")
+	}
+	b.WriteString("\n\n## 📖 Current Project\n**Title**: ")
+	b.WriteString(input.Project.Title)
+	b.WriteString("\n**Genre**: ")
+	b.WriteString(input.Project.Genre)
+	b.WriteString("\n**Target Audience**: ")
+	b.WriteString(input.Project.Audience)
+	b.WriteString("\n**Current Length**: ")
+	b.WriteString(var2)
+	b.WriteString(" words\n\n")
+	if input.Project.CompletionPercentage != 0 {
+		b.WriteString("\n**Progress**: ")
+		b.WriteString(var3)
+		b.WriteString("% complete\n\n")
+		if input.Project.CompletionPercentage >= 75 {
+			b.WriteString("\n🎉 **Almost there!** You're in the final stretch!\n")
 		}
-		b.WriteString("\n\n## 📖 Current Project\n**Title**: ")
-		b.WriteString(input.Project.Title)
-		b.WriteString("\n**Genre**: ")
-		b.WriteString(input.Project.Genre)
-		b.WriteString("\n**Target Audience**: ")
-		b.WriteString(input.Project.Audience)
-		b.WriteString("\n**Current Length**: ")
-		b.WriteString(var2)
-		b.WriteString(" words\n\n")
-		if input.Project.CompletionPercentage != 0 {
-			b.WriteString("\n**Progress**: ")
-			b.WriteString(var3)
-			b.WriteString("% complete\n\n")
-			if input.Project.CompletionPercentage >= 75 {
-				b.WriteString("\n🎉 **Almost there!** You're in the final stretch!\n")
-			}
-			b.WriteString("\n\n")
-			if input.Project.CompletionPercentage < 25 {
-				b.WriteString("\n🌱 **Just getting started** - The hardest part is behind you!\n")
-			}
-			b.WriteRune('\n')
+		b.WriteString("\n\n")
+		if input.Project.CompletionPercentage < 25 {
+			b.WriteString("\n🌱 **Just getting started** - The hardest part is behind you!\n")
 		}
+		b.WriteRune('\n')
 	}
 	return b.String()
 }

@@ -23,6 +23,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
   - [Complex Nested Structures](#complex-nested-structures)
 - [Generated Code](#generated-code)
 - [go:generate Workflow](#gogenerate-workflow)
+- [Checking Generated Code in CI](#checking-generated-code-in-ci)
 - [LSP Server](#lsp-server)
 - [CLI Usage](#cli-usage)
 - [Releases](#releases)
@@ -309,6 +310,32 @@ AgentFlow works well as a checked-in Go tool dependency so prompt generation is 
 
 When `go generate` runs, AgentFlow respects `$GOPACKAGE`, so generating files from a package root works without extra flags.
 
+## Checking Generated Code in CI
+
+`af check` fails when committed `_af.go` files are not what your `.af` sources and your pinned af version generate. It regenerates every file in memory and reports:
+
+- **drift**: an edited `.af` file or a hand-edited `_af.go`, shown as a unified diff
+- **missing**: a `.af` file without its `_af.go`
+- **orphan**: an agentflow-generated `_af.go` whose `.af` file was deleted
+- **unformatted**: a `.af` file that `af fmt --write` would change
+- **lint**: errors from `af lint`
+- **generation errors**, as `file:line:col: message`
+
+Add one step to your CI job:
+
+```yaml
+- run: go tool af check ./...
+```
+
+It ends with a count line, such as `ok checked=17 drift=0 unformatted=0 lint_errors=0 gen_errors=0`, and exits non-zero on any finding. It also fails if it finds no `.af` files, so a wrong path can't pass silently. Patterns work like the go tool: `dir` checks one directory, and `dir/...` recurses, skipping `vendor`, `testdata` and directories starting with `.` or `_`. The default is `./...`.
+
+Make sure your CI path filters include `*.af`, so a change to a prompt alone still runs the check.
+
+Flags:
+
+- `--json` - print the report as JSON for tooling
+- `--ignore-version` - ignore the af version in generated-code headers
+
 ## LSP Server
 
 AgentFlow ships with a language server for `.af` files.
@@ -341,13 +368,23 @@ The companion VS Code extension lives at `https://github.com/omniaura/agentflow-
 
 Generate Go code from .af templates:
 
-    af gen prompts <directory>
+    af gen prompts [directory]
 
 **Options:**
 - `-d, --dir`: Directory containing .af files (default: current directory)
 
 **Example:**
+
     af gen prompts examples/simple
+
+Check generated code, formatting and lint (see [Checking Generated Code in CI](#checking-generated-code-in-ci)):
+
+    af check ./...
+
+Format and lint .af files:
+
+    af fmt --write --dir .
+    af lint --dir .
 
 ## Releases
 

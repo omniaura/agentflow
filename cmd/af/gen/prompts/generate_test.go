@@ -162,3 +162,37 @@ func TestCMDExitsOneOnFailure(t *testing.T) {
 		t.Fatalf("expected positioned error in output, got %s", out)
 	}
 }
+
+func TestCMDAcceptsDirArgument(t *testing.T) {
+	if dir := os.Getenv("AF_GEN_ARG_DIR"); dir != "" {
+		cmd := CMD()
+		cmd.SetArgs([]string{dir})
+		cmd.Execute()
+		os.Exit(0)
+	}
+
+	dir := newPkgDir(t)
+	writeAF(t, dir, "good", validAF)
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCMDAcceptsDirArgument$")
+	cmd.Dir = t.TempDir()
+	cmd.Env = append(os.Environ(), "AF_GEN_ARG_DIR="+dir)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err)
+	if _, err := os.Stat(filepath.Join(dir, "good_af.go")); err != nil {
+		t.Fatalf("expected output in the argument directory, got %v (output: %s)", err, out)
+	}
+}
+
+func TestPackageDirForCurrentDirectory(t *testing.T) {
+	dir := newPkgDir(t)
+	t.Chdir(dir)
+	t.Setenv("GOPACKAGE", "")
+	if got := packageDir("greet.af"); got != "pkg" {
+		t.Fatalf("expected package dir pkg, got %q", got)
+	}
+	t.Setenv("GOPACKAGE", "api")
+	if got := packageDir("greet.af"); got != "api" {
+		t.Fatalf("expected $GOPACKAGE api, got %q", got)
+	}
+}

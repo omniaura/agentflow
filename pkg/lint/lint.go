@@ -188,8 +188,14 @@ func (l *linter) checkCond(tokens token.Slice, start int) int {
 			l.checkType(tokens[start], path, parts[1])
 		}
 	} else if len(parts) >= 3 {
-		if isSymbolicOperator(parts[1]) || !isOperator(parts[1]) {
-			l.add(tokens[start], SeverityError, "AF009", fmt.Sprintf("invalid comparison operator %q", parts[1]))
+		op := parts[1]
+		// <?path type op value> declares the type before the comparison.
+		if len(parts) >= 4 && !isOperator(op) && !isSymbolicOperator(op) {
+			l.checkType(tokens[start], path, op)
+			op = parts[2]
+		}
+		if isSymbolicOperator(op) || !isOperator(op) {
+			l.add(tokens[start], SeverityError, "AF009", fmt.Sprintf("invalid comparison operator %q", op))
 		}
 	}
 	l.stack = append(l.stack, frame{path: path, tok: tokens[start]})
