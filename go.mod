@@ -1,13 +1,13 @@
 module github.com/omniaura/agentflow
 
-go 1.25.0
+go 1.26.0
 
 require (
 	github.com/peyton-spencer/caseconv v0.2.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/tliron/glsp v0.2.2
-	golang.org/x/sync v0.20.0
+	golang.org/x/sync v0.24.0
 	golang.org/x/term v0.33.0
 )
 
