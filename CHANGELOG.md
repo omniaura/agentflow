@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/omniaura/agentflow/compare/v0.10.0...v0.11.0) (2026-10-21)
+
+
+### Features
+
+* generate typed slice loops with lexical aliases ([#83](https://github.com/omniaura/agentflow/issues/83)) ([fd7713a](https://github.com/omniaura/agentflow/commit/fd7713a0340ef6db5e6289401a8052b46dabb549))
+
+
+### Bug Fixes
+
+* **gen:** make af gen atomic so a failed generation never truncates output ([#99](https://github.com/omniaura/agentflow/issues/99)) ([7e6daec](https://github.com/omniaura/agentflow/commit/7e6daec35cd556eb23d910c2cd39264f825c0678)), closes [#86](https://github.com/omniaura/agentflow/issues/86)
+* **release:** repair release automation and version stamping ([#100](https://github.com/omniaura/agentflow/issues/100)) ([1450397](https://github.com/omniaura/agentflow/commit/1450397360712ed9c6e8dfefd0166d655f40483a)), closes [#85](https://github.com/omniaura/agentflow/issues/85)
+
 ## [0.10.0](https://github.com/omniaura/agentflow/compare/v0.9.0...v0.10.0) (2026-05-03)
 
 
