@@ -90,6 +90,9 @@ func (t Token) GetVar(in []byte, typeCache map[string]string) token.VarInfo {
 func Convert(tokens token.Slice, input []byte) []Token {
 	var coarse []Token
 	i := 0
+	// bodyStart is where the current prompt body's text begins, past any
+	// newlines that follow its title.
+	bodyStart := 0
 
 	for i < len(tokens) {
 		switch tokens[i].Kind {
@@ -110,12 +113,14 @@ func Convert(tokens token.Slice, input []byte) []Token {
 				i++
 			}
 
-			// Skip the newline that follows the title directive (don't render it)
-			if i < len(tokens) && tokens[i].Kind == kind.Whitespace {
-				// Check if this is a single newline character by looking at token length
-				if tokens[i].End-tokens[i].Start == 1 {
-					i++ // Skip this whitespace token (likely a newline)
-				}
+			// The body starts after the newlines that follow the title line,
+			// including blank lines. Indentation on its first line is kept.
+			bodyStart = tokens[i-1].End
+			for bodyStart < len(input) && input[bodyStart] == '\n' {
+				bodyStart++
+			}
+			for i < len(tokens) && tokens[i].Kind == kind.Whitespace && tokens[i].End <= bodyStart {
+				i++
 			}
 
 			// Only add title token if we found title text
@@ -222,7 +227,7 @@ func Convert(tokens token.Slice, input []byte) []Token {
 			}
 
 			// Group consecutive text/whitespace tokens
-			start := tokens[i].Start
+			start := max(tokens[i].Start, bodyStart)
 			end := tokens[i].End
 			i++
 
@@ -236,18 +241,19 @@ func Convert(tokens token.Slice, input []byte) []Token {
 				i++
 			}
 
-			// Trim trailing newlines if followed by a title directive
-			if i < len(tokens) && tokens[i].Kind == kind.TitleDirective {
-				for end > start && input[end-1] == '\n' {
-					end--
-				}
+			// Trim trailing whitespace at the end of a prompt body: before the
+			// next title directive or at end of file.
+			if i == len(tokens) || tokens[i].Kind == kind.TitleDirective {
+				end = start + len(bytes.TrimRight(input[start:end], " \t\r\n"))
 			}
 
-			coarse = append(coarse, Token{
-				Kind:  Text,
-				Start: start,
-				End:   end,
-			})
+			if end > start {
+				coarse = append(coarse, Token{
+					Kind:  Text,
+					Start: start,
+					End:   end,
+				})
+			}
 
 		default:
 			// Skip unrecognized tokens

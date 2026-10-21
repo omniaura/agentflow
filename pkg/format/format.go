@@ -143,29 +143,30 @@ func peek(tokens token.Slice, index int) (token.T, bool) {
 	return tokens[index], true
 }
 
+// normalizeStructuralLines puts one blank line around each title and trims
+// trailing whitespace on title lines and at the end of each prompt body. It
+// leaves body lines otherwise untouched: the generator ignores exactly the
+// whitespace removed here, so formatting never changes generated code.
 func normalizeStructuralLines(src string) string {
 	lines := strings.Split(src, "\n")
-	for i := range lines {
-		lines[i] = strings.TrimRight(lines[i], " \t")
-	}
-	for len(lines) > 0 && lines[len(lines)-1] == "" {
+	for len(lines) > 0 && isBlank(lines[len(lines)-1]) {
 		lines = lines[:len(lines)-1]
 	}
 
 	out := make([]string, 0, len(lines)+4)
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		if isTitleLine(line) {
-			trimTrailingBlankLines(&out)
+		if isTitleLine(strings.TrimRight(line, " \t")) {
+			endBody(&out)
 			if hasNonEmptyLine(out) {
 				out = append(out, "")
 			}
 
-			out = append(out, line)
-			for i+1 < len(lines) && lines[i+1] == "" {
+			out = append(out, strings.TrimRight(line, " \t"))
+			for i+1 < len(lines) && isBlank(lines[i+1]) {
 				i++
 			}
-			if i+1 < len(lines) && !isTitleLine(lines[i+1]) {
+			if i+1 < len(lines) && !isTitleLine(strings.TrimRight(lines[i+1], " \t")) {
 				out = append(out, "")
 			}
 			continue
@@ -174,8 +175,21 @@ func normalizeStructuralLines(src string) string {
 		out = append(out, line)
 	}
 
-	trimTrailingBlankLines(&out)
+	endBody(&out)
 	return strings.Join(out, "\n") + "\n"
+}
+
+// endBody trims the blank lines and trailing whitespace that end a prompt
+// body.
+func endBody(lines *[]string) {
+	trimTrailingBlankLines(lines)
+	if n := len(*lines); n > 0 {
+		(*lines)[n-1] = strings.TrimRight((*lines)[n-1], " \t")
+	}
+}
+
+func isBlank(line string) bool {
+	return strings.TrimLeft(line, " \t") == ""
 }
 
 func isTitleLine(line string) bool {
@@ -183,7 +197,7 @@ func isTitleLine(line string) bool {
 }
 
 func trimTrailingBlankLines(lines *[]string) {
-	for len(*lines) > 0 && (*lines)[len(*lines)-1] == "" {
+	for len(*lines) > 0 && isBlank((*lines)[len(*lines)-1]) {
 		*lines = (*lines)[:len(*lines)-1]
 	}
 }

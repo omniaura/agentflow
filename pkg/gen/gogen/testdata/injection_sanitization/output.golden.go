@@ -27,7 +27,6 @@ func (input *InjectionTest) String() string {
 	if input.Active == true {
 		length += 14
 	}
-	length += 1
 	b.Grow(length)
 	b.WriteString("This prompt tests operand sanitization.\n\n")
 	if input.Count < 10 {
@@ -41,6 +40,5 @@ func (input *InjectionTest) String() string {
 	if input.Active == true {
 		b.WriteString("\nActive user.\n")
 	}
-	b.WriteRune('\n')
 	return b.String()
 }

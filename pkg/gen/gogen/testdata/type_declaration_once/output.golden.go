@@ -36,7 +36,7 @@ func (input *TypeDeclarationOnce) String() string {
 	length += len(var1)
 	length += 20
 	length += len(var2)
-	length += 2
+	length += 1
 	b.Grow(length)
 	b.WriteString("## User Profile\nName: ")
 	b.WriteString(input.Name)
@@ -54,6 +54,6 @@ func (input *TypeDeclarationOnce) String() string {
 	b.WriteString(var1)
 	b.WriteString(", and your score is ")
 	b.WriteString(var2)
-	b.WriteString(". ")
+	b.WriteString(".")
 	return b.String()
 }
