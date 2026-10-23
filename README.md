@@ -18,6 +18,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
   - [Comments and Text](#comments-and-text)
   - [Tools](#tools)
   - [Routes](#routes)
+  - [Structured Outputs](#structured-outputs)
 - [Examples](#examples)
   - [Basic Variables](#basic-variables)
   - [Typed Variables](#typed-variables)
@@ -336,6 +337,38 @@ routes.Register(mux)
 ```
 
 Errors are written as `{"error": "..."}` with their status: 400 for bad input, 401 when `Auth` fails (or the status of an `*afhttp.Error` it returns), 404, 413, and 500 for query failures. The client never sees the cause of a 500. The runtime is `github.com/omniaura/agentflow/runtime/afhttp`, which has no dependencies. See [`examples/routes`](examples/routes), which is tested against Postgres in CI.
+
+### Structured Outputs
+
+An `.output` section declares the JSON a model must answer with. Declare the fields once. AgentFlow generates the Go struct, a strict JSON Schema for OpenAI and Anthropic structured outputs, a strict decoder, and a description of the fields you can drop into the prompt, so the prompt, the schema and the struct can't drift apart.
+
+```af
+.title Judge
+
+Decide whether this task is worth saving as a workflow. Answer with:
+<!fields>
+
+.output task_value_check
+.field repeatable bool Would the person want this exact task done again?
+.field confidence float 0 to 1, how sure you are.
+.field why One short sentence citing the evidence.
+.field cadence? enum(daily, weekly, monthly) How often it would run.
+.field sources[].name The app or site the task reads.
+```
+
+`.field` lines follow the `.param` rules: types default to `string`, `?` makes a field optional, and dotted names imply objects. Strict structured outputs require every field, so an optional field is required but may be `null`. For the same reason, `.output` rejects `any` and objects with no declared fields.
+
+```go
+judge := Judge{Fields: TaskValueCheckSchema.Fields}
+// OpenAI: response_format = TaskValueCheckSchema.OpenAI()
+// Anthropic: output_config.format = TaskValueCheckSchema.Anthropic()
+verdict, err := TaskValueCheckSchema.Decode(answer) // TaskValueCheckOutput
+```
+
+`Fields` reads like this:
+
+    - "repeatable" (true or false): Would the person want this exact task done again?
+    - "cadence" (one of "daily", "weekly", "monthly", or null): How often it would run.
 
 ## Examples
 

@@ -26,10 +26,13 @@ import (
 )
 
 // SectionDirectives are the directives that start a declaration section.
-var SectionDirectives = []string{".tool", ".route"}
+var SectionDirectives = []string{".tool", ".route", ".output"}
 
 // ToolDirectives are the directives allowed inside a tool section.
 var ToolDirectives = []string{".param", ".maxbytes"}
+
+// OutputDirectives are the directives allowed inside an output section.
+var OutputDirectives = []string{".field", ".maxbytes"}
 
 // Kind is the type of a tool parameter.
 type Kind uint8
@@ -74,6 +77,8 @@ type Tool struct {
 	Params      []*Param
 	// Start and End delimit the section in the source.
 	Start, End int
+	// Output marks an .output section.
+	Output bool
 	// Warnings flag likely mistakes that still parse, such as a misspelled
 	// type read as the start of a description.
 	Warnings []*Error
@@ -83,6 +88,9 @@ type Tool struct {
 type File struct {
 	Tools  []*Tool
 	Routes []*Route
+	// Outputs are .output sections: structured outputs, parsed like tools
+	// with .field for .param.
+	Outputs []*Tool
 }
 
 // Error is a declaration error at a byte offset in the source.
@@ -159,12 +167,16 @@ func Parse(src []byte) (File, error) {
 		if err != nil {
 			return f, err
 		}
-		for _, prev := range f.Tools {
+		list, what := &f.Tools, "tool"
+		if t.Output {
+			list, what = &f.Outputs, "output"
+		}
+		for _, prev := range *list {
 			if prev.Name == t.Name {
-				return f, &Error{Offset: i, Msg: fmt.Sprintf("tool %q is declared twice", t.Name)}
+				return f, &Error{Offset: i, Msg: fmt.Sprintf("%s %q is declared twice", what, t.Name)}
 			}
 		}
-		f.Tools = append(f.Tools, t)
+		*list = append(*list, t)
 		i = end
 	}
 	return f, nil
@@ -184,14 +196,18 @@ var (
 	identRE    = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
 
-// ParseTool parses the tool section src[start:end], whose first line is its
-// .tool line.
+// ParseTool parses the tool or output section src[start:end], whose first
+// line is its .tool or .output line.
 func ParseTool(src []byte, start, end int) (*Tool, error) {
-	t := &Tool{Start: start, End: end}
+	t := &Tool{Start: start, End: end, Output: hasDirective(src[start:], ".output")}
 	header, i := line(src, start, end)
-	name := strings.TrimSpace(strings.TrimPrefix(header, ".tool"))
+	what, directive, param := "tool", ".tool", ".param"
+	if t.Output {
+		what, directive, param = "output", ".output", ".field"
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(header, directive))
 	if !toolNameRE.MatchString(name) {
-		return nil, &Error{Offset: start, Msg: fmt.Sprintf("tool name %q must be 1-64 letters, digits, '_' or '-'", name)}
+		return nil, &Error{Offset: start, Msg: fmt.Sprintf("%s name %q must be 1-64 letters, digits, '_' or '-'", what, name)}
 	}
 	t.Name = name
 	params := map[string]*Param{}
@@ -201,8 +217,8 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 		var l string
 		l, i = line(src, i, end)
 		switch {
-		case hasDirective([]byte(l), ".param"):
-			p, err := parseParam(strings.TrimSpace(strings.TrimPrefix(l, ".param")), off)
+		case hasDirective([]byte(l), param):
+			p, err := parseParam(strings.TrimSpace(strings.TrimPrefix(l, param)), off)
 			if err != nil {
 				return nil, err
 			}
@@ -228,6 +244,11 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 	t.Description = strings.TrimRight(trimLeadingBlankLines(strings.Join(desc, "\n")), " \t\n")
 	for _, p := range t.Params {
 		inferOptional(p)
+	}
+	if t.Output {
+		if err := checkStrict(t.Params, ""); err != nil {
+			return nil, err
+		}
 	}
 	return t, nil
 }
@@ -282,6 +303,24 @@ func (t *Tool) addParam(params map[string]*Param, p *Param) error {
 		}
 		node.Type, node.Optional, node.Description = p.Type, p.Optional, p.Description
 		node.declared = true
+	}
+	return nil
+}
+
+// checkStrict rejects what strict structured outputs cannot express: values
+// of any type and objects without declared fields.
+func checkStrict(params []*Param, prefix string) error {
+	for _, p := range params {
+		path := join(prefix, p.Name)
+		switch {
+		case p.Type.Kind == Any:
+			return &Error{Offset: p.Offset, Msg: fmt.Sprintf("field %q: an .output field needs a type; strict structured outputs cannot hold any", path)}
+		case p.Type.Kind == Object && len(p.Children) == 0:
+			return &Error{Offset: p.Offset, Msg: fmt.Sprintf("field %q: declare the object's fields (%s.name ...); strict structured outputs reject free-form objects", path, path)}
+		}
+		if err := checkStrict(p.Children, path); err != nil {
+			return err
+		}
 	}
 	return nil
 }

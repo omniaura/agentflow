@@ -140,6 +140,9 @@ func (l *linter) checkSection(tok token.T) {
 			l.add(token.T{Start: w.Offset, End: w.Offset}, SeverityWarning, "AF012", w.Msg)
 		}
 		key = fmt.Sprintf("tool %q", s.Name)
+		if s.Output {
+			key = fmt.Sprintf("output %q", s.Name)
+		}
 	case *decl.Route:
 		key = "route " + s.Method + " " + s.Path
 	}

@@ -37,6 +37,8 @@ type File struct {
 	Tools []*decl.Tool
 	// Routes are the file's .route sections.
 	Routes []*decl.Route
+	// Outputs are the file's .output sections.
+	Outputs []*decl.Tool
 }
 
 func (f File) String() string {
@@ -360,7 +362,7 @@ func NewFile(name string, content []byte) (f File, err error) {
 		return
 	}
 	d, err := decl.Parse(content)
-	f.Tools, f.Routes = d.Tools, d.Routes
+	f.Tools, f.Routes, f.Outputs = d.Tools, d.Routes, d.Outputs
 	return
 }
 

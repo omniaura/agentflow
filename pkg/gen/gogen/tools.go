@@ -86,10 +86,17 @@ func camel(s string) string {
 // writeArgsStruct writes the struct named name for params, then the structs
 // of its nested objects, and reports whether a field is a json.RawMessage.
 func writeArgsStruct(buf *bytes.Buffer, name, tool string, params []*decl.Param, root bool) (usesJSON bool) {
+	return writeStruct(buf, name, "are", "the arguments of the "+tool+" tool", params, root)
+}
+
+// writeStruct writes the struct named name for params, which make up what,
+// then the structs of its nested objects. verb joins name and what in the
+// root struct's doc comment.
+func writeStruct(buf *bytes.Buffer, name, verb, what string, params []*decl.Param, root bool) (usesJSON bool) {
 	if root {
-		fmt.Fprintf(buf, "// %s are the arguments of the %s tool.\n", name, tool)
+		fmt.Fprintf(buf, "// %s %s %s.\n", name, verb, what)
 	} else {
-		fmt.Fprintf(buf, "// %s is an object in the arguments of the %s tool.\n", name, tool)
+		fmt.Fprintf(buf, "// %s is an object in %s.\n", name, what)
 	}
 	fmt.Fprintf(buf, "type %s struct {\n", name)
 	var nested bytes.Buffer
@@ -118,7 +125,7 @@ func writeArgsStruct(buf *bytes.Buffer, name, tool string, params []*decl.Param,
 				break
 			}
 			typ = name + camel(p.Name)
-			if writeArgsStruct(&nested, typ, tool, p.Children, false) {
+			if writeStruct(&nested, typ, verb, what, p.Children, false) {
 				usesJSON = true
 			}
 			if p.Optional && !p.Type.Array {
@@ -301,4 +308,139 @@ func goString(s string) string {
 		return strconv.Quote(s)
 	}
 	return "`" + s + "`"
+}
+
+// genOutputs writes the declarations for the file's .output sections: per
+// output, a <Name>Output struct (plus one struct per nested object) and a
+// <Name>Schema *aftool.Output with a strict JSON Schema.
+func genOutputs(buf *bytes.Buffer, outputs []*decl.Tool) {
+	for _, o := range outputs {
+		name := camel(o.Name)
+		typ := name + "Output"
+		writeStruct(buf, typ, "is", "the "+o.Name+" structured output", o.Params, true)
+		fmt.Fprintf(buf, "// %sSchema is the %s structured output. Send its OpenAI or\n", name, o.Name)
+		fmt.Fprintf(buf, "// Anthropic format with a request, and Decode the model's answer into\n// %s.\n", typ)
+		fmt.Fprintf(buf, "var %sSchema = &aftool.Output[%s]{\n", name, typ)
+		fmt.Fprintf(buf, "Name: %s,\n", strconv.Quote(o.Name))
+		fmt.Fprintf(buf, "Description: %s,\n", goString(o.Description))
+		fmt.Fprintf(buf, "Schema: []byte(%s),\n", goString(strictObjectSchema(o.Params, "")))
+		if o.MaxBytes > 0 {
+			fmt.Fprintf(buf, "MaxBytes: %d,\n", o.MaxBytes)
+		}
+		buf.WriteString("Shape: ")
+		writeObjectShape(buf, o.Params)
+		buf.WriteString(",\n")
+		fmt.Fprintf(buf, "Fields: %s,\n", goString(fieldsText(o.Params, "")))
+		buf.WriteString("}\n\n")
+		writeEnumConsts(buf, name, o.Name, o.Params)
+	}
+}
+
+// strictObjectSchema renders an object schema for strict structured
+// outputs: every property is required, and optional ones may be null.
+func strictObjectSchema(params []*decl.Param, description string) string {
+	var b strings.Builder
+	b.WriteString(`{"type":"object"`)
+	if description != "" {
+		b.WriteString(`,"description":`)
+		b.WriteString(jsonString(description))
+	}
+	b.WriteString(`,"properties":{`)
+	var required []string
+	for i, p := range params {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(jsonString(p.Name))
+		b.WriteByte(':')
+		b.WriteString(strictParamSchema(p))
+		required = append(required, jsonString(p.Name))
+	}
+	b.WriteString(`},"required":[`)
+	b.WriteString(strings.Join(required, ","))
+	b.WriteString(`],"additionalProperties":false}`)
+	return b.String()
+}
+
+func strictParamSchema(p *decl.Param) string {
+	var s string
+	switch {
+	case p.Type.Array:
+		var b strings.Builder
+		b.WriteString(`{"type":"array"`)
+		if p.Description != "" {
+			b.WriteString(`,"description":`)
+			b.WriteString(jsonString(p.Description))
+		}
+		b.WriteString(`,"items":`)
+		b.WriteString(strictElemSchema(p, ""))
+		b.WriteString(`}`)
+		s = b.String()
+	default:
+		s = strictElemSchema(p, p.Description)
+	}
+	if !p.Optional {
+		return s
+	}
+	// Strict mode has no optional properties: an optional one is required
+	// and may be null.
+	return `{"anyOf":[` + s + `,{"type":"null"}]}`
+}
+
+func strictElemSchema(p *decl.Param, description string) string {
+	if p.Type.Kind == decl.Object {
+		return strictObjectSchema(p.Children, description)
+	}
+	return elemSchema(p, description)
+}
+
+// fieldsText describes params one per line, for a prompt:
+//
+//   - "reason" (one of "damaged", "late"): Why the customer wants a refund.
+func fieldsText(params []*decl.Param, prefix string) string {
+	var b strings.Builder
+	for _, p := range params {
+		path := p.Name
+		if prefix != "" {
+			path = prefix + "." + p.Name
+		}
+		typ := ""
+		switch p.Type.Kind {
+		case decl.String:
+			typ = "string"
+		case decl.Int:
+			typ = "integer"
+		case decl.Float:
+			typ = "number"
+		case decl.Bool:
+			typ = "true or false"
+		case decl.Object:
+			typ = "object"
+		case decl.Enum:
+			quoted := make([]string, len(p.Type.Enum))
+			for i, v := range p.Type.Enum {
+				quoted[i] = strconv.Quote(v)
+			}
+			typ = "one of " + strings.Join(quoted, ", ")
+		}
+		if p.Type.Array {
+			typ = "list of " + typ
+		}
+		if p.Optional {
+			typ += ", or null"
+		}
+		fmt.Fprintf(&b, "- %q (%s)", path, typ)
+		if p.Description != "" {
+			b.WriteString(": " + p.Description)
+		}
+		b.WriteString("\n")
+		if p.Type.Kind == decl.Object {
+			childPrefix := path
+			if p.Type.Array {
+				childPrefix += "[]"
+			}
+			b.WriteString(fieldsText(p.Children, childPrefix))
+		}
+	}
+	return b.String()
 }

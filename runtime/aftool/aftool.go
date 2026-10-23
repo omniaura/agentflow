@@ -89,7 +89,11 @@ type Def[Args any] struct {
 // message is written for the model, so it can be returned as the tool result
 // and the model can correct its call.
 type ArgsError struct {
+	// Tool is the tool's name, or the output's.
 	Tool string
+	// What is what failed to decode: "arguments" (when empty) or
+	// "output".
+	What string
 	// Path is the dotted path of the offending value; empty for the
 	// arguments as a whole.
 	Path string
@@ -97,10 +101,14 @@ type ArgsError struct {
 }
 
 func (e *ArgsError) Error() string {
-	if e.Path == "" {
-		return fmt.Sprintf("%s: invalid arguments: %s", e.Tool, e.Msg)
+	what := e.What
+	if what == "" {
+		what = "arguments"
 	}
-	return fmt.Sprintf("%s: invalid arguments: %s: %s", e.Tool, e.Path, e.Msg)
+	if e.Path == "" {
+		return fmt.Sprintf("%s: invalid %s: %s", e.Tool, what, e.Msg)
+	}
+	return fmt.Sprintf("%s: invalid %s: %s: %s", e.Tool, what, e.Path, e.Msg)
 }
 
 // Decode checks arguments, the JSON a model sent for a call to the tool,
@@ -109,35 +117,40 @@ func (e *ArgsError) Error() string {
 // values, values of the wrong type and values outside an enum. Any error is
 // an *ArgsError.
 func (d *Def[Args]) Decode(arguments string) (Args, error) {
-	var args Args
-	limit := d.MaxBytes
-	if limit <= 0 {
-		limit = DefaultMaxBytes
-	}
-	if len(arguments) > limit {
-		return args, d.fail("", fmt.Sprintf("arguments are %d bytes, the limit is %d", len(arguments), limit))
-	}
 	// An empty call is an empty object: some models omit "{}" for tools
 	// with no required arguments.
 	if strings.TrimSpace(arguments) == "" {
 		arguments = "{}"
 	}
-	dec := json.NewDecoder(strings.NewReader(arguments))
+	return decode[Args](checker{name: d.Name}, d.MaxBytes, arguments, d.Shape)
+}
+
+// decode checks input against shape and decodes it into a T.
+func decode[T any](c checker, maxBytes int, input string, shape Shape) (T, error) {
+	var out T
+	limit := maxBytes
+	if limit <= 0 {
+		limit = DefaultMaxBytes
+	}
+	if len(input) > limit {
+		return out, c.fail("", fmt.Sprintf("%d bytes, the limit is %d", len(input), limit))
+	}
+	dec := json.NewDecoder(strings.NewReader(input))
 	dec.UseNumber()
 	var raw json.RawMessage
 	if err := dec.Decode(&raw); err != nil {
-		return args, d.fail("", "not valid JSON: "+err.Error())
+		return out, c.fail("", "not valid JSON: "+err.Error())
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return args, d.fail("", "unexpected data after the JSON object")
+		return out, c.fail("", "unexpected data after the JSON object")
 	}
-	if err := d.check(raw, d.Shape, ""); err != nil {
-		return args, err
+	if err := c.check(raw, shape, ""); err != nil {
+		return out, err
 	}
-	if err := json.Unmarshal(raw, &args); err != nil {
-		return args, d.fail("", err.Error())
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, c.fail("", err.Error())
 	}
-	return args, nil
+	return out, nil
 }
 
 // OpenAI returns the tool in the OpenAI Chat Completions tools format:
@@ -175,11 +188,20 @@ func writeJSONString(b *bytes.Buffer, s string) {
 	b.Truncate(b.Len() - 1) // Encode appends a newline.
 }
 
-func (d *Def[Args]) fail(path, msg string) error {
-	return &ArgsError{Tool: d.Name, Path: path, Msg: msg}
+// checker checks JSON against a Shape, reporting errors for the tool or
+// output name.
+type checker struct {
+	name, what string
+	// strict requires every declared property to be present, as strict
+	// structured-output schemas do; optional ones may be null.
+	strict bool
 }
 
-func (d *Def[Args]) check(raw json.RawMessage, s Shape, path string) error {
+func (d checker) fail(path, msg string) error {
+	return &ArgsError{Tool: d.name, What: d.what, Path: path, Msg: msg}
+}
+
+func (d checker) check(raw json.RawMessage, s Shape, path string) error {
 	raw = bytes.TrimSpace(raw)
 	if s.Kind != Any && isNull(raw) {
 		return d.fail(path, "expected "+article(s.Kind)+", got null")
@@ -244,6 +266,9 @@ func (d *Def[Args]) check(raw json.RawMessage, s Shape, path string) error {
 			if f.Required && (!ok || isNull(v)) {
 				return d.fail(join(path, f.Name), "required")
 			}
+			if !ok && d.strict {
+				return d.fail(join(path, f.Name), "missing; send null when there is no value")
+			}
 			// An optional property may be null: it decodes to the zero value.
 			if !ok || isNull(v) {
 				continue
@@ -299,4 +324,55 @@ func jsonType(raw json.RawMessage) string {
 		return "null"
 	}
 	return "a number"
+}
+
+// Output is a structured output whose JSON decodes into T: the shape a
+// model must answer in, declared with .output in a .af file.
+type Output[T any] struct {
+	Name        string
+	Description string
+	// Schema is a strict JSON Schema of the output: every property is
+	// required, optional ones are nullable, and no other properties are
+	// allowed, as OpenAI's strict mode requires.
+	Schema   json.RawMessage
+	MaxBytes int
+	Shape    Shape
+	// Fields lists the fields with their types and descriptions, one per
+	// line, for a prompt that explains the output to the model.
+	Fields string
+}
+
+// Decode checks output, the JSON a model answered with, against the
+// declaration and decodes it. Like the strict schema, it requires every
+// field, allowing null for optional ones. Errors are *ArgsError, worded so the model
+// can be asked to correct its answer.
+func (o *Output[T]) Decode(output string) (T, error) {
+	return decode[T](checker{name: o.Name, what: "output", strict: true}, o.MaxBytes, output, o.Shape)
+}
+
+// OpenAI returns the OpenAI response_format for the output:
+// {"type":"json_schema","json_schema":{"name":…,"description":…,"schema":…,"strict":true}}.
+func (o *Output[T]) OpenAI() json.RawMessage {
+	var b bytes.Buffer
+	b.WriteString(`{"type":"json_schema","json_schema":{"name":`)
+	writeJSONString(&b, o.Name)
+	if o.Description != "" {
+		b.WriteString(`,"description":`)
+		writeJSONString(&b, o.Description)
+	}
+	b.WriteString(`,"schema":`)
+	b.Write(o.Schema)
+	b.WriteString(`,"strict":true}}`)
+	return b.Bytes()
+}
+
+// Anthropic returns the Anthropic Messages output format for the output,
+// the value of the request's output_config.format:
+// {"type":"json_schema","schema":…}.
+func (o *Output[T]) Anthropic() json.RawMessage {
+	var b bytes.Buffer
+	b.WriteString(`{"type":"json_schema","schema":`)
+	b.Write(o.Schema)
+	b.WriteString(`}`)
+	return b.Bytes()
 }

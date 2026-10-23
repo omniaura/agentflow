@@ -55,6 +55,8 @@ func TestLintRules(t *testing.T) {
 		{"bad tool name", ".tool bad name\nDoes x.\n", "AF011"},
 		{"bad param path", ".tool x\n.param a-b\nDoes x.\n", "AF011"},
 		{"scalar parent", ".tool x\n.param a int\n.param a.b\nDoes x.\n", "AF011"},
+		{"output any", ".output o\n.field x any\n", "AF011"},
+		{"duplicate output", ".output o\nOne.\n.output o\nTwo.\n", "AF011"},
 		{"bad route", ".route GET /x getx\n", "AF011"},
 		{"duplicate route", ".route GET /x Q\n\n.route GET /x R\n", "AF011"},
 		{"misspelled param type", ".tool x\n.param a strng The a.\nDoes x.\n", "AF012"},

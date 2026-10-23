@@ -233,6 +233,9 @@ func (d *Document) Definition(pos Position) []protocol.Location {
 		switch s := sec.(type) {
 		case *decl.Tool:
 			name := string(bytcase.ToCamel([]byte(strings.ReplaceAll(s.Name, "-", "_"))))
+			if s.Output {
+				return d.goDefinition(`var ` + name + `Schema = `)
+			}
 			return d.goDefinition(`var ` + name + `Tool = `)
 		case *decl.Route:
 			if off < s.QueryOffset {
@@ -412,6 +415,9 @@ func (d *Document) SectionSymbols() []protocol.DocumentSymbol {
 		case *decl.Tool:
 			sym.Name, sym.Kind = s.Name, protocol.SymbolKindFunction
 			detail := "tool"
+			if s.Output {
+				sym.Kind, detail = protocol.SymbolKindStruct, "output"
+			}
 			sym.Detail = &detail
 			for _, p := range s.Params {
 				sym.Children = append(sym.Children, paramSymbol(d, p))
@@ -458,14 +464,19 @@ func (d *Document) sectionDirectiveAt(off int) string {
 	return ""
 }
 
-var paramTypeRE = regexp.MustCompile(`^\.param\s+[A-Za-z_][A-Za-z0-9_.\[\]]*\??\s+\S*$`)
+var paramTypeRE = regexp.MustCompile(`^\.(?:param|field)\s+[A-Za-z_][A-Za-z0-9_.\[\]]*\??\s+\S*$`)
 
 // directiveCompletions suggests directives at the start of a line, and
 // types after a .param name.
 func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []CompletionItem {
 	var items []CompletionItem
-	if paramTypeRE.Match(beforeCursor) && d.sectionDirectiveAt(d.positionToOffset(pos)) == ".tool" {
-		for _, typ := range []string{"string", "int", "float", "bool", "enum()", "object", "any", "[]string", "[]int", "[]object"} {
+	if sec := d.sectionDirectiveAt(d.positionToOffset(pos)); paramTypeRE.Match(beforeCursor) && (sec == ".tool" || sec == ".output") {
+		types := []string{"string", "int", "float", "bool", "enum()", "object", "any", "[]string", "[]int", "[]object"}
+		if sec == ".output" {
+			// Strict outputs have no free-form values.
+			types = slices.DeleteFunc(types, func(t string) bool { return t == "any" || t == "object" || t == "[]object" })
+		}
+		for _, typ := range types {
 			items = append(items, CompletionItem{Label: typ, Kind: protocol.CompletionItemKindTypeParameter, Detail: "parameter type"})
 		}
 		return items
@@ -483,6 +494,9 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 	case ".tool":
 		add(".param", "tool parameter: .param name [type] [description]")
 		add(".maxbytes", "cap the tool's arguments")
+	case ".output":
+		add(".field", "output field: .field name [type] [description]")
+		add(".maxbytes", "cap the output's size")
 	case ".route":
 		add(".auth", "arguments read from the caller")
 		add(".public", "serve without authentication")
@@ -492,6 +506,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 	add(".title", "start a prompt")
 	add(".tool", "declare an LLM tool: .tool name")
 	add(".route", "serve a sqlc query: .route METHOD /path Query")
+	add(".output", "declare a structured output: .output name")
 	return items
 }
 
@@ -514,7 +529,11 @@ func (d *Document) SectionHover(pos Position) string {
 	var b strings.Builder
 	switch s := sec.(type) {
 	case *decl.Tool:
-		fmt.Fprintf(&b, "**tool %s**\n\n", s.Name)
+		what := "tool"
+		if s.Output {
+			what = "output"
+		}
+		fmt.Fprintf(&b, "**%s %s**\n\n", what, s.Name)
 		var walk func(indent string, ps []*decl.Param)
 		walk = func(indent string, ps []*decl.Param) {
 			for _, p := range ps {
@@ -532,7 +551,7 @@ func (d *Document) SectionHover(pos Position) string {
 		}
 		walk("", s.Params)
 		if len(s.Params) == 0 {
-			b.WriteString("No parameters.\n")
+			b.WriteString("Nothing declared.\n")
 		}
 	case *decl.Route:
 		fmt.Fprintf(&b, "**%s %s** → `%s`\n\n", s.Method, s.Path, s.Query)
