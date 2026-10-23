@@ -54,6 +54,9 @@ func NewServer(debug bool) *server.Server {
 		TextDocumentHover:              textDocumentHover,
 		TextDocumentDocumentSymbol:     textDocumentDocumentSymbol,
 		TextDocumentSemanticTokensFull: textDocumentSemanticTokensFull,
+		TextDocumentFormatting:         textDocumentFormatting,
+		TextDocumentDefinition:         textDocumentDefinition,
+		TextDocumentRename:             textDocumentRename,
 	}
 
 	s := server.NewServer(&handler, "AgentFlow LSP", debug)
@@ -87,6 +90,9 @@ func initialize(context *glsp.Context, params *protocol.InitializeParams) (any, 
 		TriggerCharacters: []string{"<", "!", "?", ".", " "},
 	}
 	capabilities.DocumentSymbolProvider = ptrconv.Bool(true)
+	capabilities.DocumentFormattingProvider = ptrconv.Bool(true)
+	capabilities.DefinitionProvider = ptrconv.Bool(true)
+	capabilities.RenameProvider = ptrconv.Bool(true)
 
 	// Configure semantic tokens capability
 	capabilities.SemanticTokensProvider = protocol.SemanticTokensOptions{
@@ -465,6 +471,10 @@ func textDocumentHover(context *glsp.Context, params *protocol.HoverParams) (*pr
 		return result, nil
 	}
 
+	if md := doc.SectionHover(pos); md != "" {
+		return &protocol.Hover{Contents: protocol.MarkupContent{Kind: protocol.MarkupKindMarkdown, Value: md}}, nil
+	}
+
 	slog.Debug("No hover information found at position",
 		"uri", uri,
 		"line", line,
@@ -550,6 +560,8 @@ func textDocumentDocumentSymbol(context *glsp.Context, params *protocol.Document
 		symbols = append(symbols, symbol)
 	}
 
+	symbols = append(symbols, doc.SectionSymbols()...)
+
 	slog.Info("Document symbols generated",
 		"uri", uri,
 		"titleCount", len(doc.Titles),
@@ -602,30 +614,7 @@ func textDocumentSemanticTokensFull(context *glsp.Context, params *protocol.Sema
 func publishDiagnostics(context *glsp.Context, doc *Document) {
 	start := time.Now()
 
-	// Initialize with an empty array (never nil) to avoid client errors
-	diagnostics := []protocol.Diagnostic{}
-
-	// Convert parse errors to diagnostics
-	for _, parseError := range doc.Errors {
-		severity := protocol.DiagnosticSeverityError
-		diagnostic := protocol.Diagnostic{
-			Range: protocol.Range{
-				Start: protocol.Position{
-					Line:      protocol.UInteger(parseError.Range.Start.Line),
-					Character: protocol.UInteger(parseError.Range.Start.Character),
-				},
-				End: protocol.Position{
-					Line:      protocol.UInteger(parseError.Range.End.Line),
-					Character: protocol.UInteger(parseError.Range.End.Character),
-				},
-			},
-			Severity: &severity, // Use error severity
-			Source:   ptrconv.Str("agentflow"),
-			Message:  parseError.Message,
-			Code:     &protocol.IntegerOrString{Value: parseError.Code},
-		}
-		diagnostics = append(diagnostics, diagnostic)
-	}
+	diagnostics := doc.Diagnostics()
 
 	publishParams := protocol.PublishDiagnosticsParams{
 		URI: doc.URI,
@@ -811,4 +800,28 @@ func jsonFloatToInt(value float64) (int, bool) {
 		return 0, false
 	}
 	return int(value), true
+}
+
+func textDocumentFormatting(context *glsp.Context, params *protocol.DocumentFormattingParams) ([]protocol.TextEdit, error) {
+	doc, ok := documents.GetDocument(params.TextDocument.URI)
+	if !ok {
+		return nil, nil
+	}
+	return doc.FormatEdits()
+}
+
+func textDocumentDefinition(context *glsp.Context, params *protocol.DefinitionParams) (any, error) {
+	doc, ok := documents.GetDocument(params.TextDocument.URI)
+	if !ok {
+		return nil, nil
+	}
+	return doc.Definition(protocolPositionToPosition(params.Position)), nil
+}
+
+func textDocumentRename(context *glsp.Context, params *protocol.RenameParams) (*protocol.WorkspaceEdit, error) {
+	doc, ok := documents.GetDocument(params.TextDocument.URI)
+	if !ok {
+		return nil, nil
+	}
+	return doc.Rename(protocolPositionToPosition(params.Position), params.NewName)
 }

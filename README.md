@@ -484,13 +484,49 @@ Available flags:
 - `--port 4389` - TCP port when `--mode tcp` is selected
 - `--debug` - verbose logging to stderr
 
-Current editor features include:
+Editor features:
 
-- semantic tokens for AgentFlow directives and variables
-- diagnostics from the parser
-- hover details for variables and conditional operators
-- completion for directives, variables, types, and operators
-- document symbols for prompt titles and variables
+- diagnostics from the parser and `af lint`, with their codes (AF001…), errors and warnings
+- formatting with `af fmt` (`textDocument/formatting`)
+- go to definition:
+  - a variable to its first typed use
+  - a loop alias to its loop
+  - a `.title` or `.tool` to the Go code generated for it
+  - a `.route` query to the sqlc method that runs it
+- rename for variable path segments and loop aliases
+- hover for variables, operators, `.tool` parameters, and `.route` bindings. A route's hover shows where each query argument comes from: path, caller, body or query string.
+- completion for directives (aware of the `.tool` or `.route` section you're in), variables, types, `.param` types and operators
+- document symbols for prompts, variables, tools with their parameters, and routes
+- semantic tokens
+
+Positions are UTF-16, as LSP requires, so emoji and non-ASCII text in prompts don't shift columns.
+
+**Neovim** (0.11+):
+
+```lua
+vim.filetype.add({ extension = { af = "agentflow" } })
+vim.lsp.config("agentflow", {
+  cmd = { "go", "tool", "af", "lsp" }, -- or { "af", "lsp" }
+  filetypes = { "agentflow" },
+  root_markers = { "go.mod" },
+})
+vim.lsp.enable("agentflow")
+```
+
+**Helix** (`languages.toml`):
+
+```toml
+[language-server.agentflow]
+command = "go"
+args = ["tool", "af", "lsp"]
+
+[[language]]
+name = "agentflow"
+scope = "source.agentflow"
+file-types = ["af"]
+roots = ["go.mod"]
+language-servers = ["agentflow"]
+```
 
 The companion VS Code extension lives at `https://github.com/omniaura/agentflow-vscode` and can launch the LSP automatically.
 
