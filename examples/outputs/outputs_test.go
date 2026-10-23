@@ -14,6 +14,11 @@ func TestDecode(t *testing.T) {
 	if !got.Repeatable || got.Confidence != 0.9 || got.Title != "" || got.Cadence != TaskValueCheckCadenceWeekly || got.Sources[0].Kind != "app" {
 		t.Fatalf("got %+v", got)
 	}
+	// Strict outputs send null for an optional field, never omit it.
+	_, err = TaskValueCheckSchema.Decode(`{"repeatable":true,"confidence":1,"why":"","cadence":null,"sources":[{"name":"x","kind":"web"}]}`)
+	if err == nil || err.Error() != "task_value_check: invalid output: title: missing; send null when there is no value" {
+		t.Fatalf("got %v", err)
+	}
 	_, err = TaskValueCheckSchema.Decode(`{"repeatable":"yes","confidence":1,"why":"","title":null,"cadence":null,"sources":[]}`)
 	if err == nil || err.Error() != "task_value_check: invalid output: repeatable: expected a boolean, got a string" {
 		t.Fatalf("got %v", err)

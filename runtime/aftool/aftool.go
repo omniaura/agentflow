@@ -192,6 +192,9 @@ func writeJSONString(b *bytes.Buffer, s string) {
 // output name.
 type checker struct {
 	name, what string
+	// strict requires every declared property to be present, as strict
+	// structured-output schemas do; optional ones may be null.
+	strict bool
 }
 
 func (d checker) fail(path, msg string) error {
@@ -262,6 +265,9 @@ func (d checker) check(raw json.RawMessage, s Shape, path string) error {
 			v, ok := props[f.Name]
 			if f.Required && (!ok || isNull(v)) {
 				return d.fail(join(path, f.Name), "required")
+			}
+			if !ok && d.strict {
+				return d.fail(join(path, f.Name), "missing; send null when there is no value")
 			}
 			// An optional property may be null: it decodes to the zero value.
 			if !ok || isNull(v) {
@@ -337,10 +343,11 @@ type Output[T any] struct {
 }
 
 // Decode checks output, the JSON a model answered with, against the
-// declaration and decodes it. Errors are *ArgsError, worded so the model
+// declaration and decodes it. Like the strict schema, it requires every
+// field, allowing null for optional ones. Errors are *ArgsError, worded so the model
 // can be asked to correct its answer.
 func (o *Output[T]) Decode(output string) (T, error) {
-	return decode[T](checker{name: o.Name, what: "output"}, o.MaxBytes, output, o.Shape)
+	return decode[T](checker{name: o.Name, what: "output", strict: true}, o.MaxBytes, output, o.Shape)
 }
 
 // OpenAI returns the OpenAI response_format for the output:
