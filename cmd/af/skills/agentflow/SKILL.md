@@ -146,6 +146,13 @@ Creates a todo for the caller.
   JSON array. `:exec` and `:execrows` return 204, and `:execrows` returns 404 when no row
   changed.
 
+## Ejected runtime
+
+If the repository has `agentflow.json`, the runtime packages (`aftool`, `afhttp`) have
+been copied into it with `af eject`, and generated code imports those copies. Editing the
+copies is fine. Keep their `agentflow-vendored:` comment, and run `af eject` after upgrading
+af to merge in the new version. Fix any conflict markers it leaves.
+
 ## Pitfalls
 
 - Text in `<...>` that isn't a directive (`<!`, `<?`, `</`, `<*`, `<else>`) stays

@@ -28,6 +28,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
 - [Checking Generated Code in CI](#checking-generated-code-in-ci)
 - [LSP Server](#lsp-server)
 - [Agent Skills](#agent-skills)
+- [Ejecting the Runtime](#ejecting-the-runtime)
 - [CLI Usage](#cli-usage)
 - [Releases](#releases)
 
@@ -504,6 +505,25 @@ This writes `.agents/skills/agentflow/SKILL.md`. It also writes `.claude/skills/
 Run it again after upgrading af to upgrade the skill. Each installed file carries a version stamp and a hash. A file you haven't edited is replaced. A file you have edited is kept, unless you pass `--force`.
 
 `af skills print` writes the skill to stdout.
+
+## Ejecting the Runtime
+
+Code generated for `.tool` and `.route` imports small runtime packages, `aftool` and `afhttp`, from `github.com/omniaura/agentflow/runtime`. Like shadcn/ui, you can pop them out into your own repository and own them:
+
+    go tool af eject          # or: af eject aftool
+    go tool af gen prompts ./...
+
+`af eject` copies the packages to `internal/agentflow/<package>` (choose another place with `--dir`) and records them in `agentflow.json` at the module root. From then on, `af gen` makes generated code import your copies. They have no dependencies, so a module that ejects everything doesn't need agentflow as a library at all.
+
+Edit the copies freely. To upgrade them after upgrading af, run `af eject` again:
+
+| Your copy | What happens |
+| --- | --- |
+| unedited | replaced with the new version |
+| edited | merged three ways with the version it came from (fetched from the Go module cache), keeping your edits; overlapping changes are left as conflict markers and `af eject` exits non-zero |
+| written by hand, or the original isn't available | kept, with the new version written next to it as `<file>.af-new` |
+
+Files a new version drops are removed unless you've edited them. `--force` replaces edited files instead of merging. Each copied file records its af version and a content hash in an `agentflow-vendored:` comment. Leave that comment in place so upgrades can tell your edits apart.
 
 ## CLI Usage
 

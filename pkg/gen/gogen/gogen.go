@@ -790,6 +790,12 @@ func genDecls(f ast.File, opts Options, imports map[string]bool) ([]byte, error)
 			return nil, err
 		}
 	}
+	for from, to := range opts.Imports {
+		if imports[from] {
+			delete(imports, from)
+			imports[to] = true
+		}
+	}
 	return buf.Bytes(), nil
 }
 
