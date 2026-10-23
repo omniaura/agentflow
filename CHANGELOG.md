@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/omniaura/agentflow/compare/v0.11.0...v0.12.0) (2026-10-23)
+
+
+### Features
+
+* **check:** add af check to verify generated code, formatting and lint ([#104](https://github.com/omniaura/agentflow/issues/104)) ([a4f1917](https://github.com/omniaura/agentflow/commit/a4f1917f7844c6a26b5288885b04075b715d0dce)), closes [#87](https://github.com/omniaura/agentflow/issues/87)
+
+
+### Bug Fixes
+
+* **gen:** ignore whitespace around prompt bodies so af fmt never changes output ([#102](https://github.com/omniaura/agentflow/issues/102)) ([0e38451](https://github.com/omniaura/agentflow/commit/0e3845194828d66b3c6638b5b0f37fd4e4eabe6e))
+* **release:** migrate cask post-install hook to install_steps ([#106](https://github.com/omniaura/agentflow/issues/106)) ([b77ce91](https://github.com/omniaura/agentflow/commit/b77ce916850b7d4a895662947b6bd87ce06f9733))
+
 ## [0.11.0](https://github.com/omniaura/agentflow/compare/v0.10.0...v0.11.0) (2026-10-21)
 
 
