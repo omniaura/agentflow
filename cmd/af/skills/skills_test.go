@@ -67,7 +67,12 @@ func TestSkillExamplesGenerate(t *testing.T) {
 		for _, d := range ds {
 			t.Errorf("example %d: %s:%d:%d: %s %s", i, d.File, d.Line, d.Column, d.Code, d.Message)
 		}
-		if _, _, err := prompts.Render(filepath.Join(t.TempDir(), "example.af"), src); err != nil {
+		name := filepath.Join(t.TempDir(), "example.af")
+		if bytes.Contains(src, []byte(".route ")) {
+			// Route examples use the todo queries of examples/routes.
+			name = filepath.Join("..", "..", "..", "examples", "routes", "skill_example.af")
+		}
+		if _, _, err := prompts.Render(name, src); err != nil {
 			t.Errorf("example %d does not generate: %v\n%s", i, err, src)
 		}
 	}

@@ -137,3 +137,22 @@ func TestDocumentToolErrorKeepsHighlighting(t *testing.T) {
 		t.Fatalf("tokens and variables are lost: %d tokens, %d variables", len(doc.Tokens), len(doc.Variables))
 	}
 }
+
+func TestDocumentRouteSectionTokens(t *testing.T) {
+	doc := mustOpenTestDocument(t, ".route GET /todos/{id} GetTodo\n.auth owner_id\nGets a todo.\n")
+	data := generateGranularSemanticTokens(doc)
+	types := []string{TokenTypeKeyword, TokenTypeVariable, TokenTypeString, TokenTypeComment, TokenTypeOperator, TokenTypeType, TokenTypeParameter, TokenTypeDecorator, TokenTypeFunction, TokenTypeProperty}
+	var got []string
+	line, char := 0, 0
+	for i := 0; i+4 < len(data); i += 5 {
+		if data[i] > 0 {
+			line, char = line+int(data[i]), 0
+		}
+		char += int(data[i+1])
+		got = append(got, types[data[i+3]]+":"+string(doc.Lines[line][char:char+int(data[i+2])]))
+	}
+	want := []string{"keyword:.route", "keyword:GET", "string:/todos/{id}", "function:GetTodo", "keyword:.auth", "parameter:owner_id", "string:Gets a todo."}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("tokens:\n got %v\nwant %v", got, want)
+	}
+}

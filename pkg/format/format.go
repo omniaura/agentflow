@@ -18,6 +18,7 @@ package format
 import (
 	"bytes"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/omniaura/agentflow/pkg/decl"
@@ -221,8 +222,8 @@ func isSectionLine(line string) bool {
 }
 
 func isSectionDirectiveLine(line string) bool {
-	for _, d := range decl.ToolDirectives {
-		if strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
+	for _, d := range slices.Concat(decl.ToolDirectives, decl.RouteDirectives) {
+		if line == d || strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
 			return true
 		}
 	}

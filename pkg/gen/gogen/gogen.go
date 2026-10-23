@@ -87,9 +87,15 @@ func generateEmbeddedStruct(buf *bytes.Buffer, node ast.InputNode) {
 	buf.WriteString("}\n")
 }
 
+// GenFile writes the Go code for f. Files with routes need GenFileOptions.
 func GenFile(w io.Writer, f ast.File, dirName string) error {
+	return GenFileOptions(w, f, dirName, Options{})
+}
+
+// GenFileOptions is GenFile with options.
+func GenFileOptions(w io.Writer, f ast.File, dirName string, opts Options) error {
 	if hasLoops(f) {
-		return genLoopFile(w, f, dirName)
+		return genLoopFile(w, f, dirName, opts)
 	}
 	packageName := gonames.CleanPackageName(dirName)
 	var buf bytes.Buffer
@@ -119,36 +125,16 @@ func GenFile(w io.Writer, f ast.File, dirName string) error {
 		}
 	}
 
-	var tools bytes.Buffer
-	if len(f.Tools) > 0 {
-		imports["encoding/json"] = genTools(&tools, f.Tools)
+	decls, err := genDecls(f, opts, imports)
+	if err != nil {
+		return err
 	}
+	writeImports(&buf, imports)
 
-	// Emit import block if needed
-	importList := []string{}
-	for k, v := range imports {
-		if v {
-			importList = append(importList, k)
-		}
-	}
-	if len(importList) > 0 || len(f.Tools) > 0 {
-		slices.Sort(importList)
-		buf.WriteString("import (\n")
-		for _, imp := range importList {
-			buf.WriteString("\t\"")
-			buf.WriteString(imp)
-			buf.WriteString("\"\n")
-		}
-		if len(f.Tools) > 0 {
-			fmt.Fprintf(&buf, "\n\t%q\n", AftoolImport)
-		}
-		buf.WriteString(")\n\n")
-	}
-
-	if len(f.Prompts) == 0 && len(f.Tools) == 0 {
+	if len(f.Prompts) == 0 && len(f.Tools) == 0 && len(f.Routes) == 0 {
 		return gen.ErrNoPrompts
 	}
-	buf.Write(tools.Bytes())
+	buf.Write(decls)
 
 	for i, p := range f.Prompts {
 		if p.Title.Kind == coarse.Unset && len(f.Prompts) > 1 {
@@ -788,4 +774,52 @@ func isStructPath(path [][]byte, inputs ast.InputStruct) bool {
 
 	// Check if this final node is a struct (has subnodes)
 	return len(currentNode.Subnodes) > 0
+}
+
+// genDecls generates the file's declaration sections: tools, then routes.
+func genDecls(f ast.File, opts Options, imports map[string]bool) ([]byte, error) {
+	var buf bytes.Buffer
+	if len(f.Tools) > 0 {
+		imports[AftoolImport] = true
+		if genTools(&buf, f.Tools) {
+			imports["encoding/json"] = true
+		}
+	}
+	if len(f.Routes) > 0 {
+		if err := genRoutes(&buf, f.Name, f.Routes, opts, imports); err != nil {
+			return nil, err
+		}
+	}
+	return buf.Bytes(), nil
+}
+
+// writeImports writes an import block: the standard library first, then a
+// blank line and everything else.
+func writeImports(buf *bytes.Buffer, imports map[string]bool) {
+	var std, other []string
+	for path, used := range imports {
+		switch {
+		case !used:
+		case strings.Contains(strings.SplitN(path, "/", 2)[0], "."):
+			other = append(other, path)
+		default:
+			std = append(std, path)
+		}
+	}
+	if len(std)+len(other) == 0 {
+		return
+	}
+	slices.Sort(std)
+	slices.Sort(other)
+	buf.WriteString("import (\n")
+	for _, p := range std {
+		fmt.Fprintf(buf, "\t%q\n", p)
+	}
+	if len(std) > 0 && len(other) > 0 {
+		buf.WriteString("\n")
+	}
+	for _, p := range other {
+		fmt.Fprintf(buf, "\t%q\n", p)
+	}
+	buf.WriteString(")\n\n")
 }

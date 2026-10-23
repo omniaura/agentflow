@@ -172,9 +172,20 @@ func sectionTokens(src []byte, tok token.T) []sectionToken {
 			end += i
 		}
 		line := src[i:end]
-		fields := lineFields(line, i, 3)
+		fields := lineFields(line, i, 4)
 		switch {
-		case len(fields) > 0 && slices.Contains(decl.SectionDirectives, string(fields[0].text(src))):
+		case len(fields) > 0 && string(fields[0].text(src)) == ".route":
+			for j, typ := range []string{TokenTypeKeyword, TokenTypeKeyword, TokenTypeString, TokenTypeFunction} {
+				if j < len(fields) {
+					out = append(out, sectionToken{fields[j].start, fields[j].end, typ})
+				}
+			}
+		case len(fields) > 0 && slices.Contains(decl.RouteDirectives, string(fields[0].text(src))):
+			out = append(out, sectionToken{fields[0].start, fields[0].end, TokenTypeKeyword})
+			if len(fields) > 1 {
+				out = append(out, sectionToken{fields[1].start, end, TokenTypeParameter})
+			}
+		case len(fields) > 0 && string(fields[0].text(src)) == ".tool":
 			out = append(out, sectionToken{fields[0].start, fields[0].end, TokenTypeKeyword})
 			if len(fields) > 1 {
 				out = append(out, sectionToken{fields[1].start, end, TokenTypeFunction})
