@@ -62,6 +62,8 @@ type Param struct {
 	Children []*Param
 	// Offset is the byte offset of the .param line.
 	Offset int
+	// declared is false for an object implied by its properties' paths.
+	declared bool
 }
 
 // Tool is a parsed .tool section.
@@ -72,6 +74,9 @@ type Tool struct {
 	Params      []*Param
 	// Start and End delimit the section in the source.
 	Start, End int
+	// Warnings flag likely mistakes that still parse, such as a misspelled
+	// type read as the start of a description.
+	Warnings []*Error
 }
 
 // File holds the declaration sections of one .af file.
@@ -177,25 +182,14 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 			if err != nil {
 				return nil, err
 			}
-			if _, dup := params[p.Name]; dup {
-				return nil, &Error{Offset: off, Msg: fmt.Sprintf("parameter %q is declared twice", p.Name)}
+			if err := t.addParam(params, p); err != nil {
+				return nil, err
 			}
-			if j := strings.LastIndexByte(p.Name, '.'); j >= 0 {
-				parent, leaf := p.Name[:j], p.Name[j+1:]
-				pp, ok := params[parent]
-				if !ok {
-					return nil, &Error{Offset: off, Msg: fmt.Sprintf("parameter %q needs %q declared before it as object or []object", p.Name, parent)}
+			if w, _, _ := strings.Cut(p.Description, " "); p.Type.Kind == String {
+				if typ, ok := misspelledType(w); ok {
+					t.Warnings = append(t.Warnings, &Error{Offset: off, Msg: fmt.Sprintf("parameter %q: %q starts the description; did you mean type %s?", p.Name, w, typ)})
 				}
-				if pp.Type.Kind != Object {
-					return nil, &Error{Offset: off, Msg: fmt.Sprintf("parameter %q is inside %q, which is not an object", p.Name, parent)}
-				}
-				params[p.Name] = p
-				p.Name = leaf
-				pp.Children = append(pp.Children, p)
-				break
 			}
-			params[p.Name] = p
-			t.Params = append(t.Params, p)
 		case hasDirective([]byte(l), ".maxbytes"):
 			v := strings.TrimSpace(strings.TrimPrefix(l, ".maxbytes"))
 			n, err := strconv.Atoi(v)
@@ -208,7 +202,111 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 		}
 	}
 	t.Description = strings.TrimRight(trimLeadingBlankLines(strings.Join(desc, "\n")), " \t\n")
+	for _, p := range t.Params {
+		inferOptional(p)
+	}
 	return t, nil
+}
+
+// addParam inserts p, whose Name is still its full path, into the tool.
+// Like variables in prompts, objects need no declaration of their own: a
+// path such as filter.since makes filter an object, and items[].sku makes
+// items an array of objects. Declaring the object too, before or after its
+// properties, only adds its description or makes it optional.
+func (t *Tool) addParam(params map[string]*Param, p *Param) error {
+	segs := strings.Split(p.Name, ".")
+	siblings := &t.Params
+	path := ""
+	for i, seg := range segs {
+		array := strings.HasSuffix(seg, "[]")
+		seg = strings.TrimSuffix(seg, "[]")
+		path = join(path, seg)
+		last := i == len(segs)-1
+		node, exists := params[path]
+		if last && exists && node.declared {
+			return &Error{Offset: p.Offset, Msg: fmt.Sprintf("parameter %q is declared twice", path)}
+		}
+		if last && array {
+			return &Error{Offset: p.Offset, Msg: fmt.Sprintf("parameter %q: write %s []object instead of %s[]", path, path, path)}
+		}
+		if !exists {
+			node = &Param{Name: seg, Type: Type{Kind: Object, Array: array}, Offset: p.Offset}
+			params[path] = node
+			*siblings = append(*siblings, node)
+		}
+		if !last {
+			if node.Type.Kind != Object {
+				return &Error{Offset: p.Offset, Msg: fmt.Sprintf("parameter %q is inside %q, which is %s, not an object", p.Name, path, node.Type)}
+			}
+			if array {
+				node.Type.Array = true
+			}
+			siblings = &node.Children
+			continue
+		}
+		if exists {
+			// The object was implied by its properties; keep them.
+			if p.Type.Kind != Object {
+				return &Error{Offset: p.Offset, Msg: fmt.Sprintf("parameter %q has properties, so it must be object or []object, not %s", path, p.Type)}
+			}
+			if node.Type.Array && !p.Type.Array {
+				return &Error{Offset: p.Offset, Msg: fmt.Sprintf("parameter %q is used as %s[], so declare it []object", path, path)}
+			}
+			node.Type, node.Optional, node.Description, node.Offset = p.Type, p.Optional, p.Description, p.Offset
+			node.declared = true
+			return nil
+		}
+		node.Type, node.Optional, node.Description = p.Type, p.Optional, p.Description
+		node.declared = true
+	}
+	return nil
+}
+
+// inferOptional makes an undeclared object optional when none of its
+// properties is required.
+func inferOptional(p *Param) {
+	if p.Type.Kind != Object || len(p.Children) == 0 {
+		return
+	}
+	required := false
+	for _, c := range p.Children {
+		inferOptional(c)
+		required = required || !c.Optional
+	}
+	if !p.declared {
+		p.Optional = !required
+	}
+}
+
+func join(path, name string) string {
+	if path == "" {
+		return name
+	}
+	return path + "." + name
+}
+
+func (t Type) String() string {
+	s := ""
+	switch t.Kind {
+	case String:
+		s = "string"
+	case Int:
+		s = "int"
+	case Float:
+		s = "float"
+	case Bool:
+		s = "bool"
+	case Enum:
+		s = "enum(" + strings.Join(t.Enum, ", ") + ")"
+	case Object:
+		s = "object"
+	case Any:
+		s = "any"
+	}
+	if t.Array {
+		return "[]" + s
+	}
+	return s
 }
 
 func trimLeadingBlankLines(s string) string {
@@ -231,15 +329,39 @@ func line(src []byte, i, end int) (string, int) {
 	return strings.TrimRight(string(src[i:i+j]), "\r"), i + j + 1
 }
 
+// parseParam parses the text after .param: a name, an optional type, and a
+// description. The type defaults to string, as it does for <!var>, and a
+// trailing ? on the name or the type makes the parameter optional.
 func parseParam(s string, off int) (*Param, error) {
 	name, rest := s, ""
 	if i := strings.IndexAny(s, " \t"); i >= 0 {
 		name, rest = s[:i], strings.TrimSpace(s[i:])
 	}
+	if name == "" {
+		return nil, &Error{Offset: off, Msg: "expected .param <name> [type] [description]"}
+	}
+	p := &Param{Offset: off, Type: Type{Kind: String}}
+	if strings.HasSuffix(name, "?") {
+		p.Optional = true
+		name = strings.TrimSuffix(name, "?")
+	}
+	p.Name = name
+	for _, part := range strings.Split(strings.ReplaceAll(name, "[]", ""), ".") {
+		if !identRE.MatchString(part) {
+			return nil, &Error{Offset: off, Msg: fmt.Sprintf("parameter name %q must be identifiers separated by '.'", name)}
+		}
+	}
+	if strings.Contains(strings.ReplaceAll(name, "[].", "."), "[]") && !strings.HasSuffix(name, "[]") {
+		return nil, &Error{Offset: off, Msg: fmt.Sprintf("parameter name %q: [] goes right before a '.'", name)}
+	}
 	// The type runs to the first space, or to the closing parenthesis of an
-	// enum, so enum(a, b) may contain spaces.
+	// enum, so enum(a, b) may contain spaces. A first word that is not a type
+	// starts the description.
 	typEnd := strings.IndexAny(rest, " \t")
-	if open := strings.IndexByte(rest, '('); open >= 0 && (typEnd < 0 || open < typEnd) {
+	if typEnd < 0 {
+		typEnd = len(rest)
+	}
+	if open := strings.IndexByte(rest, '('); open >= 0 && open < typEnd && isEnumPrefix(rest[:open]) {
 		closing := strings.IndexByte(rest, ')')
 		if closing < 0 {
 			return nil, &Error{Offset: off, Msg: fmt.Sprintf("parameter %q: enum is missing ')'", name)}
@@ -249,29 +371,68 @@ func parseParam(s string, off int) (*Param, error) {
 			typEnd++
 		}
 	}
-	if typEnd < 0 {
-		typEnd = len(rest)
-	}
-	typ, desc := rest[:typEnd], strings.TrimSpace(rest[typEnd:])
-	if name == "" || typ == "" {
-		return nil, &Error{Offset: off, Msg: "expected .param <name> <type> [description]"}
-	}
-	p := &Param{Name: name, Description: desc, Offset: off}
-	for _, part := range strings.Split(p.Name, ".") {
-		if !identRE.MatchString(part) {
-			return nil, &Error{Offset: off, Msg: fmt.Sprintf("parameter name %q must be identifiers separated by '.'", p.Name)}
-		}
-	}
-	if strings.HasSuffix(typ, "?") {
-		p.Optional = true
-		typ = strings.TrimSuffix(typ, "?")
-	}
-	t, err := parseType(typ)
-	if err != nil {
+	typ := rest[:typEnd]
+	optional := strings.HasSuffix(typ, "?")
+	t, err := parseType(strings.TrimSuffix(typ, "?"))
+	switch {
+	case err == nil:
+		p.Type = t
+		p.Optional = p.Optional || optional
+		rest = rest[typEnd:]
+	case isEnumPrefix(strings.TrimSuffix(typ, "?")) || strings.HasPrefix(typ, "enum("):
 		return nil, &Error{Offset: off, Msg: fmt.Sprintf("parameter %q: %v", name, err)}
 	}
-	p.Type = t
+	p.Description = strings.TrimSpace(rest)
 	return p, nil
+}
+
+var typeNames = []string{"string", "integer", "float", "float64", "number", "bool", "boolean", "object"}
+
+// misspelledType reports whether w is one or two edits away from a type name.
+// Short names such as int and any are left out: too many words are near them.
+func misspelledType(w string) (string, bool) {
+	w = strings.TrimPrefix(strings.TrimSuffix(w, "?"), "[]")
+	// Descriptions start with a capital; types never do.
+	if len(w) < 4 || strings.ToLower(w) != w {
+		return "", false
+	}
+	for _, typ := range typeNames {
+		if d := editDistance(w, typ); d > 0 && d <= 2 && len(typ) > 4 || d == 1 {
+			return typ, true
+		}
+	}
+	return "", false
+}
+
+func editDistance(a, b string) int {
+	prev := make([]int, len(b)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(a); i++ {
+		cur := make([]int, len(b)+1)
+		cur[0] = i
+		for j := 1; j <= len(b); j++ {
+			cost := 1
+			if a[i-1] == b[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(b)]
+}
+
+// IsType reports whether s, such as "[]int?" or "enum(a, b)", is a
+// parameter type.
+func IsType(s string) bool {
+	_, err := parseType(strings.TrimSuffix(s, "?"))
+	return err == nil
+}
+
+func isEnumPrefix(s string) bool {
+	return s == "enum" || s == "[]enum"
 }
 
 func parseType(s string) (Type, error) {

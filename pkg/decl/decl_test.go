@@ -74,11 +74,13 @@ func TestParseToolErrors(t *testing.T) {
 	for _, tt := range []struct{ name, src, msg string }{
 		{"missing name", ".tool\n", `tool name ""`},
 		{"bad name", ".tool a b\n", `tool name "a b"`},
-		{"missing type", ".tool x\n.param a\n", "expected .param <name> <type>"},
-		{"unknown type", ".tool x\n.param a str\n", `unknown parameter type "str"`},
+		{"missing param name", ".tool x\n.param\n", "expected .param <name>"},
 		{"bad path", ".tool x\n.param a-b string\n", `parameter name "a-b"`},
-		{"undeclared parent", ".tool x\n.param a.b string\n", `needs "a" declared before it`},
-		{"scalar parent", ".tool x\n.param a string\n.param a.b string\n", `which is not an object`},
+		{"misplaced brackets", ".tool x\n.param a[]b.c\n", `[] goes right before a '.'`},
+		{"trailing brackets", ".tool x\n.param a[] int\n", `write a []object instead of a[]`},
+		{"scalar parent", ".tool x\n.param a int\n.param a.b\n", `inside "a", which is int, not an object`},
+		{"scalar after children", ".tool x\n.param a.b\n.param a int\n", `must be object or []object, not int`},
+		{"array mismatch", ".tool x\n.param a[].b\n.param a object\n", `declare it []object`},
 		{"duplicate param", ".tool x\n.param a string\n.param a int\n", `parameter "a" is declared twice`},
 		{"empty enum value", ".tool x\n.param a enum(b,,c)\n", "empty value"},
 		{"repeated enum value", ".tool x\n.param a enum(b,b)\n", `repeats "b"`},
@@ -96,6 +98,65 @@ func TestParseToolErrors(t *testing.T) {
 				t.Fatalf("offset %d out of range", de.Offset)
 			}
 		})
+	}
+}
+
+// Like prompt variables, tool parameters need no up-front declarations: the
+// type defaults to string, and dotted paths imply their objects.
+func TestParseToolInference(t *testing.T) {
+	src := `.tool search
+.param query What to search for.
+.param limit? int At most this many.
+.param filter.since ISO date.
+.param filter.tags? []string
+.param hits[].url
+.param hits[].score? float
+.param hits []object? Earlier hits to rerank.
+.param opts.verbose? bool
+.param strng is a typo
+`
+	f, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	var walk func(prefix string, ps []*Param)
+	walk = func(prefix string, ps []*Param) {
+		for _, p := range ps {
+			opt := ""
+			if p.Optional {
+				opt = "?"
+			}
+			got = append(got, prefix+p.Name+opt+" "+p.Type.String()+" "+p.Description)
+			walk(prefix+p.Name+".", p.Children)
+		}
+	}
+	walk("", f.Tools[0].Params)
+	want := []string{
+		"query string What to search for.",
+		"limit? int At most this many.",
+		"filter object ",
+		"filter.since string ISO date.",
+		"filter.tags? []string ",
+		"hits? []object Earlier hits to rerank.",
+		"hits.url string ",
+		"hits.score? float ",
+		"opts? object ",
+		"opts.verbose? bool ",
+		"strng string is a typo",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("params:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+	if w := f.Tools[0].Warnings; len(w) != 0 {
+		t.Fatalf("unexpected warnings %v", w)
+	}
+	f, err = Parse([]byte(".tool x\n.param a strng The value.\n.param b Strings to match.\n.param c in UTC.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w := f.Tools[0].Warnings; len(w) != 1 || !strings.Contains(w[0].Msg, "did you mean type string") {
+		t.Fatalf("warnings = %v", w)
 	}
 }
 

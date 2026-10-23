@@ -2,7 +2,8 @@
 Check that the service is up.
 
 .tool search-web
-.param query string What to search for.
-.param limit int? At most this many results.
-.param payload any? Opaque data echoed back.
+.param query What to search for.
+.param limit? int At most this many results.
+.param payload? any Opaque data echoed back.
+.param scope.site? Only search this site.
 Search the web.

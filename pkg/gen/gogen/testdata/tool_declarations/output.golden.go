@@ -17,10 +17,10 @@ type ManageBillingArgs struct {
 	Note string `json:"note,omitempty"`
 	// Narrow the usage shown.
 	Filter *ManageBillingArgsFilter `json:"filter,omitempty"`
-	// Line items.
-	Items []ManageBillingArgsItems `json:"items,omitempty"`
+	Items  []ManageBillingArgsItems `json:"items"`
 	// Free-form passthrough.
-	Extra json.RawMessage `json:"extra,omitempty"`
+	Extra   json.RawMessage `json:"extra,omitempty"`
+	Verbose bool            `json:"verbose,omitempty"`
 }
 
 // ManageBillingArgsFilter is an object in the arguments of the manage_billing tool.
@@ -44,7 +44,7 @@ type ManageBillingArgsItems struct {
 var ManageBillingTool = &aftool.Def[ManageBillingArgs]{
 	Name:        "manage_billing",
 	Description: "Show an inline billing control with authoritative usage, plans, or top-up settings.\nThis tool only reads and prepares a control: the user must click and `consent`.",
-	Schema:      []byte(`{"type":"object","properties":{"view":{"type":"string","description":"One of overview, plans, topup. Do not provide amounts.","enum":["overview","plans","topup"]},"note":{"type":"string","description":"A short note shown next to the control."},"filter":{"type":"object","description":"Narrow the usage shown.","properties":{"since":{"type":"string","description":"ISO date to count usage from."},"models":{"type":"array","description":"Model slugs to include.","items":{"type":"string"}}},"required":["since"],"additionalProperties":false},"items":{"type":"array","description":"Line items.","items":{"type":"object","properties":{"sku":{"type":"string","description":"The SKU."},"qty":{"type":"integer","description":"How many."}},"required":["sku","qty"],"additionalProperties":false}},"extra":{"description":"Free-form passthrough."}},"required":["view"],"additionalProperties":false}`),
+	Schema:      []byte(`{"type":"object","properties":{"view":{"type":"string","description":"One of overview, plans, topup. Do not provide amounts.","enum":["overview","plans","topup"]},"note":{"type":"string","description":"A short note shown next to the control."},"filter":{"type":"object","description":"Narrow the usage shown.","properties":{"since":{"type":"string","description":"ISO date to count usage from."},"models":{"type":"array","description":"Model slugs to include.","items":{"type":"string"}}},"required":["since"],"additionalProperties":false},"items":{"type":"array","items":{"type":"object","properties":{"sku":{"type":"string","description":"The SKU."},"qty":{"type":"integer","description":"How many."}},"required":["sku","qty"],"additionalProperties":false}},"extra":{"description":"Free-form passthrough."},"verbose":{"type":"boolean"}},"required":["view","items"],"additionalProperties":false}`),
 	MaxBytes:    4096,
 	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
 		{Name: "view", Required: true, Shape: aftool.Shape{Kind: aftool.String, Enum: []string{"overview", "plans", "topup"}}},
@@ -53,11 +53,12 @@ var ManageBillingTool = &aftool.Def[ManageBillingArgs]{
 			{Name: "since", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
 			{Name: "models", Shape: aftool.Shape{Kind: aftool.Array, Items: &aftool.Shape{Kind: aftool.String}}},
 		}}},
-		{Name: "items", Shape: aftool.Shape{Kind: aftool.Array, Items: &aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "items", Required: true, Shape: aftool.Shape{Kind: aftool.Array, Items: &aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
 			{Name: "sku", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
 			{Name: "qty", Required: true, Shape: aftool.Shape{Kind: aftool.Integer}},
 		}}}},
 		{Name: "extra", Shape: aftool.Shape{Kind: aftool.Any}},
+		{Name: "verbose", Shape: aftool.Shape{Kind: aftool.Boolean}},
 	}},
 }
 

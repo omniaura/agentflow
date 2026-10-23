@@ -129,6 +129,9 @@ func (l *linter) checkSection(tok token.T) {
 		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", err.Error())
 		return
 	}
+	for _, w := range t.Warnings {
+		l.add(token.T{Start: w.Offset, End: w.Offset}, SeverityWarning, "AF012", w.Msg)
+	}
 	if l.tools == nil {
 		l.tools = map[string]bool{}
 	}

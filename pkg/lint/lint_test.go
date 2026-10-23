@@ -53,8 +53,9 @@ func TestLintRules(t *testing.T) {
 		{"empty title", ".title   \nBody\n", "AF103"},
 		{"empty directive", ".title Test\n<!>\n", "AF104"},
 		{"bad tool name", ".tool bad name\nDoes x.\n", "AF011"},
-		{"bad param type", ".tool x\n.param a strng\nDoes x.\n", "AF011"},
-		{"undeclared parent", ".tool x\n.param a.b string\nDoes x.\n", "AF011"},
+		{"bad param path", ".tool x\n.param a-b\nDoes x.\n", "AF011"},
+		{"scalar parent", ".tool x\n.param a int\n.param a.b\nDoes x.\n", "AF011"},
+		{"misspelled param type", ".tool x\n.param a strng The a.\nDoes x.\n", "AF012"},
 		{"duplicate tool", ".tool x\nOne.\n.tool x\nTwo.\n", "AF011"},
 	}
 

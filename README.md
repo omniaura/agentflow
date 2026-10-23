@@ -214,22 +214,26 @@ A `.tool` section declares a tool an LLM can call. AgentFlow generates its JSON 
 
 ```af
 .tool offer_refund
-.maxbytes 4096
-.param order_id string The order to refund.
+.param order_id The order to refund.
 .param reason enum(damaged, late, wrong_item, other) Why the customer wants a refund.
-.param lines []object? Refund only these lines; omit to refund the whole order.
-.param lines.sku string The line's SKU.
-.param lines.quantity int How many units to refund.
+.param lines[].sku The line's SKU.
+.param lines[].quantity int How many units to refund.
+.param note? A note for the support team.
 
 Show the customer a refund offer they must accept.
 ```
 
 Lines starting with a directive declare the tool. Everything else in the section is the description the model reads.
 
-- `.param <name> <type> [description]` declares a parameter. Parameters are required unless the type ends in `?`.
+Parameters work like `<!variables>`: nothing is declared up front, and AgentFlow infers the structure from what you write.
+
+- `.param <name> [type] [description]` declares a parameter. The type defaults to `string`.
+- A `?` on the name or the type makes a parameter optional: `.param note? ...` or `.param limit int? ...`.
 - Types: `string`, `int`, `float`, `bool`, `enum(a, b, c)`, `object`, `any`, or `[]` of any of them.
-- Use a dotted name to declare a property of an `object` or `[]object` parameter declared above it. An `object` with no declared properties accepts any object.
+- Dotted names imply objects: `.param filter.since` makes `filter` an object, and `.param lines[].sku` makes `lines` an array of objects. An implied object is required when any of its properties is. To give it a description or make it optional, declare it too, anywhere in the section: `.param lines? []object Refund only these lines.`
 - `.maxbytes <n>` caps the size of the arguments (default 64 KiB).
+
+`af lint` warns (AF012) when a description starts with what looks like a misspelled type, such as `strng`.
 
 A section ends at the next `.title` or `.tool` line.
 

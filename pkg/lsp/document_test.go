@@ -97,7 +97,7 @@ func mustOpenTestDocument(t *testing.T, text string) *Document {
 }
 
 func TestDocumentToolSectionTokens(t *testing.T) {
-	doc := mustOpenTestDocument(t, ".tool lookup\n.param ids []int? The ids.\n.param mode enum(a, b) Mode.\nLook up.\n\n.title System\nHi <!name>.\n")
+	doc := mustOpenTestDocument(t, ".tool lookup\n.param ids []int? The ids.\n.param mode enum(a, b) Mode.\n.param q? Query text.\nLook up.\n\n.title System\nHi <!name>.\n")
 	if len(doc.Errors) != 0 {
 		t.Fatalf("unexpected errors %#v", doc.Errors)
 	}
@@ -112,7 +112,7 @@ func TestDocumentToolSectionTokens(t *testing.T) {
 		char += int(data[i+1])
 		text := string(doc.Lines[line][char : char+int(data[i+2])])
 		got = append(got, types[data[i+3]]+":"+text)
-		if line > 3 {
+		if line > 4 {
 			break
 		}
 	}
@@ -120,6 +120,7 @@ func TestDocumentToolSectionTokens(t *testing.T) {
 		"keyword:.tool", "function:lookup",
 		"keyword:.param", "property:ids", "type:[]int?", "string:The ids.",
 		"keyword:.param", "property:mode", "type:enum(a, b)", "string:Mode.",
+		"keyword:.param", "property:q?", "string:Query text.",
 		"string:Look up.",
 	}
 	if fmt.Sprint(got[:len(want)]) != fmt.Sprint(want) {
@@ -128,8 +129,8 @@ func TestDocumentToolSectionTokens(t *testing.T) {
 }
 
 func TestDocumentToolErrorKeepsHighlighting(t *testing.T) {
-	doc := mustOpenTestDocument(t, ".title System\nHi <!name>.\n\n.tool lookup\n.param ids strng\n")
-	if len(doc.Errors) != 1 || doc.Errors[0].Code != "AF011" || doc.Errors[0].Range.Start.Line != 4 {
+	doc := mustOpenTestDocument(t, ".title System\nHi <!name>.\n\n.tool lookup\n.param ids int\n.param ids.x\n")
+	if len(doc.Errors) != 1 || doc.Errors[0].Code != "AF011" || doc.Errors[0].Range.Start.Line != 5 {
 		t.Fatalf("errors = %#v", doc.Errors)
 	}
 	if len(doc.Tokens) == 0 || len(doc.Variables) == 0 {

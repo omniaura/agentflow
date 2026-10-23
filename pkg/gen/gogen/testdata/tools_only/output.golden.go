@@ -28,7 +28,14 @@ type SearchWebArgs struct {
 	// At most this many results.
 	Limit int `json:"limit,omitempty"`
 	// Opaque data echoed back.
-	Payload json.RawMessage `json:"payload,omitempty"`
+	Payload json.RawMessage     `json:"payload,omitempty"`
+	Scope   *SearchWebArgsScope `json:"scope,omitempty"`
+}
+
+// SearchWebArgsScope is an object in the arguments of the search-web tool.
+type SearchWebArgsScope struct {
+	// Only search this site.
+	Site string `json:"site,omitempty"`
 }
 
 // SearchWebTool is the search-web tool. Its Decode method checks and decodes the
@@ -36,10 +43,13 @@ type SearchWebArgs struct {
 var SearchWebTool = &aftool.Def[SearchWebArgs]{
 	Name:        "search-web",
 	Description: `Search the web.`,
-	Schema:      []byte(`{"type":"object","properties":{"query":{"type":"string","description":"What to search for."},"limit":{"type":"integer","description":"At most this many results."},"payload":{"description":"Opaque data echoed back."}},"required":["query"],"additionalProperties":false}`),
+	Schema:      []byte(`{"type":"object","properties":{"query":{"type":"string","description":"What to search for."},"limit":{"type":"integer","description":"At most this many results."},"payload":{"description":"Opaque data echoed back."},"scope":{"type":"object","properties":{"site":{"type":"string","description":"Only search this site."}},"additionalProperties":false}},"required":["query"],"additionalProperties":false}`),
 	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
 		{Name: "query", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
 		{Name: "limit", Shape: aftool.Shape{Kind: aftool.Integer}},
 		{Name: "payload", Shape: aftool.Shape{Kind: aftool.Any}},
+		{Name: "scope", Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+			{Name: "site", Shape: aftool.Shape{Kind: aftool.String}},
+		}}},
 	}},
 }

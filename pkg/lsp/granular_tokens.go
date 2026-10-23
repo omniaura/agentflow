@@ -185,6 +185,7 @@ func sectionTokens(src []byte, tok token.T) []sectionToken {
 				out = append(out, sectionToken{fields[1].start, fields[1].end, TokenTypeProperty})
 			}
 			if len(fields) > 2 {
+				descStart := fields[2].start
 				typEnd := fields[2].end
 				if close := bytes.IndexByte(src[fields[2].start:end], ')'); bytes.Contains(fields[2].text(src), []byte("(")) && close >= 0 {
 					typEnd = fields[2].start + close + 1
@@ -192,8 +193,13 @@ func sectionTokens(src []byte, tok token.T) []sectionToken {
 						typEnd++
 					}
 				}
-				out = append(out, sectionToken{fields[2].start, typEnd, TokenTypeType})
-				if desc := bytes.TrimLeft(src[typEnd:end], " \t"); len(desc) > 0 {
+				// The type is optional; a first word that is not one starts
+				// the description.
+				if decl.IsType(string(src[fields[2].start:typEnd])) {
+					out = append(out, sectionToken{fields[2].start, typEnd, TokenTypeType})
+					descStart = typEnd
+				}
+				if desc := bytes.TrimLeft(src[descStart:end], " \t"); len(desc) > 0 {
 					out = append(out, sectionToken{end - len(desc), end, TokenTypeString})
 				}
 			}
