@@ -34,6 +34,7 @@ import (
 
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/ast"
+	"github.com/omniaura/agentflow/pkg/eject"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
 	"github.com/omniaura/agentflow/pkg/lint"
 	"github.com/omniaura/agentflow/pkg/sqlcgo"
@@ -156,6 +157,12 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 		return "", nil, err
 	}
 	var opts gogen.Options
+	if len(ff.Tools) > 0 || len(ff.Routes) > 0 {
+		// Generated code imports the runtime, or the copy af eject made.
+		if opts.Imports, err = eject.Imports(filepath.Dir(name)); err != nil {
+			return "", nil, err
+		}
+	}
 	if len(ff.Routes) > 0 {
 		repo, err := sqlcgo.Find(filepath.Dir(name))
 		if err != nil {

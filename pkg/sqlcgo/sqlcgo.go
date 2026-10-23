@@ -449,6 +449,12 @@ func importPath(f *ast.File, name string) string {
 	return ""
 }
 
+// ModuleRoot returns the directory of the go.mod at or above dir and the
+// import path of dir.
+func ModuleRoot(dir string) (root, importPath string, err error) {
+	return moduleRoot(dir)
+}
+
 // moduleRoot returns the directory of the go.mod above dir and the import
 // path of dir.
 func moduleRoot(dir string) (root, importPath string, err error) {

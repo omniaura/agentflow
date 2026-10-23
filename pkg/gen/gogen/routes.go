@@ -19,6 +19,9 @@ type Options struct {
 	// Queries resolves the sqlc query a .route names. Files with routes
 	// need it.
 	Queries func(name string) (*sqlcgo.Package, *sqlcgo.Query, error)
+	// Imports replaces import paths in generated code, such as a runtime
+	// package with the copy af eject wrote into the repository.
+	Imports map[string]string
 }
 
 // RouteError reports a .route that cannot be generated, at the byte offset
