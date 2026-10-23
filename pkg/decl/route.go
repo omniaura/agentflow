@@ -9,7 +9,10 @@ import (
 )
 
 // RouteDirectives are the directives allowed inside a route section.
-var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes"}
+var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".sql"}
+
+// SQLKinds are the sqlc query commands a .sql line may name.
+var SQLKinds = []string{":one", ":many", ":exec", ":execrows"}
 
 // Route is a parsed .route section: an HTTP route served by a sqlc query.
 //
@@ -37,6 +40,12 @@ type Route struct {
 	Status      int
 	MaxBytes    int
 	Description string
+	// SQL is the query written in the section after a .sql line, which af
+	// gen hands to sqlc, and SQLKind its sqlc command (":one", ...). Both
+	// are empty when the query lives in sqlc's own query files.
+	SQL, SQLKind string
+	// SQLOffset is the byte offset of the .sql line.
+	SQLOffset int
 	// Start and End delimit the section in the source; QueryOffset is the
 	// byte offset of the query name.
 	Start, End, QueryOffset int
@@ -85,6 +94,21 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 		l, i = line(src, i, end)
 		b := []byte(l)
 		switch {
+		case hasDirective(b, ".sql"):
+			// The rest of the section is the query.
+			kind := strings.TrimSpace(strings.TrimPrefix(l, ".sql"))
+			if !slices.Contains(SQLKinds, kind) {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".sql needs the query's sqlc command, one of %s; got %q", strings.Join(SQLKinds, ", "), kind)}
+			}
+			if strings.Contains(r.Query, ".") {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf("query %s is written here, so it cannot name a package", r.Query)}
+			}
+			r.SQLKind, r.SQLOffset = kind, off
+			r.SQL = strings.TrimSpace(string(src[i:end]))
+			if r.SQL == "" {
+				return nil, &Error{Offset: off, Msg: "write the query on the lines after .sql"}
+			}
+			i = end
 		case hasDirective(b, ".auth"):
 			for _, name := range strings.FieldsFunc(strings.TrimPrefix(l, ".auth"), func(r rune) bool { return r == ' ' || r == '\t' || r == ',' }) {
 				if !identRE.MatchString(name) {

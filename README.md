@@ -314,6 +314,19 @@ Arguments named by the path or by `.auth` never come from the request body, so a
 
 The text that isn't a directive becomes the handler's doc comment.
 
+**Writing the query in the route.** End a route with `.sql` and its sqlc command, and write the query below it. The endpoint and its SQL then live in one place:
+
+```af
+.route PATCH /notes/{id} UpdateNote
+.auth owner_id
+Replaces a note's body. The server sets updated_at.
+.sql :execrows
+UPDATE notes SET body = @body, updated_at = now()
+WHERE id = @id AND owner_id = @owner_id
+```
+
+`af gen` writes the queries of `notes.af` to `notes_af.sql`. Add that file, or its directory, to the `queries` of your `sqlc.yaml`. When the queries change, `af gen` runs `sqlc generate` (if `sqlc` is on PATH; `--sqlc=never` turns that off), then generates the handlers from sqlc's output. One command takes you from SQL to a running endpoint. `af check` reports a `_af.sql` that is missing or out of date, a `sqlc.yaml` that doesn't read it, and queries sqlc hasn't generated yet. Values the server sets, such as `updated_at`, belong in the SQL (`now()`), not the request.
+
 | Query kind | Response |
 | --- | --- |
 | `:one` | the row as JSON, or 404 when there is none |

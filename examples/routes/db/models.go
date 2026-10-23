@@ -8,6 +8,14 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type Note struct {
+	ID        int64              `json:"id"`
+	OwnerID   string             `json:"ownerId"`
+	Body      string             `json:"body"`
+	Pinned    bool               `json:"pinned"`
+	UpdatedAt pgtype.Timestamptz `json:"updatedAt"`
+}
+
 type Todo struct {
 	ID        int64              `json:"id"`
 	OwnerID   string             `json:"ownerId"`

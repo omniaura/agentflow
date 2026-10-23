@@ -84,6 +84,45 @@ type Package struct {
 	// "database/sql".
 	SQLPackage string
 	Queries    map[string]*Query
+	// Config is the sqlc config that generates the package, and QueryFiles
+	// the absolute paths of its queries: files or directories.
+	Config     string
+	QueryFiles []string
+	// LoadErr is why the package could not be read, such as sqlc not
+	// having generated it yet.
+	LoadErr error
+}
+
+// ReadsQueryFile reports whether sqlc reads the queries in path for p: path
+// is one of its query files or inside one of its query directories.
+func (p *Package) ReadsQueryFile(path string) bool {
+	path = mustAbs(path)
+	for _, q := range p.QueryFiles {
+		if q == path {
+			return true
+		}
+		if rel, err := filepath.Rel(q, path); err == nil && !strings.HasPrefix(rel, "..") && rel != "." {
+			if fi, err := os.Stat(q); err == nil && fi.IsDir() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func mustAbs(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
+}
+
+// ResetCache forgets the packages read so far, so the next Find rereads
+// them, such as after sqlc generate.
+func ResetCache() {
+	cacheMu.Lock()
+	defer cacheMu.Unlock()
+	cache = map[string]*Repo{}
 }
 
 // NoRowsImport and NoRowsExpr return the import and the expression of the
@@ -175,6 +214,11 @@ func (r *Repo) Lookup(name string) (*Package, *Query, error) {
 	}
 	switch len(found) {
 	case 0:
+		for _, p := range r.Packages {
+			if p.LoadErr != nil && (pkgName == "" || p.Name == pkgName) {
+				return nil, nil, p.LoadErr
+			}
+		}
 		var names []string
 		for _, p := range r.Packages {
 			names = append(names, p.Name)
@@ -188,7 +232,9 @@ func (r *Repo) Lookup(name string) (*Package, *Query, error) {
 
 type config struct {
 	SQL []struct {
-		Gen struct {
+		// Queries is a path or a list of paths.
+		Queries any `yaml:"queries"`
+		Gen     struct {
 			Go *struct {
 				Package    string `yaml:"package"`
 				Out        string `yaml:"out"`
@@ -222,7 +268,23 @@ func load(path string) (*Repo, error) {
 		dir := filepath.Join(filepath.Dir(path), g.Out)
 		p, err := LoadPackage(dir)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			// Keep the package so its config and query files are known:
+			// af gen writes queries before sqlc first generates it.
+			_, importPath, _ := moduleRoot(dir)
+			p = &Package{Name: g.Package, Dir: dir, ImportPath: importPath, Queries: map[string]*Query{}, LoadErr: fmt.Errorf("%s: %w", path, err)}
+		}
+		p.Config = path
+		var queries []any
+		switch q := s.Queries.(type) {
+		case string:
+			queries = []any{q}
+		case []any:
+			queries = q
+		}
+		for _, q := range queries {
+			if q, ok := q.(string); ok {
+				p.QueryFiles = append(p.QueryFiles, filepath.Join(filepath.Dir(path), q))
+			}
 		}
 		if g.Package != "" && p.Name != g.Package {
 			return nil, fmt.Errorf("%s: package %s in %s is not %s", path, p.Name, dir, g.Package)
@@ -253,6 +315,9 @@ func LoadPackage(dir string) (*Package, error) {
 	}
 	fset := token.NewFileSet()
 	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("%s does not exist yet; run sqlc generate", dir)
+	}
 	if err != nil {
 		return nil, err
 	}
