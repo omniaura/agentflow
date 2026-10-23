@@ -234,7 +234,7 @@ func Convert(tokens token.Slice, input []byte) []Token {
 			for i < len(tokens) && (tokens[i].Kind == kind.Text || tokens[i].Kind == kind.Whitespace) {
 				// Stop grouping if the next token after whitespace is a title directive
 				// (this whitespace is inter-prompt separation and should be skipped)
-				if tokens[i].Kind == kind.Whitespace && i+1 < len(tokens) && tokens[i+1].Kind == kind.TitleDirective {
+				if tokens[i].Kind == kind.Whitespace && i+1 < len(tokens) && endsBody(tokens[i+1].Kind) {
 					break
 				}
 				end = tokens[i].End
@@ -242,8 +242,8 @@ func Convert(tokens token.Slice, input []byte) []Token {
 			}
 
 			// Trim trailing whitespace at the end of a prompt body: before the
-			// next title directive or at end of file.
-			if i == len(tokens) || tokens[i].Kind == kind.TitleDirective {
+			// next title directive or section, or at end of file.
+			if i == len(tokens) || endsBody(tokens[i].Kind) {
 				end = start + len(bytes.TrimRight(input[start:end], " \t\r\n"))
 			}
 
@@ -262,6 +262,12 @@ func Convert(tokens token.Slice, input []byte) []Token {
 	}
 
 	return coarse
+}
+
+// endsBody reports whether a token of kind k ends the prompt body before it.
+// Declaration sections are not part of any prompt, so they end it too.
+func endsBody(k kind.Kind) bool {
+	return k == kind.TitleDirective || k == kind.Section
 }
 
 func groupVariableTokens(tokens token.Slice, start int) (Token, bool) {

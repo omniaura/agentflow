@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/omniaura/agentflow/pkg/ast"
+	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/token"
 	"github.com/omniaura/agentflow/pkg/token/coarse"
 	"github.com/omniaura/agentflow/pkg/token/kind"
@@ -334,6 +335,18 @@ func (d *Document) parse() error {
 	// Parse using AgentFlow's existing parser
 	astStart := time.Now()
 	astFile, err := ast.NewFile(filename, []byte(d.Content))
+	var de *decl.Error
+	if errors.As(err, &de) {
+		// A half-typed .tool section must not cost the rest of the file its
+		// highlighting, so report it and keep going.
+		pos := d.byteOffsetToPosition(de.Offset)
+		d.Errors = append(d.Errors, ParseError{
+			Range:   Range{Start: pos, End: Position{Line: pos.Line, Character: pos.Character + len(d.lineAt(pos.Line))}},
+			Message: de.Msg,
+			Code:    "AF011",
+		})
+		err = nil
+	}
 	if err != nil {
 		slog.Error("AST parsing failed",
 			"uri", d.URI,
@@ -515,6 +528,14 @@ func (d *Document) extractTitles() {
 		"uri", d.URI,
 		"titleCount", titleCount,
 		"duration", duration)
+}
+
+// lineAt returns the text of line n, or "" when there is none.
+func (d *Document) lineAt(n int) string {
+	if n < 0 || n >= len(d.Lines) {
+		return ""
+	}
+	return string(d.Lines[n])
 }
 
 // byteOffsetToPosition converts a byte offset to a Position

@@ -1,0 +1,8 @@
+.tool ping
+Check that the service is up.
+
+.tool search-web
+.param query string What to search for.
+.param limit int? At most this many results.
+.param payload any? Opaque data echoed back.
+Search the web.

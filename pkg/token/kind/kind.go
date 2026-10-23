@@ -52,6 +52,10 @@ const (
 	Whitespace    // Spaces, tabs, newlines (separators)
 	DirectiveLoop // "*" in a slice loop
 
+	// Section is a whole declaration section, such as a .tool section,
+	// which pkg/decl parses.
+	Section
+
 	// Future extension tokens (for later)
 	// RawBlock       // For future raw block support
 	// Comment        // For future comment support
@@ -102,7 +106,7 @@ func (k Kind) IsContent() bool {
 
 func (k Kind) IsStructural() bool {
 	switch k {
-	case Whitespace, TitleDirective:
+	case Whitespace, TitleDirective, Section:
 		return true
 	}
 	return false

@@ -1,0 +1,17 @@
+.tool manage_billing
+.maxbytes 4096
+.param view enum(overview, plans, topup) One of overview, plans, topup. Do not provide amounts.
+.param note string? A short note shown next to the control.
+.param filter object? Narrow the usage shown.
+.param filter.since string ISO date to count usage from.
+.param filter.models []string? Model slugs to include.
+.param items []object? Line items.
+.param items.sku string The SKU.
+.param items.qty int How many.
+.param extra any? Free-form passthrough.
+
+Show an inline billing control with authoritative usage, plans, or top-up settings.
+This tool only reads and prepares a control: the user must click and `consent`.
+
+.title System
+You are <!name>.

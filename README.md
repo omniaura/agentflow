@@ -16,6 +16,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
   - [Conditional Blocks](#conditional-blocks)
   - [Nested Variables](#nested-variables)
   - [Comments and Text](#comments-and-text)
+  - [Tools](#tools)
 - [Examples](#examples)
   - [Basic Variables](#basic-variables)
   - [Typed Variables](#typed-variables)
@@ -206,6 +207,62 @@ This is literal text that will be included as-is.
 Variables like <!name> are interpolated.
 But this <text> is just literal text.
 ```
+
+### Tools
+
+A `.tool` section declares a tool an LLM can call. AgentFlow generates its JSON Schema, a typed `Args` struct and a strict decoder from one declaration, so the schema the model sees and the struct your handler reads can't drift apart.
+
+```af
+.tool offer_refund
+.maxbytes 4096
+.param order_id string The order to refund.
+.param reason enum(damaged, late, wrong_item, other) Why the customer wants a refund.
+.param lines []object? Refund only these lines; omit to refund the whole order.
+.param lines.sku string The line's SKU.
+.param lines.quantity int How many units to refund.
+
+Show the customer a refund offer they must accept.
+```
+
+Lines starting with a directive declare the tool. Everything else in the section is the description the model reads.
+
+- `.param <name> <type> [description]` declares a parameter. Parameters are required unless the type ends in `?`.
+- Types: `string`, `int`, `float`, `bool`, `enum(a, b, c)`, `object`, `any`, or `[]` of any of them.
+- Use a dotted name to declare a property of an `object` or `[]object` parameter declared above it. An `object` with no declared properties accepts any object.
+- `.maxbytes <n>` caps the size of the arguments (default 64 KiB).
+
+A section ends at the next `.title` or `.tool` line.
+
+**Generated Go:**
+
+```go
+type OfferRefundArgs struct {
+	OrderId string                 `json:"order_id"`
+	Reason  string                 `json:"reason"`
+	Lines   []OfferRefundArgsLines `json:"lines,omitempty"`
+}
+
+const (
+	OfferRefundReasonDamaged   = "damaged"
+	OfferRefundReasonLate      = "late"
+	// ...
+)
+
+var OfferRefundTool = &aftool.Def[OfferRefundArgs]{Name: "offer_refund", Description: "...", Schema: ..., Shape: ...}
+```
+
+Use the definition to advertise the tool and to decode each call:
+
+```go
+tools := []json.RawMessage{OfferRefundTool.OpenAI()} // or OfferRefundTool.Anthropic()
+
+args, err := OfferRefundTool.Decode(call.Arguments)
+if err != nil {
+	return err.Error() // e.g. offer_refund: invalid arguments: reason: "meh" is not one of damaged, late, wrong_item, other
+}
+```
+
+`Decode` rejects arguments that are too large, unknown or missing properties, null required values, wrong types and values outside an enum. Every error is an `*aftool.ArgsError` worded for the model, so you can return it as the tool result and let the model fix its call. The runtime package `github.com/omniaura/agentflow/runtime/aftool` has no dependencies.
 
 ## Examples
 

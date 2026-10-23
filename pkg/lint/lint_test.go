@@ -52,6 +52,10 @@ func TestLintRules(t *testing.T) {
 		{"duplicate title", ".title Hello User\nOne\n.title hello user\nTwo\n", "AF102"},
 		{"empty title", ".title   \nBody\n", "AF103"},
 		{"empty directive", ".title Test\n<!>\n", "AF104"},
+		{"bad tool name", ".tool bad name\nDoes x.\n", "AF011"},
+		{"bad param type", ".tool x\n.param a strng\nDoes x.\n", "AF011"},
+		{"undeclared parent", ".tool x\n.param a.b string\nDoes x.\n", "AF011"},
+		{"duplicate tool", ".tool x\nOne.\n.tool x\nTwo.\n", "AF011"},
 	}
 
 	for _, tt := range tests {
@@ -61,6 +65,17 @@ func TestLintRules(t *testing.T) {
 				t.Fatalf("expected %s, got %#v", tt.code, diagnostics)
 			}
 		})
+	}
+}
+
+func TestLintToolSection(t *testing.T) {
+	diagnostics := lintString(t, ".tool search\n.param query string What to find.\nSearch the web.\n\n.title System\nUse <!tool_name>.\n")
+	if len(diagnostics) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diagnostics)
+	}
+	diagnostics = lintString(t, ".title System\nHi.\n\n.tool x\n.param a int\n.param a int\nDoes x.\n")
+	if len(diagnostics) != 1 || diagnostics[0].Code != "AF011" || diagnostics[0].Line != 6 {
+		t.Fatalf("expected AF011 on line 6, got %#v", diagnostics)
 	}
 }
 
