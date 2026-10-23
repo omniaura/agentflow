@@ -27,6 +27,7 @@ import (
 	lintcmd "github.com/omniaura/agentflow/cmd/af/lint"
 	"github.com/omniaura/agentflow/cmd/af/lsp"
 	"github.com/omniaura/agentflow/cmd/af/skills"
+	"github.com/omniaura/agentflow/cmd/af/survey"
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/logger"
 	"github.com/spf13/cobra"
@@ -51,6 +52,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(lintcmd.CMD())
 	root.AddCommand(lsp.CMD())
 	root.AddCommand(skills.CMD())
+	root.AddCommand(survey.CMD())
 
 	// Bind persistent flags to viper after all commands are added.
 	viper.BindPFlag("log", root.PersistentFlags().Lookup("log"))

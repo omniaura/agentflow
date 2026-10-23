@@ -607,6 +607,17 @@ Edit the copies freely. To upgrade them after upgrading af, run `af eject` again
 
 Files a new version drops are removed unless you've edited them. `--force` replaces edited files instead of merging. Each copied file records its af version and a content hash in an `agentflow-vendored:` comment. Leave that comment in place so upgrades can tell your edits apart.
 
+## Surveying a Codebase
+
+`af survey [dir]` estimates how much of a Go module agentflow could define. It finds hand-written LLM tool schemas (`.tool`), structured-output schemas (`.output`), HTTP handlers that only serve one sqlc query (`.route`) and long prompt strings (`.title`). It reports them next to the code agentflow and sqlc already generate:
+
+    candidates for .af                   sites    lines of hand-written
+      tool schemas (.tool)                 122     1966 0.4%
+      single-query handlers (.route)       205     6587 1.3%
+      ...
+
+`--top N` lists the largest sites of each kind, so you know where to start, and `--json` prints the full report. The survey reads source syntactically with heuristics, so treat its numbers as an estimate to steer migration, not a measurement.
+
 ## CLI Usage
 
 Generate Go code from .af templates:
