@@ -216,6 +216,9 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 	fmt.Fprintf(buf, "func (rt *%sRoutes) %s(w http.ResponseWriter, r *http.Request) {\n", routes, b.handler)
 	usesCaller := slices.Contains(b.sources, "auth")
 	if !r.Public {
+		// An unset Auth fails closed rather than panicking.
+		buf.WriteString("if rt.Auth == nil {\nrt.fail(w, r, afhttp.Internal(errors.New(\"afhttp: Auth is not set\")))\nreturn\n}\n")
+		imports["errors"] = true
 		if usesCaller {
 			buf.WriteString("caller, err := rt.Auth(r)\n")
 		} else {

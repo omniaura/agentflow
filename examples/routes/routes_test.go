@@ -103,6 +103,22 @@ func queries(t *testing.T) TodosQueries {
 	return db.New(pool)
 }
 
+func TestUnsetAuthFailsClosed(t *testing.T) {
+	mux := http.NewServeMux()
+	(&TodosRoutes{Queries: &fakeQueries{}}).Register(mux)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/todos", nil))
+	if w.Code != 500 {
+		t.Fatalf("got %d, want 500", w.Code)
+	}
+	// Public routes don't need Auth.
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "/stats/count", nil))
+	if w.Code != 200 {
+		t.Fatalf("public route: got %d", w.Code)
+	}
+}
+
 func TestTodoRoutes(t *testing.T) {
 	mux := http.NewServeMux()
 	(&TodosRoutes{

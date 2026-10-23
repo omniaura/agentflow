@@ -61,6 +61,10 @@ func (rt *TodosRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
 //
 // Creates a todo for the caller.
 func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
+	if rt.Auth == nil {
+		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		return
+	}
 	caller, err := rt.Auth(r)
 	if err != nil {
 		rt.fail(w, r, afhttp.Unauthorized(err))
@@ -92,6 +96,10 @@ func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
 
 // GetTodo serves GET /todos/{id} with the GetTodo query.
 func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
+	if rt.Auth == nil {
+		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		return
+	}
 	caller, err := rt.Auth(r)
 	if err != nil {
 		rt.fail(w, r, afhttp.Unauthorized(err))
@@ -119,6 +127,10 @@ func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
 //
 // Lists the caller's todos. Filter with ?done=true or ?done=false.
 func (rt *TodosRoutes) ListTodos(w http.ResponseWriter, r *http.Request) {
+	if rt.Auth == nil {
+		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		return
+	}
 	caller, err := rt.Auth(r)
 	if err != nil {
 		rt.fail(w, r, afhttp.Unauthorized(err))
@@ -143,6 +155,10 @@ func (rt *TodosRoutes) ListTodos(w http.ResponseWriter, r *http.Request) {
 
 // SetTodoDone serves PUT /todos/{id}/done with the SetTodoDone query.
 func (rt *TodosRoutes) SetTodoDone(w http.ResponseWriter, r *http.Request) {
+	if rt.Auth == nil {
+		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		return
+	}
 	caller, err := rt.Auth(r)
 	if err != nil {
 		rt.fail(w, r, afhttp.Unauthorized(err))
@@ -176,6 +192,10 @@ func (rt *TodosRoutes) SetTodoDone(w http.ResponseWriter, r *http.Request) {
 
 // DeleteTodo serves DELETE /todos/{id} with the DeleteTodo query.
 func (rt *TodosRoutes) DeleteTodo(w http.ResponseWriter, r *http.Request) {
+	if rt.Auth == nil {
+		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		return
+	}
 	caller, err := rt.Auth(r)
 	if err != nil {
 		rt.fail(w, r, afhttp.Unauthorized(err))
