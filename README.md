@@ -17,6 +17,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
   - [Nested Variables](#nested-variables)
   - [Comments and Text](#comments-and-text)
   - [Tools](#tools)
+  - [Routes](#routes)
 - [Examples](#examples)
   - [Basic Variables](#basic-variables)
   - [Typed Variables](#typed-variables)
@@ -268,6 +269,72 @@ if err != nil {
 ```
 
 `Decode` rejects arguments that are too large, unknown or missing properties, null required values, wrong types and values outside an enum. Every error is an `*aftool.ArgsError` worded for the model, so you can return it as the tool result and let the model fix its call. The runtime package `github.com/omniaura/agentflow/runtime/aftool` has no dependencies.
+
+### Routes
+
+A `.route` section serves a [sqlc](https://sqlc.dev) query over HTTP. You write the SQL. sqlc generates the typed query. One line of `.af` generates the handler: authentication, argument binding, strict decoding, the query call, and the JSON response or error.
+
+```af
+.route POST /todos CreateTodo
+.auth owner_id
+.status 201
+Creates a todo for the caller.
+
+.route GET /todos/{id} GetTodo
+.auth owner_id
+
+.route GET /todos ListTodos
+.auth owner_id
+
+.route DELETE /todos/{id} DeleteTodo
+.auth owner_id
+
+.route GET /stats/count CountTodos
+.public
+```
+
+`.route <METHOD> <path> <Query>` names a query sqlc generated. AgentFlow finds `sqlc.yaml` (or `sqlc.yml` or `sqlc.json`) at or above the `.af` file, or anywhere in the module, and reads the queries from sqlc's Go output. If several sqlc packages define the same name, qualify it as `pkg.Query`.
+
+Nothing else is declared. Each query argument is bound by name, with `user_id`, `userId` and `UserID` all treated as one name, in this order:
+
+1. a `{path}` parameter
+2. an `.auth` name, read from the authenticated caller
+3. the JSON body, or the query string for `GET`, `HEAD` and `DELETE`
+
+Arguments named by the path or by `.auth` never come from the request body, so a client can't set `owner_id`.
+
+| Directive | Meaning |
+| --- | --- |
+| `.auth a, b` | Arguments read from the caller's fields. |
+| `.public` | Skip authentication. Routes authenticate by default. |
+| `.status 201` | The success status. |
+| `.maxbytes n` | Cap the request body (default 1 MiB). |
+
+The text that isn't a directive becomes the handler's doc comment.
+
+| Query kind | Response |
+| --- | --- |
+| `:one` | the row as JSON, or 404 when there is none |
+| `:many` | a JSON array, `[]` when empty |
+| `:exec` | 204 |
+| `:execrows` | 204, or 404 when no row changed |
+
+Bodies reject unknown fields and trailing data. sqlc's `[]byte` json and jsonb arguments take raw JSON.
+
+**Generated Go:** a `TodosQueries` interface that sqlc's `*Queries` satisfies (and a test fake can), and a `TodosRoutes` type:
+
+```go
+type Caller struct{ OwnerID string } // the fields .auth names read
+
+routes := &TodosRoutes{
+	Queries: db.New(pool),
+	Auth: func(r *http.Request) (Caller, error) { return authenticate(r) },
+	// OnError is optional: plug in your own error format and logging.
+}
+routes.Register(mux)
+```
+
+Errors are written as `{"error": "..."}` with their status: 400 for bad input, 401 when `Auth` fails (or the status of an `*afhttp.Error` it returns), 404, 413, and 500 for query failures. The client never sees the cause of a 500. The runtime is `github.com/omniaura/agentflow/runtime/afhttp`, which has no dependencies. See [`examples/routes`](examples/routes), which is tested against Postgres in CI.
 
 ## Examples
 

@@ -36,6 +36,7 @@ import (
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
 	"github.com/omniaura/agentflow/pkg/lint"
+	"github.com/omniaura/agentflow/pkg/sqlcgo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
@@ -154,8 +155,16 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 	if err != nil {
 		return "", nil, err
 	}
+	var opts gogen.Options
+	if len(ff.Routes) > 0 {
+		repo, err := sqlcgo.Find(filepath.Dir(name))
+		if err != nil {
+			return "", nil, &gogen.RouteError{Offset: ff.Routes[0].QueryOffset, Err: err}
+		}
+		opts.Queries = repo.Lookup
+	}
 	var buf bytes.Buffer
-	if err := gogen.GenFile(&buf, ff, packageDir(name)); err != nil {
+	if err := gogen.GenFileOptions(&buf, ff, packageDir(name), opts); err != nil {
 		return "", nil, err
 	}
 	return OutputPath(name), buf.Bytes(), nil
@@ -217,6 +226,11 @@ func goPackageName(dir string) string {
 // Diagnose formats a generation error as file:line:col: message lines. It
 // prefers the generator's own position, then lint errors, then the bare error.
 func Diagnose(name string, src []byte, err error) []string {
+	var re *gogen.RouteError
+	if src != nil && errors.As(err, &re) {
+		line, col := lint.Position(src, re.Offset)
+		return []string{fmt.Sprintf("%s:%d:%d: %v", name, line, col, re.Err)}
+	}
 	var pe *gogen.PosError
 	if src != nil && errors.As(err, &pe) {
 		line, col := lint.Position(src, pe.Offset)

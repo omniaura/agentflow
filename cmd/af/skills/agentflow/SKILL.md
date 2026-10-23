@@ -1,6 +1,6 @@
 ---
 name: agentflow
-description: "Write and edit AgentFlow .af files: typed prompt templates and LLM tool declarations that af gen compiles to Go. Use when creating or changing a .af file or its generated _af.go, adding a prompt or a tool an LLM can call, or when af gen, af lint or af check fails."
+description: "Write and edit AgentFlow .af files: typed prompt templates, LLM tool declarations and HTTP routes over sqlc queries that af gen compiles to Go. Use when creating or changing a .af file or its generated _af.go, adding a prompt, a tool an LLM can call or an API route backed by a SQL query, or when af gen, af lint or af check fails."
 metadata:
   agentflow-vendored: STAMP
 ---
@@ -115,6 +115,36 @@ case OfferRefundReasonDamaged:
 `Decode` rejects oversized arguments, unknown or missing properties, wrong types and
 values outside an enum. Don't hand-write JSON Schemas, args structs or argument
 validation for a tool that a `.tool` section can declare.
+
+### HTTP routes over sqlc queries
+
+```af
+.route POST /todos CreateTodo
+.auth owner_id
+.status 201
+Creates a todo for the caller.
+
+.route GET /todos/{id} GetTodo
+.auth owner_id
+
+.route GET /stats/count CountTodos
+.public
+```
+
+- Write the SQL in the sqlc queries file and run `sqlc generate`. `.route METHOD /path
+  Query` then serves the query, and af finds it through `sqlc.yaml`. Don't hand-write
+  handlers that only decode a request, call one query and write JSON.
+- Arguments bind by name, in order: `{path}` parameters, then `.auth` names (fields of
+  your `Caller` type), then the JSON body (or the query string for GET, HEAD and
+  DELETE). `user_id`, `userId` and `UserID` all match one argument.
+- Routes authenticate by default; `.public` skips it. `.status`, `.maxbytes` and a
+  description (which becomes the doc comment) are optional.
+- The generated code is a `<File>Queries` interface and a `<File>Routes` struct. Declare
+  `type Caller struct{ OwnerID string }` in the package, set `Queries`, `Auth` and
+  optionally `OnError`, then call `Register(mux)`.
+- Responses: `:one` returns 200 with JSON, or 404 when there is no row. `:many` returns a
+  JSON array. `:exec` and `:execrows` return 204, and `:execrows` returns 404 when no row
+  changed.
 
 ## Pitfalls
 

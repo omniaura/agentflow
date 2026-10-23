@@ -26,7 +26,7 @@ import (
 )
 
 // SectionDirectives are the directives that start a declaration section.
-var SectionDirectives = []string{".tool"}
+var SectionDirectives = []string{".tool", ".route"}
 
 // ToolDirectives are the directives allowed inside a tool section.
 var ToolDirectives = []string{".param", ".maxbytes"}
@@ -81,7 +81,8 @@ type Tool struct {
 
 // File holds the declaration sections of one .af file.
 type File struct {
-	Tools []*Tool
+	Tools  []*Tool
+	Routes []*Route
 }
 
 // Error is a declaration error at a byte offset in the source.
@@ -140,6 +141,20 @@ func Parse(src []byte) (File, error) {
 			continue
 		}
 		end := SectionEnd(src, i)
+		if hasDirective(src[i:], ".route") {
+			r, err := ParseRoute(src, i, end)
+			if err != nil {
+				return f, err
+			}
+			for _, prev := range f.Routes {
+				if prev.Method == r.Method && prev.Path == r.Path {
+					return f, &Error{Offset: i, Msg: fmt.Sprintf("route %s %s is declared twice", r.Method, r.Path)}
+				}
+			}
+			f.Routes = append(f.Routes, r)
+			i = end
+			continue
+		}
 		t, err := ParseTool(src, i, end)
 		if err != nil {
 			return f, err
@@ -153,6 +168,15 @@ func Parse(src []byte) (File, error) {
 		i = end
 	}
 	return f, nil
+}
+
+// ParseSection parses the declaration section src[start:end] and returns a
+// *Tool or a *Route.
+func ParseSection(src []byte, start, end int) (any, error) {
+	if hasDirective(src[start:], ".route") {
+		return ParseRoute(src, start, end)
+	}
+	return ParseTool(src, start, end)
 }
 
 var (

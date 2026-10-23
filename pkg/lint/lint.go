@@ -80,7 +80,7 @@ type linter struct {
 	stack       []frame
 	types       map[string]string
 	titles      map[string]token.T
-	tools       map[string]bool
+	sections    map[string]bool
 	hasTitle    bool
 	hasContent  bool
 }
@@ -117,9 +117,10 @@ func (l *linter) check(tokens token.Slice) {
 	}
 }
 
-// checkSection reports declaration errors in a section such as .tool.
+// checkSection reports declaration errors in a section such as .tool or
+// .route.
 func (l *linter) checkSection(tok token.T) {
-	t, err := decl.ParseTool(l.src, tok.Start, tok.End)
+	sec, err := decl.ParseSection(l.src, tok.Start, tok.End)
 	if err != nil {
 		off := tok.Start
 		var de *decl.Error
@@ -129,16 +130,23 @@ func (l *linter) checkSection(tok token.T) {
 		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", err.Error())
 		return
 	}
-	for _, w := range t.Warnings {
-		l.add(token.T{Start: w.Offset, End: w.Offset}, SeverityWarning, "AF012", w.Msg)
+	if l.sections == nil {
+		l.sections = map[string]bool{}
 	}
-	if l.tools == nil {
-		l.tools = map[string]bool{}
+	key := ""
+	switch s := sec.(type) {
+	case *decl.Tool:
+		for _, w := range s.Warnings {
+			l.add(token.T{Start: w.Offset, End: w.Offset}, SeverityWarning, "AF012", w.Msg)
+		}
+		key = fmt.Sprintf("tool %q", s.Name)
+	case *decl.Route:
+		key = "route " + s.Method + " " + s.Path
 	}
-	if l.tools[t.Name] {
-		l.add(tok, SeverityError, "AF011", fmt.Sprintf("tool %q is declared twice", t.Name))
+	if l.sections[key] {
+		l.add(tok, SeverityError, "AF011", key+" is declared twice")
 	}
-	l.tools[t.Name] = true
+	l.sections[key] = true
 }
 
 func (l *linter) checkTitle(tokens token.Slice, start int) int {
