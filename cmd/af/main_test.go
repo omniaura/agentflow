@@ -60,8 +60,11 @@ func TestNewRootCommandDefaults(t *testing.T) {
 	if _, _, err := cmd.Find([]string{"eject"}); err != nil {
 		t.Fatalf("expected eject subcommand, got error %v", err)
 	}
-	if len(cmd.Commands()) != 8 {
-		t.Fatalf("expected 8 subcommands, got %d", len(cmd.Commands()))
+	if _, _, err := cmd.Find([]string{"survey"}); err != nil {
+		t.Fatalf("expected survey subcommand, got error %v", err)
+	}
+	if len(cmd.Commands()) != 9 {
+		t.Fatalf("expected 9 subcommands, got %d", len(cmd.Commands()))
 	}
 }
 
