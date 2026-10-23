@@ -131,7 +131,7 @@ func GenFileOptions(w io.Writer, f ast.File, dirName string, opts Options) error
 	}
 	writeImports(&buf, imports)
 
-	if len(f.Prompts) == 0 && len(f.Tools) == 0 && len(f.Routes) == 0 {
+	if len(f.Prompts) == 0 && len(f.Tools) == 0 && len(f.Routes) == 0 && len(f.Outputs) == 0 {
 		return gen.ErrNoPrompts
 	}
 	buf.Write(decls)
@@ -784,6 +784,10 @@ func genDecls(f ast.File, opts Options, imports map[string]bool) ([]byte, error)
 		if genTools(&buf, f.Tools) {
 			imports["encoding/json"] = true
 		}
+	}
+	if len(f.Outputs) > 0 {
+		imports[AftoolImport] = true
+		genOutputs(&buf, f.Outputs)
 	}
 	if len(f.Routes) > 0 {
 		if err := genRoutes(&buf, f.Name, f.Routes, opts, imports); err != nil {

@@ -252,3 +252,33 @@ func TestDirectiveCompletions(t *testing.T) {
 		t.Fatalf("in a route: %v", got)
 	}
 }
+
+func TestOutputSections(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "o_af.go"), []byte("package o\n\nvar TaskValueCheckSchema = &aftool.Output[TaskValueCheckOutput]{}\n"), 0o644)
+	doc := openAt(t, filepath.Join(dir, "o.af"), ".output task_value_check\n.field repeatable bool Again?\n.field why \nWhether to save it.\n")
+	syms := doc.SectionSymbols()
+	if len(syms) != 1 || syms[0].Kind != protocol.SymbolKindStruct || *syms[0].Detail != "output" || len(syms[0].Children) != 2 {
+		t.Fatalf("symbols = %+v", syms)
+	}
+	if loc := doc.Definition(at(t, doc, "task_value_check", 0)); len(loc) != 1 || loc[0].Range.Start.Line != 2 {
+		t.Fatalf("definition = %+v", loc)
+	}
+	if hover := doc.SectionHover(at(t, doc, "task_value_check", 0)); !strings.Contains(hover, "**output task_value_check**") || !strings.Contains(hover, "- `repeatable` bool: Again?") {
+		t.Fatalf("hover:\n%s", hover)
+	}
+	var labels []string
+	for _, it := range doc.GetCompletionItems(Position{Line: 2, Character: 11}) {
+		labels = append(labels, it.Label)
+	}
+	if !slices.Contains(labels, "bool") || slices.Contains(labels, "any") || slices.Contains(labels, "object") {
+		t.Fatalf("field types = %v", labels)
+	}
+	labels = nil
+	for _, it := range doc.GetCompletionItems(Position{Line: 3, Character: 0}) {
+		labels = append(labels, it.Label)
+	}
+	if !slices.Contains(labels, ".field") || slices.Contains(labels, ".param") {
+		t.Fatalf("directives = %v", labels)
+	}
+}

@@ -1,6 +1,6 @@
 ---
 name: agentflow
-description: "Write and edit AgentFlow .af files: typed prompt templates, LLM tool declarations and HTTP routes over sqlc queries that af gen compiles to Go. Use when creating or changing a .af file or its generated _af.go, adding a prompt, a tool an LLM can call or an API route backed by a SQL query, or when af gen, af lint or af check fails."
+description: "Write and edit AgentFlow .af files: typed prompt templates, LLM tool declarations, structured outputs and HTTP routes over sqlc queries that af gen compiles to Go. Use when creating or changing a .af file or its generated _af.go, adding a prompt, a tool an LLM can call, a JSON output schema or an API route backed by a SQL query, or when af gen, af lint or af check fails."
 metadata:
   agentflow-vendored: STAMP
 ---
@@ -115,6 +115,31 @@ case OfferRefundReasonDamaged:
 `Decode` rejects oversized arguments, unknown or missing properties, wrong types and
 values outside an enum. Don't hand-write JSON Schemas, args structs or argument
 validation for a tool that a `.tool` section can declare.
+
+### Structured outputs
+
+```af
+.title Judge
+
+Decide whether this task is worth saving as a workflow. Answer with:
+<!fields>
+
+.output task_value_check
+.field repeatable bool Would the person want this exact task done again?
+.field confidence float 0 to 1, how sure you are.
+.field why One short sentence citing the evidence.
+.field cadence? enum(daily, weekly, monthly) How often it would run.
+```
+
+- `.output name` declares the JSON a model must answer with. `.field` follows the `.param`
+  rules.
+- The generated code is a `TaskValueCheckOutput` struct and `TaskValueCheckSchema`.
+  Pass `.OpenAI()` as `response_format`, or `.Anthropic()` as `output_config.format`.
+  `.Decode(answer)` checks the answer and decodes it, and `.Fields` describes the fields
+  for the prompt.
+- Don't repeat field descriptions in the prompt by hand: render `.Fields` into it.
+- The schema is strict: optional fields become nullable. `any` and free-form objects
+  are rejected.
 
 ### HTTP routes over sqlc queries
 

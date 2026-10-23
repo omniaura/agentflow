@@ -185,12 +185,12 @@ func sectionTokens(src []byte, tok token.T) []sectionToken {
 			if len(fields) > 1 {
 				out = append(out, sectionToken{fields[1].start, end, TokenTypeParameter})
 			}
-		case len(fields) > 0 && string(fields[0].text(src)) == ".tool":
+		case len(fields) > 0 && (string(fields[0].text(src)) == ".tool" || string(fields[0].text(src)) == ".output"):
 			out = append(out, sectionToken{fields[0].start, fields[0].end, TokenTypeKeyword})
 			if len(fields) > 1 {
 				out = append(out, sectionToken{fields[1].start, end, TokenTypeFunction})
 			}
-		case len(fields) > 0 && string(fields[0].text(src)) == ".param":
+		case len(fields) > 0 && (string(fields[0].text(src)) == ".param" || string(fields[0].text(src)) == ".field"):
 			out = append(out, sectionToken{fields[0].start, fields[0].end, TokenTypeKeyword})
 			if len(fields) > 1 {
 				out = append(out, sectionToken{fields[1].start, fields[1].end, TokenTypeProperty})
