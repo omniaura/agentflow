@@ -20,6 +20,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"go/build"
+	"go/parser"
+	gotoken "go/token"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -158,11 +161,16 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 	return OutputPath(name), buf.Bytes(), nil
 }
 
-// packageDir returns the directory name the generated package is named after.
-// For files in the current directory it prefers $GOPACKAGE, which go generate
-// sets, and otherwise uses the absolute directory name instead of ".".
+// packageDir returns the name the generated package is named after. Like the
+// go tool, it prefers the package clause of the Go files already in the
+// directory, so af gen and af check agree wherever they run. Otherwise it uses
+// $GOPACKAGE (set by go generate) for the current directory, then the
+// directory name.
 func packageDir(name string) string {
 	dir := filepath.Dir(name)
+	if pkg := goPackageName(dir); pkg != "" {
+		return pkg
+	}
 	if dir == "." {
 		if pkg := os.Getenv("GOPACKAGE"); pkg != "" {
 			return pkg
@@ -172,6 +180,38 @@ func packageDir(name string) string {
 		dir = abs
 	}
 	return filepath.Base(dir)
+}
+
+// goPackageName returns the package declared by the Go files in dir that
+// match the current build context, or "" if there are none. Hand-written
+// files win over generated _af.go files, which may be stale. Test files are
+// ignored.
+func goPackageName(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	generated := ""
+	for _, e := range entries {
+		n := e.Name()
+		if !e.Type().IsRegular() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		if ok, err := build.Default.MatchFile(dir, n); err != nil || !ok {
+			continue
+		}
+		f, err := parser.ParseFile(gotoken.NewFileSet(), filepath.Join(dir, n), nil, parser.PackageClauseOnly)
+		if err != nil {
+			continue
+		}
+		if !strings.HasSuffix(n, "_af.go") {
+			return f.Name.Name
+		}
+		if generated == "" {
+			generated = f.Name.Name
+		}
+	}
+	return generated
 }
 
 // Diagnose formats a generation error as file:line:col: message lines. It
