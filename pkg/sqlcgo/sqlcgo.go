@@ -72,6 +72,9 @@ type Query struct {
 	Args []Field
 	// Result is the row type of :one and :many, or "" otherwise.
 	Result Type
+	// File and Line locate the query's method in sqlc's output.
+	File string
+	Line int
 }
 
 // Package is one sqlc-generated Go package.
@@ -312,7 +315,8 @@ func LoadPackage(dir string) (*Package, error) {
 		if !ok {
 			continue
 		}
-		query := &Query{Name: name, Kind: kind}
+		pos := fset.Position(m.decl.Name.Pos())
+		query := &Query{Name: name, Kind: kind, File: pos.Filename, Line: pos.Line}
 		params := m.decl.Type.Params.List[1:]
 		switch {
 		case len(params) == 0:

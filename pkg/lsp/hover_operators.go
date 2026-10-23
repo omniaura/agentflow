@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/omniaura/agentflow/pkg/token"
 	"github.com/omniaura/agentflow/pkg/token/kind"
 )
 
@@ -72,41 +71,17 @@ var operatorDocs = map[string]OperatorInfo{
 }
 
 func (d *Document) GetOperatorAt(pos Position) *OperatorInfo {
-	line := int(pos.Line)
-	character := int(pos.Character)
-
-	if line >= len(d.Lines) {
-		return nil
-	}
-
-	lineText := d.Lines[line]
-	if character >= len(lineText) {
-		return nil
-	}
-
-	tokens, _ := token.Tokenize([]byte(lineText))
-
-	currentPos := 0
-	for _, tok := range tokens {
-		txt := tok.Get(lineText)
-		tokenStart := currentPos
-		tokenEnd := currentPos + len(txt)
-
-		if character >= tokenStart && character < tokenEnd && tok.Kind == kind.Operator {
-			if info, exists := operatorDocs[string(txt)]; exists {
-				return &info
-			}
+	off := d.positionToOffset(pos)
+	for _, tok := range d.Tokens {
+		if tok.Kind != kind.Operator || off < tok.Start || off >= tok.End {
+			continue
 		}
-
-		currentPos = tokenEnd
-		if len(txt) > 0 {
-			currentPos++
+		if info, ok := operatorDocs[string(tok.Get(d.Content))]; ok {
+			return &info
 		}
 	}
-
 	return nil
 }
-
 func formatOperatorHover(info *OperatorInfo) string {
 	var content strings.Builder
 

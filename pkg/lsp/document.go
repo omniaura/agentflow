@@ -20,9 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 
 	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/decl"
@@ -206,15 +209,15 @@ func (dm *DocumentManager) UpdateDocument(uri string, version protocol.Integer, 
 				"newContentLength", len(change.Text))
 			doc.Content = []byte(change.Text)
 		} else {
-			// Incremental change - for now, we'll implement full replacement
-			// TODO: Implement proper incremental updates
-			slog.Debug("Applying incremental change (as full replacement)",
+			start := positionToOffset(doc.Content, change.Range.Start)
+			end := max(start, positionToOffset(doc.Content, change.Range.End))
+			slog.Debug("Applying incremental change",
 				"uri", uri,
 				"changeIndex", i,
-				"rangeStart", change.Range.Start,
-				"rangeEnd", change.Range.End,
-				"newContentLength", len(change.Text))
-			doc.Content = []byte(change.Text)
+				"start", start,
+				"end", end,
+				"newTextLength", len(change.Text))
+			doc.Content = slices.Concat(doc.Content[:start:start], []byte(change.Text), doc.Content[end:])
 		}
 
 		slog.Debug("Change applied",
@@ -341,7 +344,7 @@ func (d *Document) parse() error {
 		// highlighting, so report it and keep going.
 		pos := d.byteOffsetToPosition(de.Offset)
 		d.Errors = append(d.Errors, ParseError{
-			Range:   Range{Start: pos, End: Position{Line: pos.Line, Character: pos.Character + len(d.lineAt(pos.Line))}},
+			Range:   Range{Start: pos, End: Position{Line: pos.Line, Character: utf16Len([]byte(d.lineAt(pos.Line)))}},
 			Message: de.Msg,
 			Code:    "AF011",
 		})
@@ -538,42 +541,55 @@ func (d *Document) lineAt(n int) string {
 	return string(d.Lines[n])
 }
 
-// byteOffsetToPosition converts a byte offset to a Position
+// byteOffsetToPosition converts a byte offset to a Position. Characters
+// count UTF-16 code units, as LSP positions do.
 func (d *Document) byteOffsetToPosition(offset int) Position {
-	start := time.Now()
+	return offsetToPosition(d.Content, offset)
+}
 
-	if offset < 0 {
-		slog.Debug("Invalid byte offset (negative)",
-			"uri", d.URI,
-			"offset", offset)
-		return Position{Line: 0, Character: 0}
+// positionToOffset converts a Position to a byte offset, clamped to the
+// document.
+func (d *Document) positionToOffset(pos Position) int {
+	return positionToOffset(d.Content, pos)
+}
+
+func offsetToPosition(src []byte, offset int) Position {
+	offset = max(0, min(offset, len(src)))
+	lineStart := bytes.LastIndexByte(src[:offset], '\n') + 1
+	return Position{
+		Line:      bytes.Count(src[:lineStart], []byte("\n")),
+		Character: utf16Len(src[lineStart:offset]),
 	}
+}
 
-	line := 0
-	character := 0
-
-	for i := 0; i < len(d.Content) && i < offset; i++ {
-		if d.Content[i] == '\n' {
-			line++
-			character = 0
-		} else {
-			character++
+func positionToOffset(src []byte, pos Position) int {
+	i := 0
+	for line := 0; line < pos.Line; line++ {
+		j := bytes.IndexByte(src[i:], '\n')
+		if j < 0 {
+			return len(src)
 		}
+		i += j + 1
 	}
-
-	result := Position{Line: line, Character: character}
-
-	duration := time.Since(start)
-	if debugMode {
-		slog.Debug("Byte offset converted to position",
-			"uri", d.URI,
-			"offset", offset,
-			"line", line,
-			"character", character,
-			"duration", duration)
+	for units := 0; i < len(src) && src[i] != '\n' && units < pos.Character; {
+		r, size := utf8.DecodeRune(src[i:])
+		units += utf16.RuneLen(r)
+		if units > pos.Character {
+			break // Inside a surrogate pair: stay before the rune.
+		}
+		i += size
 	}
+	return i
+}
 
-	return result
+func utf16Len(b []byte) int {
+	n := 0
+	for len(b) > 0 {
+		r, size := utf8.DecodeRune(b)
+		n += max(1, utf16.RuneLen(r))
+		b = b[size:]
+	}
+	return n
 }
 
 // GetVariableAt returns the variable at a specific position
@@ -630,7 +646,7 @@ func (d *Document) GetCompletionItems(pos Position) []CompletionItem {
 	}
 
 	line := d.Lines[pos.Line]
-	if pos.Character > len(line) {
+	if pos.Character > utf16Len(line) {
 		slog.Debug("Character position beyond line length",
 			"uri", d.URI,
 			"line", pos.Line,
@@ -640,7 +656,7 @@ func (d *Document) GetCompletionItems(pos Position) []CompletionItem {
 	}
 
 	// Check if we're inside a variable declaration context
-	beforeCursor := line[:pos.Character]
+	beforeCursor := line[:positionToOffset(line, Position{Character: pos.Character})]
 
 	slog.Debug("Analyzing context for completion",
 		"uri", d.URI,
@@ -700,17 +716,10 @@ func (d *Document) GetCompletionItems(pos Position) []CompletionItem {
 		}
 	}
 
-	// Suggest .title at beginning of line
-	if len(bytes.TrimSpace(beforeCursor)) == 0 || bytes.HasPrefix(bytes.TrimSpace(beforeCursor), []byte(".")) {
-		slog.Debug("At line start, suggesting directives", "uri", d.URI)
-
-		items = append(items, CompletionItem{
-			Label:      ".title",
-			Kind:       protocol.CompletionItemKindKeyword,
-			InsertText: ".title ",
-		})
-		itemCount++
-	}
+	// Suggest directives at the beginning of a line, and .param types
+	directives := d.directiveCompletions(pos, beforeCursor)
+	items = append(items, directives...)
+	itemCount += len(directives)
 
 	duration := time.Since(start)
 	slog.Info("Completion items generated",

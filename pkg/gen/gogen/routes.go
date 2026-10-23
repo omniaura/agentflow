@@ -158,6 +158,26 @@ func addImports(imports map[string]bool, pkg *sqlcgo.Package, paths []string) {
 	}
 }
 
+// Binding is where a route reads one query argument from.
+type Binding struct {
+	Arg sqlcgo.Field
+	// Source is "path", "auth", "query" or "body".
+	Source string
+}
+
+// Bind reports where route r reads each argument of query q from.
+func Bind(r *decl.Route, pkg *sqlcgo.Package, q *sqlcgo.Query) ([]Binding, error) {
+	b, err := bind(r, pkg, q)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Binding, len(q.Args))
+	for i, a := range q.Args {
+		out[i] = Binding{Arg: a, Source: b.sources[i]}
+	}
+	return out, nil
+}
+
 // normalize folds a name for matching: user_id, userId and UserID are
 // one name.
 func normalize(s string) string {
