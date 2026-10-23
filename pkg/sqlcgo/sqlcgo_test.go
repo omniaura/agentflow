@@ -132,8 +132,21 @@ func TestFindErrors(t *testing.T) {
 	if _, err := Find(dir); err == nil || !strings.Contains(err.Error(), "no sqlc.yaml or sqlc.yml or sqlc.json") {
 		t.Fatalf("got %v", err)
 	}
-	os.WriteFile(filepath.Join(dir, "sqlc.yaml"), []byte("version: \"2\"\nsql:\n  - gen:\n      go:\n        package: db\n        out: db\n"), 0o644)
-	if _, err := Find(dir); err == nil {
-		t.Fatal("want an error for a missing output directory")
+	os.WriteFile(filepath.Join(dir, "sqlc.yaml"), []byte("version: \"2\"\nsql:\n  - queries: [q.sql, more]\n    gen:\n      go:\n        package: db\n        out: db\n"), 0o644)
+	// Before sqlc first runs, the config is known but its package is not.
+	repo, err := Find(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := repo.Packages[0]
+	if p.Config != filepath.Join(dir, "sqlc.yaml") || p.ImportPath != "x/db" || !p.ReadsQueryFile(filepath.Join(dir, "q.sql")) || p.ReadsQueryFile(filepath.Join(dir, "other.sql")) {
+		t.Fatalf("package = %+v", p)
+	}
+	os.MkdirAll(filepath.Join(dir, "more"), 0o755)
+	if !p.ReadsQueryFile(filepath.Join(dir, "more", "x_af.sql")) {
+		t.Fatal("a file in a query directory is read")
+	}
+	if _, _, err := repo.Lookup("GetX"); err == nil || !strings.Contains(err.Error(), "run sqlc generate") {
+		t.Fatalf("Lookup = %v", err)
 	}
 }

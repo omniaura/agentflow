@@ -2,7 +2,9 @@ version: "2"
 sql:
   - engine: postgresql
     schema: db/schema.sql
-    queries: db/queries.sql
+    queries:
+      - db/queries.sql
+      - notes_af.sql
     gen:
       go:
         package: db

@@ -32,6 +32,7 @@ import (
 	"strings"
 
 	"github.com/omniaura/agentflow/cmd/af/gen/prompts"
+	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/format"
 	"github.com/omniaura/agentflow/pkg/lint"
 	"github.com/spf13/cobra"
@@ -170,6 +171,30 @@ func checkAF(report *Report, name string, ignoreVersion bool) error {
 			report.LintErrors++
 			report.Findings = append(report.Findings, Finding{
 				Kind: KindLint, File: name, Line: d.Line, Column: d.Column, Message: d.Code + " " + d.Message,
+			})
+		}
+	}
+
+	// Queries a .af file writes go to its _af.sql, which sqlc reads.
+	if f, err := ast.NewFile(filepath.Base(name), src); err == nil {
+		sqlPath := prompts.SQLPath(name)
+		want := prompts.RenderSQL(f)
+		disk, err := os.ReadFile(sqlPath)
+		switch {
+		case want == nil:
+		case os.IsNotExist(err):
+			report.Drift++
+			report.Findings = append(report.Findings, Finding{
+				Kind: KindMissing, File: sqlPath, Message: "generated queries are missing; run af gen prompts",
+				Diff: unifiedDiff("/dev/null", sqlPath, nil, want),
+			})
+		case err != nil:
+			return err
+		case !bytes.Equal(disk, want):
+			report.Drift++
+			report.Findings = append(report.Findings, Finding{
+				Kind: KindDrift, File: sqlPath, Message: "generated queries are out of date; run af gen prompts",
+				Diff: unifiedDiff(sqlPath, sqlPath+" (generated)", disk, want),
 			})
 		}
 	}

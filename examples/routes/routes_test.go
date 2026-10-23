@@ -97,7 +97,7 @@ func queries(t *testing.T) TodosQueries {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS todos; "+string(schema)); err != nil {
+	if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS todos, notes; "+string(schema)); err != nil {
 		t.Fatal(err)
 	}
 	return db.New(pool)

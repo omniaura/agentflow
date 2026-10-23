@@ -45,6 +45,11 @@ func TestParseRouteErrors(t *testing.T) {
 		{"public auth", ".route GET /x Q\n.public\n.auth user_id\n", "cannot use .auth"},
 		{"bad status", ".route GET /x Q\n.status 404\n", ".status needs a 2xx"},
 		{"duplicate route", ".route GET /x Q\n.route GET /x R\n", "route GET /x is declared twice"},
+		{"sql without kind", ".route GET /x Q\n.sql\nSELECT 1\n", ".sql needs the query's sqlc command"},
+		{"sql bad kind", ".route GET /x Q\n.sql :batchone\nSELECT 1\n", `got ":batchone"`},
+		{"sql empty", ".route GET /x Q\n.sql :one\n\n", "write the query on the lines after .sql"},
+		{"sql qualified", ".route GET /x db.Q\n.sql :one\nSELECT 1\n", "cannot name a package"},
+		{"sql twice", ".route GET /x Q\n.sql :one\nSELECT 1\n.route GET /y Q\n.sql :one\nSELECT 2\n", "query Q is written twice"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Parse([]byte(tt.src))
@@ -53,5 +58,21 @@ func TestParseRouteErrors(t *testing.T) {
 				t.Fatalf("got %v, want error containing %q", err, tt.msg)
 			}
 		})
+	}
+}
+
+func TestParseRouteSQL(t *testing.T) {
+	src := ".route PATCH /notes/{id} UpdateNote\n.auth owner_id\nReplaces a note.\n.sql :execrows\nUPDATE notes SET body = @body\nWHERE id = @id;\n\n.route GET /notes/{id} UpdateNote\n.auth owner_id\n"
+	f, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := f.Routes[0]
+	if r.SQLKind != ":execrows" || r.SQL != "UPDATE notes SET body = @body\nWHERE id = @id;" || r.Description != "Replaces a note." || r.SQLOffset != strings.Index(src, ".sql") {
+		t.Fatalf("route = %+v", r)
+	}
+	// A second route may serve a query written elsewhere in the file.
+	if f.Routes[1].SQL != "" || f.Routes[1].Query != "UpdateNote" {
+		t.Fatalf("second route = %+v", f.Routes[1])
 	}
 }

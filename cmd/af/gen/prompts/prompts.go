@@ -59,6 +59,7 @@ func flags(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().StringVarP(&Dir,
 		"dir", "d", ".", "Directory to read .af files from. Defaults to current directory.")
 	viper.BindPFlag("gen.dir", cmd.Flags().Lookup("dir"))
+	cmd.Flags().StringVar(&Sqlc, "sqlc", "auto", "Run sqlc generate after writing changed .sql queries: auto (when sqlc is on PATH) or never")
 	return cmd
 }
 
@@ -92,6 +93,9 @@ The generated prompts will be written next to their corresponding .af files.`,
 // failure is reported to errOut before generate returns an error.
 func generate(files []string, errOut io.Writer) error {
 	files = slices.Sorted(slices.Values(files))
+	if err := generateSQL(files, errOut); err != nil {
+		return err
+	}
 	failures := make([][]string, len(files))
 	var group errgroup.Group
 	for i, name := range files {
@@ -167,6 +171,9 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 		repo, err := sqlcgo.Find(filepath.Dir(name))
 		if err != nil {
 			return "", nil, &gogen.RouteError{Offset: ff.Routes[0].QueryOffset, Err: err}
+		}
+		if err := checkSQLRoutes(name, ff, repo); err != nil {
+			return "", nil, err
 		}
 		opts.Queries = repo.Lookup
 	}

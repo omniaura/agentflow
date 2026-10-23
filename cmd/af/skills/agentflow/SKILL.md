@@ -167,6 +167,11 @@ Creates a todo for the caller.
 - The generated code is a `<File>Queries` interface and a `<File>Routes` struct. Declare
   `type Caller struct{ OwnerID string }` in the package, set `Queries`, `Auth` and
   optionally `OnError`, then call `Register(mux)`.
+- Prefer writing the query in the route: end the section with `.sql :one` (or
+  `:many`, `:exec`, `:execrows`) and the SQL below it, using sqlc's `@name` parameters.
+  `af gen` writes `<file>_af.sql`, runs `sqlc generate`, and generates the handler. The
+  `_af.sql` must be listed in the `queries` of `sqlc.yaml`. Server-set values such as
+  timestamps go in the SQL (`now()`).
 - Responses: `:one` returns 200 with JSON, or 404 when there is no row. `:many` returns a
   JSON array. `:exec` and `:execrows` return 204, and `:execrows` returns 404 when no row
   changed.

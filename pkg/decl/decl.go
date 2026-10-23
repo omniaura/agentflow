@@ -158,6 +158,9 @@ func Parse(src []byte) (File, error) {
 				if prev.Method == r.Method && prev.Path == r.Path {
 					return f, &Error{Offset: i, Msg: fmt.Sprintf("route %s %s is declared twice", r.Method, r.Path)}
 				}
+				if r.SQL != "" && prev.SQL != "" && prev.Query == r.Query {
+					return f, &Error{Offset: r.SQLOffset, Msg: fmt.Sprintf("query %s is written twice; write it once and name it from both routes", r.Query)}
+				}
 			}
 			f.Routes = append(f.Routes, r)
 			i = end

@@ -1,0 +1,26 @@
+.route POST /notes CreateNote
+.auth owner_id
+.status 201
+Creates a note for the caller.
+.sql :one
+INSERT INTO notes (owner_id, body) VALUES (@owner_id, @body) RETURNING *
+
+.route GET /notes ListNotes
+.auth owner_id
+Lists the caller's notes, pinned first.
+.sql :many
+SELECT * FROM notes
+WHERE owner_id = @owner_id
+ORDER BY pinned DESC, id
+
+.route PATCH /notes/{id} UpdateNote
+.auth owner_id
+Replaces a note's body. The server sets updated_at.
+.sql :execrows
+UPDATE notes SET body = @body, updated_at = now()
+WHERE id = @id AND owner_id = @owner_id
+
+.route PUT /notes/{id}/pin PinNote
+.auth owner_id
+.sql :execrows
+UPDATE notes SET pinned = true WHERE id = @id AND owner_id = @owner_id

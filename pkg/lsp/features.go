@@ -502,6 +502,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".public", "serve without authentication")
 		add(".status", "success status code")
 		add(".maxbytes", "cap the request body")
+		add(".sql", "write the query here: .sql :one|:many|:exec|:execrows, then the SQL")
 	}
 	add(".title", "start a prompt")
 	add(".tool", "declare an LLM tool: .tool name")
