@@ -1,10 +1,24 @@
 package gonames
 
-import "strings"
+import (
+	"go/token"
+	"strings"
+	"unicode"
+)
 
-var replacerPackageName = strings.NewReplacer(" ", "", "-", "", "_", "")
-
-// CleanPackageName removes all spaces, hyphens, and underscores from a string and converts it to lowercase.
+// CleanPackageName turns a directory name into a Go package name: it keeps
+// the letters and digits, lowercased, and prefixes "p" when the result would
+// not be an identifier (it starts with a digit, is empty, or is a keyword).
 func CleanPackageName(name string) string {
-	return strings.ToLower(replacerPackageName.Replace(name))
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	s := b.String()
+	if !token.IsIdentifier(s) {
+		s = "p" + s
+	}
+	return s
 }

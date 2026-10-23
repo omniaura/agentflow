@@ -54,8 +54,11 @@ func TestNewRootCommandDefaults(t *testing.T) {
 	if _, _, err := cmd.Find([]string{"lsp"}); err != nil {
 		t.Fatalf("expected lsp subcommand, got error %v", err)
 	}
-	if len(cmd.Commands()) != 6 {
-		t.Fatalf("expected 6 subcommands, got %d", len(cmd.Commands()))
+	if _, _, err := cmd.Find([]string{"skills", "install"}); err != nil {
+		t.Fatalf("expected skills install subcommand, got error %v", err)
+	}
+	if len(cmd.Commands()) != 7 {
+		t.Fatalf("expected 7 subcommands, got %d", len(cmd.Commands()))
 	}
 }
 

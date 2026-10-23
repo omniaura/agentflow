@@ -26,6 +26,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
 - [go:generate Workflow](#gogenerate-workflow)
 - [Checking Generated Code in CI](#checking-generated-code-in-ci)
 - [LSP Server](#lsp-server)
+- [Agent Skills](#agent-skills)
 - [CLI Usage](#cli-usage)
 - [Releases](#releases)
 
@@ -424,6 +425,18 @@ Current editor features include:
 - document symbols for prompt titles and variables
 
 The companion VS Code extension lives at `https://github.com/omniaura/agentflow-vscode` and can launch the LSP automatically.
+
+## Agent Skills
+
+`af` ships the agent skill that teaches coding agents such as Claude Code and Codex to write `.af` files: the syntax, the generated Go API, and the fmt, gen and check workflow. Install it into your repository:
+
+    go tool af skills install
+
+This writes `.agents/skills/agentflow/SKILL.md`. It also writes `.claude/skills/agentflow/SKILL.md` when the repository has a `.claude` directory that doesn't already share `.agents/skills` through a symlink. Use `--dir` to choose other directories.
+
+Run it again after upgrading af to upgrade the skill. Each installed file carries a version stamp and a hash. A file you haven't edited is replaced. A file you have edited is kept, unless you pass `--force`.
+
+`af skills print` writes the skill to stdout.
 
 ## CLI Usage
 
