@@ -95,3 +95,45 @@ func mustOpenTestDocument(t *testing.T, text string) *Document {
 	require.NoError(t, err)
 	return doc
 }
+
+func TestDocumentToolSectionTokens(t *testing.T) {
+	doc := mustOpenTestDocument(t, ".tool lookup\n.param ids []int? The ids.\n.param mode enum(a, b) Mode.\n.param q? Query text.\nLook up.\n\n.title System\nHi <!name>.\n")
+	if len(doc.Errors) != 0 {
+		t.Fatalf("unexpected errors %#v", doc.Errors)
+	}
+	data := generateGranularSemanticTokens(doc)
+	types := []string{TokenTypeKeyword, TokenTypeVariable, TokenTypeString, TokenTypeComment, TokenTypeOperator, TokenTypeType, TokenTypeParameter, TokenTypeDecorator, TokenTypeFunction, TokenTypeProperty}
+	var got []string
+	line, char := 0, 0
+	for i := 0; i+4 < len(data); i += 5 {
+		if data[i] > 0 {
+			line, char = line+int(data[i]), 0
+		}
+		char += int(data[i+1])
+		text := string(doc.Lines[line][char : char+int(data[i+2])])
+		got = append(got, types[data[i+3]]+":"+text)
+		if line > 4 {
+			break
+		}
+	}
+	want := []string{
+		"keyword:.tool", "function:lookup",
+		"keyword:.param", "property:ids", "type:[]int?", "string:The ids.",
+		"keyword:.param", "property:mode", "type:enum(a, b)", "string:Mode.",
+		"keyword:.param", "property:q?", "string:Query text.",
+		"string:Look up.",
+	}
+	if fmt.Sprint(got[:len(want)]) != fmt.Sprint(want) {
+		t.Fatalf("tokens:\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestDocumentToolErrorKeepsHighlighting(t *testing.T) {
+	doc := mustOpenTestDocument(t, ".title System\nHi <!name>.\n\n.tool lookup\n.param ids int\n.param ids.x\n")
+	if len(doc.Errors) != 1 || doc.Errors[0].Code != "AF011" || doc.Errors[0].Range.Start.Line != 5 {
+		t.Fatalf("errors = %#v", doc.Errors)
+	}
+	if len(doc.Tokens) == 0 || len(doc.Variables) == 0 {
+		t.Fatalf("tokens and variables are lost: %d tokens, %d variables", len(doc.Tokens), len(doc.Variables))
+	}
+}

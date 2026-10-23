@@ -1,0 +1,8 @@
+.title System
+<*tools []Tool as tool>
+- <!tool.name>
+</tools>
+
+.tool lookup
+.param ids []int The ids to look up.
+Look things up.

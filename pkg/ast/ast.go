@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/token"
 	"github.com/omniaura/agentflow/pkg/token/coarse"
 	"github.com/peyton-spencer/caseconv"
@@ -32,6 +33,8 @@ type File struct {
 	Name    string
 	Content []byte
 	Prompts []Prompt
+	// Tools are the file's .tool sections.
+	Tools []*decl.Tool
 }
 
 func (f File) String() string {
@@ -351,6 +354,11 @@ func NewFile(name string, content []byte) (f File, err error) {
 	f.Name = strings.TrimSuffix(name, ".af")
 	f.Content = content
 	f.Prompts, err = newPrompts(tokens, content)
+	if err != nil {
+		return
+	}
+	d, err := decl.Parse(content)
+	f.Tools = d.Tools
 	return
 }
 

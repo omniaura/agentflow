@@ -17,10 +17,12 @@ package lint
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/token"
 	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv/bytcase"
@@ -78,6 +80,7 @@ type linter struct {
 	stack       []frame
 	types       map[string]string
 	titles      map[string]token.T
+	tools       map[string]bool
 	hasTitle    bool
 	hasContent  bool
 }
@@ -97,6 +100,8 @@ func (l *linter) check(tokens token.Slice) {
 			}
 		case kind.OpenBracket:
 			i = l.checkDirective(tokens, i)
+		case kind.Section:
+			l.checkSection(tok)
 		}
 	}
 
@@ -110,6 +115,30 @@ func (l *linter) check(tokens token.Slice) {
 	if !l.hasTitle && l.hasContent {
 		l.add(token.T{Start: 0, End: 0}, SeverityError, "AF001", "file has content but no .title section")
 	}
+}
+
+// checkSection reports declaration errors in a section such as .tool.
+func (l *linter) checkSection(tok token.T) {
+	t, err := decl.ParseTool(l.src, tok.Start, tok.End)
+	if err != nil {
+		off := tok.Start
+		var de *decl.Error
+		if errors.As(err, &de) {
+			off = de.Offset
+		}
+		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", err.Error())
+		return
+	}
+	for _, w := range t.Warnings {
+		l.add(token.T{Start: w.Offset, End: w.Offset}, SeverityWarning, "AF012", w.Msg)
+	}
+	if l.tools == nil {
+		l.tools = map[string]bool{}
+	}
+	if l.tools[t.Name] {
+		l.add(tok, SeverityError, "AF011", fmt.Sprintf("tool %q is declared twice", t.Name))
+	}
+	l.tools[t.Name] = true
 }
 
 func (l *linter) checkTitle(tokens token.Slice, start int) int {

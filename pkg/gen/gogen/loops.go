@@ -225,7 +225,15 @@ func genLoopFile(w io.Writer, f ast.File, dir string) error {
 	if usesReflect {
 		out.WriteString(";\"reflect\"")
 	}
+	var tools bytes.Buffer
+	if len(f.Tools) > 0 {
+		if genTools(&tools, f.Tools) {
+			out.WriteString(";\"encoding/json\"")
+		}
+		fmt.Fprintf(&out, "\n\n%q", AftoolImport)
+	}
 	out.WriteString(")\n")
+	out.Write(tools.Bytes())
 	out.Write(declarations.Bytes())
 	out.Write(methods.Bytes())
 	formatted, err := format.Source(out.Bytes())

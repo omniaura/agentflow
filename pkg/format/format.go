@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/token"
 	"github.com/omniaura/agentflow/pkg/token/kind"
 )
@@ -171,6 +172,17 @@ func normalizeStructuralLines(src string) string {
 			}
 			continue
 		}
+		if isSectionLine(strings.TrimRight(line, " \t")) {
+			endBody(&out)
+			if hasNonEmptyLine(out) {
+				out = append(out, "")
+			}
+			out = append(out, strings.TrimRight(line, " \t"))
+			continue
+		}
+		if isSectionDirectiveLine(line) {
+			line = strings.TrimRight(line, " \t")
+		}
 
 		out = append(out, line)
 	}
@@ -194,6 +206,27 @@ func isBlank(line string) bool {
 
 func isTitleLine(line string) bool {
 	return line == ".title" || strings.HasPrefix(line, ".title ")
+}
+
+// isSectionLine reports whether line opens a declaration section, such as
+// .tool. Sections get a blank line before them, like titles, but keep their
+// directive lines together.
+func isSectionLine(line string) bool {
+	for _, d := range decl.SectionDirectives {
+		if line == d || strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
+			return true
+		}
+	}
+	return false
+}
+
+func isSectionDirectiveLine(line string) bool {
+	for _, d := range decl.ToolDirectives {
+		if strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
+			return true
+		}
+	}
+	return false
 }
 
 func trimTrailingBlankLines(lines *[]string) {

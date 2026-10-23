@@ -119,6 +119,11 @@ func GenFile(w io.Writer, f ast.File, dirName string) error {
 		}
 	}
 
+	var tools bytes.Buffer
+	if len(f.Tools) > 0 {
+		imports["encoding/json"] = genTools(&tools, f.Tools)
+	}
+
 	// Emit import block if needed
 	importList := []string{}
 	for k, v := range imports {
@@ -126,7 +131,7 @@ func GenFile(w io.Writer, f ast.File, dirName string) error {
 			importList = append(importList, k)
 		}
 	}
-	if len(importList) > 0 {
+	if len(importList) > 0 || len(f.Tools) > 0 {
 		slices.Sort(importList)
 		buf.WriteString("import (\n")
 		for _, imp := range importList {
@@ -134,12 +139,16 @@ func GenFile(w io.Writer, f ast.File, dirName string) error {
 			buf.WriteString(imp)
 			buf.WriteString("\"\n")
 		}
+		if len(f.Tools) > 0 {
+			fmt.Fprintf(&buf, "\n\t%q\n", AftoolImport)
+		}
 		buf.WriteString(")\n\n")
 	}
 
-	if len(f.Prompts) == 0 {
+	if len(f.Prompts) == 0 && len(f.Tools) == 0 {
 		return gen.ErrNoPrompts
 	}
+	buf.Write(tools.Bytes())
 
 	for i, p := range f.Prompts {
 		if p.Title.Kind == coarse.Unset && len(f.Prompts) > 1 {

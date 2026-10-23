@@ -1,0 +1,23 @@
+.title System
+
+You are a support agent. Look orders up with <!lookup_tool> before answering
+questions about them, and offer a refund with <!refund_tool> only when the
+order is eligible.
+
+.tool lookup_order
+.maxbytes 1024
+.param order_id The order ID, as printed on the receipt.
+.param include? enum(items, shipping, payments) Extra detail to load with the order.
+
+Load one order by ID. Returns the order's status and totals.
+
+.tool offer_refund
+.param order_id The order to refund.
+.param reason enum(damaged, late, wrong_item, other) Why the customer wants a refund.
+.param lines[].sku The line's SKU.
+.param lines[].quantity int How many units to refund.
+.param lines? []object Refund only these lines; omit to refund the whole order.
+.param note? A note for the support team, never shown to the customer.
+
+Show the customer a refund offer they must accept. This only prepares the
+offer: the refund happens after the customer clicks Accept.
