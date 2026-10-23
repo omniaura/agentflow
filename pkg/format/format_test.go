@@ -38,7 +38,7 @@ Default guidance.
 		},
 		{
 			name: "tool sections",
-			in: ".title System\nUse <! tool >.\n\n\n.tool lookup   \n.param ids []int   The ids.  \n.maxbytes 10 \n  Look up <!not a var>.  \n\n.tool ping\nPing.\n\n\n",
+			in:   ".title System\nUse <! tool >.\n\n\n.tool lookup   \n.param ids []int   The ids.  \n.maxbytes 10 \n  Look up <!not a var>.  \n\n.tool ping\nPing.\n\n\n",
 			want: ".title System\n\nUse <!tool>.\n\n.tool lookup\n.param ids []int   The ids.\n.maxbytes 10\n  Look up <!not a var>.\n\n.tool ping\nPing.\n",
 		},
 		{
