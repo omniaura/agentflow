@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/omniaura/agentflow/compare/v0.12.0...v0.12.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **gen:** name the generated package after the directory's package clause ([#107](https://github.com/omniaura/agentflow/issues/107)) ([f3d3b6f](https://github.com/omniaura/agentflow/commit/f3d3b6f14966a75c3c6666608c28bdd4339a2537))
+
 ## [0.12.0](https://github.com/omniaura/agentflow/compare/v0.11.0...v0.12.0) (2026-10-23)
 
 

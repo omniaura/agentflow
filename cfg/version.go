@@ -7,7 +7,7 @@ import (
 
 // releaseVersion is the latest release, stamped by release-please. It is the
 // fallback for builds from a local checkout.
-const releaseVersion = "0.12.0" // x-release-please-version
+const releaseVersion = "0.12.1" // x-release-please-version
 
 const modulePath = "github.com/omniaura/agentflow"
 
