@@ -181,10 +181,8 @@ func (d *Def[Args]) fail(path, msg string) error {
 
 func (d *Def[Args]) check(raw json.RawMessage, s Shape, path string) error {
 	raw = bytes.TrimSpace(raw)
-	if bytes.Equal(raw, []byte("null")) {
-		// null is the zero value; required properties reject it before
-		// reaching here.
-		return nil
+	if s.Kind != Any && isNull(raw) {
+		return d.fail(path, "expected "+article(s.Kind)+", got null")
 	}
 	switch s.Kind {
 	case Any:
@@ -243,10 +241,11 @@ func (d *Def[Args]) check(raw json.RawMessage, s Shape, path string) error {
 		}
 		for _, f := range s.Fields {
 			v, ok := props[f.Name]
-			if f.Required && (!ok || bytes.Equal(bytes.TrimSpace(v), []byte("null"))) {
+			if f.Required && (!ok || isNull(v)) {
 				return d.fail(join(path, f.Name), "required")
 			}
-			if !ok {
+			// An optional property may be null: it decodes to the zero value.
+			if !ok || isNull(v) {
 				continue
 			}
 			if err := d.check(v, f.Shape, join(path, f.Name)); err != nil {
@@ -257,6 +256,17 @@ func (d *Def[Args]) check(raw json.RawMessage, s Shape, path string) error {
 		return errors.New("aftool: unknown kind " + s.Kind.String())
 	}
 	return nil
+}
+
+func isNull(raw json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
+func article(k Kind) string {
+	if k == Integer || k == Array || k == Object {
+		return "an " + k.String()
+	}
+	return "a " + k.String()
 }
 
 // isNumber reports whether raw is a JSON number. json.Number alone would

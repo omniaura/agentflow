@@ -42,6 +42,11 @@ Default guidance.
 			want: ".title System\n\nUse <!tool>.\n\n.tool lookup\n.param ids []int   The ids.\n.maxbytes 10\n  Look up <!not a var>.\n\n.tool ping\nPing.\n",
 		},
 		{
+			name: "tab after tool",
+			in:   ".title System\nHi.\n.tool\tlookup\n.param\tids []int\nLook up.\n",
+			want: ".title System\n\nHi.\n\n.tool\tlookup\n.param\tids []int\nLook up.\n",
+		},
+		{
 			name: "messy variable spacing",
 			in:   ".title   Greeting   \n\nHello <!  user.name   string  > and <!\tcount\tint\t>.\n",
 			want: `.title Greeting

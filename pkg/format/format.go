@@ -213,7 +213,7 @@ func isTitleLine(line string) bool {
 // directive lines together.
 func isSectionLine(line string) bool {
 	for _, d := range decl.SectionDirectives {
-		if line == d || strings.HasPrefix(line, d+" ") {
+		if line == d || strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
 			return true
 		}
 	}
@@ -222,7 +222,7 @@ func isSectionLine(line string) bool {
 
 func isSectionDirectiveLine(line string) bool {
 	for _, d := range decl.ToolDirectives {
-		if strings.HasPrefix(line, d+" ") {
+		if strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
 			return true
 		}
 	}
