@@ -208,12 +208,28 @@ func TestRenderChecksMapFuncs(t *testing.T) {
 		{"missing", "func other() {}", "package api declares no func xCard"},
 		// A method is not callable by name; nor is a func only tests see.
 		{"method", "type T struct{}\n\nfunc (T) xCard(n int64) string { return \"\" }", "declares no func xCard"},
+		{"typed var", "var xCard func(int64) string", ""},
+		{"not a func", "var xCard int", "xCard must be a func taking the query's row"},
+		// Vars the compiler may accept are left to it.
+		{"var of another func", "var xCard = other\n\nfunc other(n int64) string { return \"\" }", ""},
+		{"var of a named func type", "type mapper func(int64) string\n\nvar xCard mapper = func(n int64) string { return \"\" }", ""},
+		{"var of a literal", "var xCard = 3", "xCard must be a func"},
+		{"var of a map", "var xCard map[int64]string", "xCard must be a func"},
+		{"no result", "func xCard(n int64) {}", "xCard must be a func"},
+		{"two params", "func xCard(a, b int64) string { return \"\" }", "xCard must be a func"},
+		{"two results", "func xCard(n int64) (string, error) { return \"\", nil }", "xCard must be a func"},
+		// A file the build leaves out declares nothing.
+		{"build tag", "//go:build never\n\npackage api\n\nfunc xCard(n int64) string { return \"\" }", "declares no func xCard"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root := writeModule(t, "db")
 			dir := filepath.Join(root, "api")
 			os.MkdirAll(dir, 0o755)
-			os.WriteFile(filepath.Join(dir, "cards.go"), []byte("package api\n\n"+tt.goSrc+"\n"), 0o644)
+			goSrc := "package api\n\n" + tt.goSrc
+			if strings.HasPrefix(tt.goSrc, "//go:build") {
+				goSrc = tt.goSrc
+			}
+			os.WriteFile(filepath.Join(dir, "cards.go"), []byte(goSrc+"\n"), 0o644)
 			os.WriteFile(filepath.Join(dir, "cards_test.go"), []byte("package api\n\nfunc xCard(n int64) string { return \"\" }\n"), 0o644)
 			// A stale generated file doesn't count either.
 			os.WriteFile(filepath.Join(dir, "api_af.go"), []byte("package api\n\nfunc xCard(n int64) string { return \"\" }\n"), 0o644)
