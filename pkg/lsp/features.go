@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/format"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
@@ -43,7 +44,13 @@ func (d *Document) Diagnostics() []protocol.Diagnostic {
 		}
 		out = append(out, diagnostic(e.Range, protocol.DiagnosticSeverityError, e.Code, e.Message))
 	}
-	ds, err := lint.Lint(extractFilename(d.URI), d.Content)
+	// The full path, so lint finds the tools of the other .af files of
+	// the document's directory.
+	name := d.path()
+	if name == "" {
+		name = extractFilename(d.URI)
+	}
+	ds, err := lint.LintRead(name, d.Content, d.readSibling)
 	if err != nil {
 		return out
 	}
@@ -230,6 +237,11 @@ func (d *Document) Definition(pos Position) []protocol.Location {
 		if t, ok := sec.(*decl.Tool); ok && (t.SQLCFile != "" || t.SQLCQuery != "") && off >= t.SQLOffset && off <= lineEnd(d.Content, t.SQLOffset, tok.End) {
 			return d.sqlcDefinition(t)
 		}
+		if a, ok := sec.(*decl.Agent); ok {
+			if loc := d.agentToolDefinition(a, tok, off); loc != nil {
+				return loc
+			}
+		}
 		if off > lineEnd(d.Content, tok.Start, tok.End) {
 			return nil
 		}
@@ -250,6 +262,56 @@ func (d *Document) Definition(pos Position) []protocol.Location {
 		}
 	}
 	return nil
+}
+
+// agentToolDefinition returns where the tool named under off, on an
+// agent's .tools line, is declared: in this file or another .af file of
+// its directory, or both when it is declared twice. It returns nil when
+// off isn't on such a name.
+func (d *Document) agentToolDefinition(a *decl.Agent, sec token.T, off int) []protocol.Location {
+	start := strings.LastIndexByte(string(d.Content[:off]), '\n') + 1
+	end := lineEnd(d.Content, start, sec.End)
+	line := string(d.Content[start:end])
+	if !strings.HasPrefix(line, ".tools ") && !strings.HasPrefix(line, ".tools\t") {
+		return nil
+	}
+	isName := func(c byte) bool {
+		return c == '_' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+	}
+	i, j := off-start, off-start
+	for i > len(".tools") && isName(line[i-1]) {
+		i--
+	}
+	for j < len(line) && isName(line[j]) {
+		j++
+	}
+	name := line[i:j]
+	if name == "" || i <= len(".tools") {
+		return nil
+	}
+	f, err := decl.Parse(d.Content)
+	if err != nil {
+		return nil
+	}
+	// Every declaration: a name declared twice in the package is an error
+	// lint reports, and the editor lets the user pick the one to fix.
+	var locs []protocol.Location
+	for _, t := range f.Tools {
+		if t.Name == name {
+			pos := offsetToPosition(d.Content, t.Start)
+			locs = append(locs, protocol.Location{URI: d.URI, Range: Range{Start: pos, End: pos}.protocol()})
+		}
+	}
+	if p := d.path(); p != "" {
+		for _, sib := range ast.SiblingToolsRead(p, d.readSibling) {
+			if sib.Tool.Name != name {
+				continue
+			}
+			pos := offsetToPosition(sib.Src, sib.Tool.Start)
+			locs = append(locs, protocol.Location{URI: fileURI(sib.Path), Range: Range{Start: pos, End: pos}.protocol()})
+		}
+	}
+	return locs
 }
 
 func (d *Document) variableDefinition(tok token.T, off int) []protocol.Location {
@@ -557,6 +619,38 @@ var paramTypeRE = regexp.MustCompile(`^\.(?:param|field)\s+[A-Za-z_][A-Za-z0-9_.
 
 // directiveCompletions suggests directives at the start of a line, and
 // types after a .param name.
+// toolsListRE matches a .tools line up to a name being typed.
+var toolsListRE = regexp.MustCompile(`^\.tools[ \t]+([\w-]+[ \t]*,[ \t]*)*[\w-]*$`)
+
+// toolNameCompletions offers the tools an agent's .tools may name: the
+// file's own and those of the other .af files of its directory, less the
+// ones already listed.
+func (d *Document) toolNameCompletions(beforeCursor []byte) []CompletionItem {
+	listed := map[string]bool{}
+	for _, n := range strings.Split(strings.TrimPrefix(string(beforeCursor), ".tools"), ",") {
+		listed[strings.TrimSpace(n)] = true
+	}
+	var items []CompletionItem
+	add := func(t *decl.Tool, detail string) {
+		if listed[t.Name] {
+			return
+		}
+		listed[t.Name] = true
+		items = append(items, CompletionItem{Label: t.Name, Kind: protocol.CompletionItemKindFunction, Detail: detail, Documentation: strings.TrimSpace(t.Description)})
+	}
+	if f, err := decl.Parse(d.Content); err == nil {
+		for _, t := range f.Tools {
+			add(t, "tool in this file")
+		}
+	}
+	if p := d.path(); p != "" {
+		for _, sib := range ast.SiblingToolsRead(p, d.readSibling) {
+			add(sib.Tool, "tool in "+filepath.Base(sib.Path))
+		}
+	}
+	return items
+}
+
 func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []CompletionItem {
 	var items []CompletionItem
 	if sec := d.sectionDirectiveAt(d.positionToOffset(pos)); paramTypeRE.Match(beforeCursor) && (sec == ".tool" || sec == ".output") {
@@ -569,6 +663,9 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 			items = append(items, CompletionItem{Label: typ, Kind: protocol.CompletionItemKindTypeParameter, Detail: "parameter type"})
 		}
 		return items
+	}
+	if sec := d.sectionDirectiveAt(d.positionToOffset(pos)); sec == ".agent" && toolsListRE.Match(beforeCursor) {
+		return d.toolNameCompletions(beforeCursor)
 	}
 	trimmed := bytes.TrimSpace(beforeCursor)
 	if len(beforeCursor) != len(trimmed) || (len(trimmed) > 0 && trimmed[0] != '.') || bytes.ContainsAny(trimmed, " \t") {
@@ -589,7 +686,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".empty", "what the model is told when the query finds no row: .empty message")
 	case ".agent":
 		add(".system", "the system prompt's title (default: the file's only prompt)")
-		add(".tools", "the tools it may call (default: every tool in the file)")
+		add(".tools", "the tools it may call, from any .af file of the directory (default: every tool in this file)")
 		add(".maxturns", "bound the model calls of a run")
 		add(".returns", "the .output its final answer must be (default: text)")
 		add(".serve", "serve it over HTTP: .serve POST /path")

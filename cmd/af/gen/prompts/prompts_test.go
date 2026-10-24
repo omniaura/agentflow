@@ -106,3 +106,31 @@ func TestPromptForAFFilesRejectsInvalidSelection(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestRenderAgentToolsOfOtherFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "shipping.af"), []byte(".tool track_shipment\n.param order_id The order.\n\nTracks a parcel.\n"), 0o644)
+	name := filepath.Join(dir, "support.af")
+	_, code, err := Render(name, []byte(".title Support\nHi.\n\n.agent tracker\n.tools track_shipment\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// The other file's generated tool, called by name in the package.
+		"{Name: TrackShipmentTool.Name, Description: TrackShipmentTool.Description, Schema: TrackShipmentTool.Schema}",
+		"args, err := TrackShipmentTool.Decode(call.Arguments)",
+		"// TrackShipment: Tracks a parcel.\n\tTrackShipment(ctx context.Context, args TrackShipmentArgs) (string, error)",
+	} {
+		if !bytes.Contains(code, []byte(want)) {
+			t.Errorf("missing %q in\n%s", want, code)
+		}
+	}
+	// This file doesn't redeclare the other file's tool.
+	if bytes.Contains(code, []byte("var TrackShipmentTool")) {
+		t.Errorf("redeclared the tool:\n%s", code)
+	}
+	_, _, err = Render(name, []byte(".title Support\nHi.\n\n.agent tracker\n.tools track\n"))
+	if err == nil || !strings.Contains(err.Error(), "no tool track in this file or the other .af files of its directory (have track_shipment)") {
+		t.Fatalf("missing tool: %v", err)
+	}
+}

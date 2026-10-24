@@ -201,7 +201,9 @@ Answers customer questions about their orders.
   answer rather than `afagent.ErrMaxTurns`. `res.OutOfTurns` reports it; check it where
   an unfinished run matters. Don't hand-write a separate "now give your final answer" call.
 - `.system Title` picks the system prompt; it is optional when the file has one prompt.
-  `.tools a, b` limits the tools; the default is every tool in the file.
+  `.tools a, b` limits the tools; the default is every tool in the file. `.tools` may also
+  name tools from the other `.af` files of the directory (one Go package), so keep tools in
+  files by area (`orders.af`, `shipping.af`) and list them in the agent's file.
 - `.returns name` makes the final answer an `.output` of the file. `Run` then returns
   `<Name>AgentResult`, whose `Output` field is decoded and checked. Answers that don't
   decode go back to the model to retry. Use it whenever code reads the agent's answer.

@@ -348,6 +348,75 @@ func (s *TriagerAgentServer) serve(w http.ResponseWriter, r *http.Request) {
 	afhttp.WriteJSON(w, r, http.StatusOK, resp)
 }
 
+// TrackerTools runs the tools of the tracker agent. Each method gets the call's
+// decoded arguments; its result or error goes back to the model.
+type TrackerTools interface {
+	// LookupOrder: Load one order by ID. Returns its status and total.
+	LookupOrder(ctx context.Context, args LookupOrderArgs) (string, error)
+	// TrackShipment: Where an order's parcel is now, and when it should arrive.
+	TrackShipment(ctx context.Context, args TrackShipmentArgs) (string, error)
+}
+
+// TrackerAgent is the tracker agent.
+//
+// Tells customers where their parcel is. track_shipment is declared in
+// shipping.af: an agent may use the tools of any .af file in its package.
+type TrackerAgent struct {
+	Model afagent.Model
+	Tools TrackerTools
+	// MaxTurns bounds the model calls of a run; 0 or less means 4.
+	MaxTurns int
+	// Concurrency is how many tool calls of a turn run at once.
+	Concurrency int
+	// OnEvent, when set, sees each model response and tool call. With
+	// Concurrency above 1 it is called concurrently.
+	OnEvent func(afagent.Event)
+}
+
+// TrackerAgentTools describes the tools of the tracker agent to the model.
+var TrackerAgentTools = []afagent.ToolSpec{
+	{Name: LookupOrderTool.Name, Description: LookupOrderTool.Description, Schema: LookupOrderTool.Schema},
+	{Name: TrackShipmentTool.Name, Description: TrackShipmentTool.Description, Schema: TrackShipmentTool.Schema},
+}
+
+// Run continues the conversation in messages until the model answers
+// without calling a tool, and returns the answer and the conversation.
+func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afagent.Message) (afagent.Result, error) {
+	maxTurns := a.MaxTurns
+	if maxTurns <= 0 {
+		maxTurns = 4
+	}
+	loop := afagent.Loop{
+		Model:            a.Model,
+		System:           system.String(),
+		Tools:            TrackerAgentTools,
+		MaxTurns:         maxTurns,
+		Concurrency:      a.Concurrency,
+		OnEvent:          a.OnEvent,
+		Dispatch:         a.dispatch,
+		AnswerOnLastTurn: true,
+	}
+	return loop.Run(ctx, messages)
+}
+
+func (a *TrackerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
+	switch call.Name {
+	case LookupOrderTool.Name:
+		args, err := LookupOrderTool.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		return a.Tools.LookupOrder(ctx, args)
+	case TrackShipmentTool.Name:
+		args, err := TrackShipmentTool.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		return a.Tools.TrackShipment(ctx, args)
+	}
+	return "", fmt.Errorf("there is no tool named %q", call.Name)
+}
+
 type Support struct {
 	Shop string
 }

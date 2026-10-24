@@ -3,7 +3,6 @@ package gogen
 import (
 	"bytes"
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -28,13 +27,13 @@ func promptName(f ast.File, p ast.Prompt) string {
 // method per tool, a <Name>Agent struct whose Run drives the
 // afagent.Loop, and the dispatcher that decodes each call's arguments
 // with the tool's strict decoder before calling the method.
-func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
+func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, imports map[string]bool) error {
 	for _, a := range f.Agents {
 		system, err := agentSystem(f, a)
 		if err != nil {
 			return &DeclError{Offset: a.Start, Err: err}
 		}
-		tools, err := agentTools(f, a)
+		tools, err := agentTools(f, a, siblings)
 		if err != nil {
 			return &DeclError{Offset: a.Start, Err: err}
 		}
@@ -199,25 +198,17 @@ func agentReturns(f ast.File, a *decl.Agent) (*decl.Tool, error) {
 	return nil, fmt.Errorf("agent %s: no output %s in this file (%s)", a.Name, a.Returns, list)
 }
 
-func agentTools(f ast.File, a *decl.Agent) ([]*decl.Tool, error) {
+func agentTools(f ast.File, a *decl.Agent, siblings []ast.SiblingTool) ([]*decl.Tool, error) {
 	if a.Tools == nil {
 		return f.Tools, nil
 	}
 	var out []*decl.Tool
 	for _, name := range a.Tools {
-		i := slices.IndexFunc(f.Tools, func(t *decl.Tool) bool { return t.Name == name })
-		if i < 0 {
-			var have []string
-			for _, t := range f.Tools {
-				have = append(have, t.Name)
-			}
-			list := "it declares none"
-			if len(have) > 0 {
-				list = "have " + strings.Join(have, ", ")
-			}
-			return nil, fmt.Errorf("agent %s: no tool %s in this file (%s)", a.Name, name, list)
+		t, err := ast.FindTool(f.Tools, siblings, name)
+		if err != nil {
+			return nil, fmt.Errorf("agent %s: %w", a.Name, err)
 		}
-		out = append(out, f.Tools[i])
+		out = append(out, t)
 	}
 	return out, nil
 }

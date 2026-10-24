@@ -62,7 +62,8 @@ Each category has a `.af` replacement:
    - `XTool.Decode(args)` replaces `json.Unmarshal` plus checks.
    - `XSchema.Decode(answer)` replaces output parsing.
    - `(&XAgent{Model: m, Tools: impl}).Run(...)` replaces the loop. Turn the loop's
-     `switch` cases into `XTools` methods.
+     `switch` cases into `XTools` methods. Tools spread over several Go files can stay
+     in several `.af` files of the package: the agent's `.tools` names them all.
    - `NewXRoutes(queries, auth).Register(mux)` replaces the handlers.
 5. **Delete the hand-written code** the generated code replaced. Don't keep both.
 6. **Verify with tests:** `go build ./... && go test ./...`. Add a test that pins the

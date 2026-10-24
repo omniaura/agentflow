@@ -798,7 +798,7 @@ func genDecls(f ast.File, opts Options, imports map[string]bool) ([]byte, error)
 		imports[AftoolImport] = true
 		genOutputs(&buf, f.Outputs)
 	}
-	if err := genAgents(&buf, f, imports); err != nil {
+	if err := genAgents(&buf, f, opts.SiblingTools, imports); err != nil {
 		return nil, err
 	}
 	if len(f.Routes) > 0 {

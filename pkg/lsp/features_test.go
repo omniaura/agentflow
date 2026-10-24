@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -457,5 +458,91 @@ func TestRouteCompletionsFollowQueryKind(t *testing.T) {
 				t.Errorf("%s: offers %s: %v", tt.name, n, got)
 			}
 		}
+	}
+}
+
+func TestAgentToolsDefinitionAndCompletion(t *testing.T) {
+	path, err := filepath.Abs("../../examples/agent/support.af")
+	require.NoError(t, err)
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	doc := openAt(t, path, string(src))
+
+	// A tool of another file of the package: its .tool line there.
+	loc := doc.Definition(at(t, doc, "track_shipment", 0))
+	if len(loc) != 1 || !strings.HasSuffix(string(loc[0].URI), "/examples/agent/shipping.af") || loc[0].Range.Start.Line != 0 {
+		t.Fatalf("track_shipment definition = %+v", loc)
+	}
+	// A tool of this file, from the middle of its name.
+	pos := at(t, doc, "lookup_order, track", 0)
+	pos.Character += 3
+	loc = doc.Definition(pos)
+	want := doc.byteOffsetToPosition(strings.Index(string(src), ".tool lookup_order"))
+	if len(loc) != 1 || loc[0].URI != protocol.DocumentUri(doc.URI) || loc[0].Range.Start.Line != uint32(want.Line) {
+		t.Fatalf("lookup_order definition = %+v, want line %d", loc, want.Line)
+	}
+	// The .tools directive itself isn't a name.
+	if loc := doc.Definition(at(t, doc, ".tools lookup_order, track", 0)); loc != nil {
+		t.Fatalf(".tools definition = %+v", loc)
+	}
+
+	// Completion after .tools offers every tool of the package not yet listed.
+	line := at(t, doc, ".tools lookup_order, track", 0).Line
+	labels := map[string]string{}
+	for _, it := range doc.directiveCompletions(Position{Line: line, Character: len(".tools lookup_order, ")}, []byte(".tools lookup_order, ")) {
+		labels[it.Label] = it.Detail
+	}
+	if labels["track_shipment"] != "tool in shipping.af" || labels["offer_refund"] != "tool in this file" || labels["lookup_order"] != "" || len(labels) != 2 {
+		t.Fatalf("completions = %v", labels)
+	}
+}
+
+func TestAgentToolsDefinitionOfADuplicate(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "b.af"), []byte(".tool track\n\nTracks.\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "c.af"), []byte(".tool track\n\nAgain.\n"), 0o644)
+	src := ".title A\nHi.\n\n.tool track\nOnce more.\n\n.agent x\n.tools track\n"
+	doc := openAt(t, filepath.Join(dir, "a.af"), src)
+	// All three declarations, this file's first, not an arbitrary one.
+	loc := doc.Definition(at(t, doc, "track\n", 1))
+	var got []string
+	for _, l := range loc {
+		got = append(got, fmt.Sprintf("%s:%d", filepath.Base(string(l.URI)), l.Range.Start.Line))
+	}
+	if strings.Join(got, ",") != "a.af:3,b.af:0,c.af:0" {
+		t.Fatalf("definitions = %v", got)
+	}
+}
+
+// Unsaved edits to a sibling count: the tool exists only in its buffer.
+func TestAgentToolsReadOpenBuffers(t *testing.T) {
+	dir := t.TempDir()
+	shipping := filepath.Join(dir, "shipping.af")
+	os.WriteFile(shipping, []byte(".tool old_name\n\nOld.\n"), 0o644)
+	dm := NewDocumentManager()
+	_, err := dm.OpenDocument(protocol.TextDocumentItem{URI: fileURI(shipping), Text: ".tool track\n\nTracks.\n"})
+	require.NoError(t, err)
+	src := ".title A\nHi.\n\n.agent x\n.tools track\n"
+	doc, err := dm.OpenDocument(protocol.TextDocumentItem{URI: fileURI(filepath.Join(dir, "support.af")), Text: src})
+	require.NoError(t, err)
+
+	for _, d := range doc.Diagnostics() {
+		t.Errorf("diagnostic for a tool of an open buffer: %+v", d)
+	}
+	loc := doc.Definition(at(t, doc, "track", 0))
+	if len(loc) != 1 || !strings.HasSuffix(string(loc[0].URI), "/shipping.af") {
+		t.Errorf("definition = %+v", loc)
+	}
+	labels := map[string]bool{}
+	for _, it := range doc.directiveCompletions(Position{Line: 4, Character: len(".tools ")}, []byte(".tools ")) {
+		labels[it.Label] = true
+	}
+	if !labels["track"] || labels["old_name"] {
+		t.Errorf("completions = %v", labels)
+	}
+	// Closed, the sibling is read from disk again.
+	dm.CloseDocument(fileURI(shipping))
+	if ds := doc.Diagnostics(); len(ds) != 1 || !strings.Contains(ds[0].Message, "no tool track") || !strings.Contains(ds[0].Message, "have old_name") {
+		t.Errorf("after close: %+v", ds)
 	}
 }

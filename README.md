@@ -534,10 +534,12 @@ Answers customer questions about their orders.
 | Directive | Meaning |
 | --- | --- |
 | `.system Title` | The prompt to use as the system prompt. Optional when the file has one prompt. |
-| `.tools a, b` | The tools the agent may call. All the file's tools when omitted. |
+| `.tools a, b` | The tools the agent may call, from this file or any other `.af` file in its directory. All of this file's tools when omitted. |
 | `.maxturns n` | The most model calls a run may make (default 10). On the last one the model may not call tools, so it answers with what it has. |
 | `.returns name` | The `.output` its final answer must be. `Run` then returns it decoded. |
 | `.serve POST /path` | Also serve the agent over HTTP (`POST` or `PUT`). |
+
+Tools can live in their own files. The generated code of every `.af` file in a directory shares one Go package, so `.tools` may name a tool declared in another file of the directory. Its schema and decoder are generated there, and the agent calls it by name. `af lint` and the language server resolve those names too: go to definition jumps to the other file, and completion after `.tools` lists every tool of the package. A tool may be declared once per package.
 
 You implement the tools as methods and bring a model:
 
