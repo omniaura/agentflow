@@ -57,6 +57,12 @@ func (rt *TodosRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
 	afhttp.WriteError(w, r, err)
 }
 
+// todosCreateTodoBody is the JSON body of POST /todos.
+type todosCreateTodoBody struct {
+	Title string          `json:"title"`
+	Meta  json.RawMessage `json:"meta"`
+}
+
 // CreateTodo serves POST /todos with the CreateTodo query.
 //
 // Creates a todo for the caller.
@@ -73,10 +79,7 @@ func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
 	}
 	var arg db.CreateTodoParams
 	arg.OwnerID = caller.OwnerID
-	var body struct {
-		Title string          `json:"title"`
-		Meta  json.RawMessage `json:"meta"`
-	}
+	var body todosCreateTodoBody
 	if err := afhttp.DecodeBody(w, r, 0, &body); err != nil {
 		rt.fail(w, r, err)
 		return
@@ -156,6 +159,11 @@ func (rt *TodosRoutes) ListTodos(w http.ResponseWriter, r *http.Request) {
 	afhttp.WriteJSON(w, r, http.StatusOK, rows)
 }
 
+// todosSetTodoDoneBody is the JSON body of PUT /todos/{id}/done.
+type todosSetTodoDoneBody struct {
+	Done bool `json:"done"`
+}
+
 // SetTodoDone serves PUT /todos/{id}/done with the SetTodoDone query.
 func (rt *TodosRoutes) SetTodoDone(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
@@ -173,9 +181,7 @@ func (rt *TodosRoutes) SetTodoDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	arg.OwnerID = caller.OwnerID
-	var body struct {
-		Done bool `json:"done"`
-	}
+	var body todosSetTodoDoneBody
 	if err := afhttp.DecodeBody(w, r, 0, &body); err != nil {
 		rt.fail(w, r, err)
 		return

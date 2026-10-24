@@ -257,3 +257,55 @@ func TestRenderChecksMapFuncs(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderSwag(t *testing.T) {
+	src := ".route GET /x/{id} db.GetX\n"
+	for _, tt := range []struct {
+		name  string
+		swag  bool
+		files map[string]string
+		want  string // the @Security line, "" for none, "-" for no annotations
+	}{
+		{"no swag", false, map[string]string{"api/info.go": "// @securityDefinitions.apikey BearerAuth\npackage api\n"}, "-"},
+		{"nearest definition", true, map[string]string{
+			"info.go":     "// @securityDefinitions.apikey RootKey\npackage m\n",
+			"api/info.go": "// @securityDefinitions.apikey BearerAuth\npackage api\n",
+		}, "BearerAuth"},
+		{"ancestor", true, map[string]string{"info.go": "// @securityDefinitions.apikey RootKey\npackage m\n"}, "RootKey"},
+		{"the module's only one", true, map[string]string{"admin/info.go": "// @securityDefinitions.apikey AdminKey\npackage admin\n"}, "AdminKey"},
+		{"ambiguous", true, map[string]string{
+			"admin/info.go": "// @securityDefinitions.apikey AdminKey\npackage admin\n",
+			"v5/info.go":    "// @securityDefinitions.apikey BearerAuth\npackage v5\n",
+		}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := writeModule(t, "db")
+			if tt.swag {
+				os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/m\n\nrequire github.com/swaggo/swag v1.16.6\n"), 0o644)
+			}
+			for name, body := range tt.files {
+				os.MkdirAll(filepath.Dir(filepath.Join(root, name)), 0o755)
+				os.WriteFile(filepath.Join(root, name), []byte(body), 0o644)
+			}
+			os.MkdirAll(filepath.Join(root, "api"), 0o755)
+			_, code, err := Render(filepath.Join(root, "api", "items.af"), []byte(src))
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch {
+			case tt.want == "-":
+				if bytes.Contains(code, []byte("@Router")) {
+					t.Fatalf("annotated without swag:\n%s", code)
+				}
+			case tt.want == "":
+				if !bytes.Contains(code, []byte("// @Tags items\n")) || bytes.Contains(code, []byte("@Security")) {
+					t.Fatalf("want no @Security:\n%s", code)
+				}
+			default:
+				if !bytes.Contains(code, []byte("// @Tags items\n// @Security "+tt.want+"\n")) || !bytes.Contains(code, []byte("// @Router /x/{id} [get]")) {
+					t.Fatalf("want @Security %s:\n%s", tt.want, code)
+				}
+			}
+		})
+	}
+}

@@ -185,6 +185,9 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 		if err := checkMapFuncs(name, ff); err != nil {
 			return "", nil, err
 		}
+		if len(ff.Routes) > 0 {
+			opts.Swag = swagOptions(name, ff)
+		}
 		pinned := map[string]*sqlcgo.Package{}
 		if err := resolveSQLC(name, ff, repo, pinned); err != nil {
 			return "", nil, err

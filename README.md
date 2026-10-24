@@ -429,6 +429,17 @@ RETURNING *
 
 Ownership and state checks in the `WHERE` of an `UPDATE` or `DELETE` hold under concurrent requests, because Postgres re-checks them on the row it locks. A `count(*)` limit doesn't: two inserts at once can both see 4 notes. The read-then-write handler it replaces has the same gap, so a limit that must hold exactly needs a lock or a trigger. `.empty` on a SQL tool sets what the model is told instead of `not found`: `.empty no note of yours has that id`.
 
+**API docs with swag.** In a module that requires `github.com/swaggo/swag`, generated handlers carry swag annotations, so `swag init` documents them next to the hand-written ones:
+- the summary and description;
+- a tag named after the `.af` file;
+- path and query parameters typed from the query's arguments;
+- the JSON body, as a named type;
+- the success type, including `.wrap` and the `.map` func's result;
+- the error responses `errs.Error` can return;
+- `@Security`, on authenticated routes, using the nearest `@securityDefinitions` above the file, or the module's only one.
+
+There's nothing to declare: annotations appear when the module uses swag. Error responses refer to go-kit's `errs.Error`, an external package, so run `swag init` with `--parseDependency`.
+
 **Writing the query in the route.** End a route with `.sql` and its sqlc command, and write the query below it. The endpoint and its SQL then live in one place:
 
 ```af
