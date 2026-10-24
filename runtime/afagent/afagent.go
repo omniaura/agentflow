@@ -71,6 +71,11 @@ type Request struct {
 	// pass it as the provider's structured output format; the model may
 	// still call tools before answering.
 	Output *OutputSpec
+	// OnText, when set, receives the answer's text as the model writes
+	// it. Adapters that stream call it; others may never call it. Call it
+	// from one goroutine at a time, in the order of the text, and only
+	// before Complete returns: text after that is dropped.
+	OnText func(text string)
 }
 
 // OutputSpec describes a structured final answer.
@@ -125,6 +130,11 @@ const (
 	// AnswerRejected follows a final answer that failed Check; Err says
 	// why, and the model is asked again.
 	AnswerRejected EventKind = "answer_rejected"
+	// TextDelta carries text as the model writes it, in Text, when the
+	// model streams. ModelResponded still follows with the whole message.
+	// With Check set, a final answer's text is held until it passes, and
+	// dropped if it fails: clients never see a rejected answer.
+	TextDelta EventKind = "text_delta"
 )
 
 // Event reports progress, for logs, metrics and streaming to a client.
@@ -136,7 +146,9 @@ type Event struct {
 	Call     *ToolCall
 	// Result and Err are a tool's outcome.
 	Result string
-	Err    error
+	// Text is a TextDelta's text.
+	Text string
+	Err  error
 }
 
 // Result is a finished run.
@@ -202,21 +214,55 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			return res, err
 		}
 		res.Turns++
-		resp, err := l.Model.Complete(ctx, Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output})
+		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
+		// held is the turn's text while Check may still reject it. The
+		// mutex keeps a Model that breaks OnText's contract from racing.
+		var (
+			mu     sync.Mutex
+			held   []Event
+			closed bool
+		)
+		if l.OnEvent != nil {
+			turn := res.Turns
+			req.OnText = func(text string) {
+				e := Event{Kind: TextDelta, Turn: turn, Text: text}
+				if l.Check != nil {
+					mu.Lock()
+					if !closed {
+						held = append(held, e)
+					}
+					mu.Unlock()
+					return
+				}
+				l.emit(e)
+			}
+		}
+		resp, err := l.Model.Complete(ctx, req)
+		mu.Lock()
+		closed = true
+		mu.Unlock()
 		if err != nil {
 			return res, fmt.Errorf("afagent: turn %d: %w", res.Turns, err)
 		}
 		resp.Message.Role = Assistant
 		res.Usage.add(resp.Usage)
 		res.Messages = append(res.Messages, resp.Message)
+		final := len(resp.Message.ToolCalls) == 0
+		var rejected error
+		if final && l.Check != nil {
+			rejected = l.Check(resp.Message.Content)
+		}
+		if rejected == nil {
+			for _, e := range held {
+				l.emit(e)
+			}
+		}
 		l.emit(Event{Kind: ModelResponded, Turn: res.Turns, Response: &resp})
-		if len(resp.Message.ToolCalls) == 0 {
-			if l.Check != nil {
-				if err := l.Check(resp.Message.Content); err != nil {
-					l.emit(Event{Kind: AnswerRejected, Turn: res.Turns, Err: err})
-					res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", err)})
-					continue
-				}
+		if final {
+			if rejected != nil {
+				l.emit(Event{Kind: AnswerRejected, Turn: res.Turns, Err: rejected})
+				res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected)})
+				continue
 			}
 			res.Final = resp.Message.Content
 			return res, nil
@@ -280,4 +326,32 @@ func (l *Loop) dispatch(ctx context.Context, call ToolCall) (out string, err err
 		}
 	}()
 	return l.Dispatch(ctx, call)
+}
+
+// ClientEvent is what of e is safe to show the end user, as a server-sent
+// event: its name and data. Tool arguments, results and errors stay on the
+// server; ok is false for events with nothing to show.
+//
+//	text            {"text": "..."}          the answer as it is written
+//	tool_called     {"name": "lookup_order"}
+//	tool_returned   {"name": "lookup_order", "failed": false}
+//	answer_rejected {}                       the model is asked again
+func ClientEvent(e Event) (name string, data any, ok bool) {
+	switch e.Kind {
+	case TextDelta:
+		return "text", map[string]string{"text": e.Text}, true
+	case ToolCalled:
+		if e.Call == nil {
+			return "", nil, false
+		}
+		return "tool_called", map[string]string{"name": e.Call.Name}, true
+	case ToolReturned:
+		if e.Call == nil {
+			return "", nil, false
+		}
+		return "tool_returned", map[string]any{"name": e.Call.Name, "failed": e.Err != nil}, true
+	case AnswerRejected:
+		return "answer_rejected", struct{}{}, true
+	}
+	return "", nil, false
 }

@@ -61,8 +61,16 @@ func (m *Model) Complete(ctx context.Context, req afagent.Request) (afagent.Resp
 	defer stream.Close()
 	var msg anthropic.Message
 	for stream.Next() {
-		if err := msg.Accumulate(stream.Current()); err != nil {
+		event := stream.Current()
+		if err := msg.Accumulate(event); err != nil {
 			return afagent.Response{}, fmt.Errorf("afanthropic: %w", err)
+		}
+		if req.OnText != nil {
+			if d, ok := event.AsAny().(anthropic.ContentBlockDeltaEvent); ok {
+				if t, ok := d.Delta.AsAny().(anthropic.TextDelta); ok {
+					req.OnText(t.Text)
+				}
+			}
 		}
 	}
 	if err := stream.Err(); err != nil {

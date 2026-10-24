@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -211,5 +212,147 @@ func TestLoopCheckGivesUpAtMaxTurns(t *testing.T) {
 	l := Loop{Model: model, MaxTurns: 2, Check: func(string) error { return errors.New("bad") }}
 	if _, err := l.Run(context.Background(), nil); !errors.Is(err, ErrMaxTurns) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLoopStreamsText(t *testing.T) {
+	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		if req.OnText == nil {
+			t.Fatal("OnText is unset while OnEvent listens")
+		}
+		req.OnText("Hel")
+		req.OnText("lo")
+		return Response{Message: Message{Content: "Hello"}}, nil
+	})
+	var got []string
+	l := Loop{Model: model, OnEvent: func(e Event) {
+		if e.Kind == TextDelta {
+			got = append(got, fmt.Sprintf("%d:%s", e.Turn, e.Text))
+		}
+	}}
+	if _, err := l.Run(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "1:Hel,1:lo" {
+		t.Errorf("deltas = %v", got)
+	}
+	// Nobody listening: adapters needn't stream.
+	quiet := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		if req.OnText != nil {
+			t.Error("OnText set without OnEvent")
+		}
+		return Response{}, nil
+	})
+	(&Loop{Model: quiet}).Run(context.Background(), nil)
+}
+
+func TestClientEventKeepsToolDataOnTheServer(t *testing.T) {
+	call := &ToolCall{ID: "1", Name: "lookup_order", Arguments: `{"order_id":"secret-arg"}`}
+	for _, tt := range []struct {
+		e    Event
+		name string
+		data string
+	}{
+		{Event{Kind: TextDelta, Text: "hi"}, "text", `{"text":"hi"}`},
+		{Event{Kind: ToolCalled, Call: call}, "tool_called", `{"name":"lookup_order"}`},
+		{Event{Kind: ToolReturned, Call: call, Result: "secret-result"}, "tool_returned", `{"failed":false,"name":"lookup_order"}`},
+		{Event{Kind: ToolReturned, Call: call, Err: errors.New("secret-error")}, "tool_returned", `{"failed":true,"name":"lookup_order"}`},
+		{Event{Kind: AnswerRejected, Err: errors.New("secret-check")}, "answer_rejected", `{}`},
+	} {
+		name, data, ok := ClientEvent(tt.e)
+		b, _ := json.Marshal(data)
+		if !ok || name != tt.name || string(b) != tt.data {
+			t.Errorf("%s: got %s %s %v", tt.e.Kind, name, b, ok)
+		}
+	}
+	if _, _, ok := ClientEvent(Event{Kind: ModelResponded}); ok {
+		t.Error("model responses are not client events")
+	}
+	for _, k := range []EventKind{ToolCalled, ToolReturned} {
+		if _, _, ok := ClientEvent(Event{Kind: k}); ok {
+			t.Errorf("%s without a call is a client event", k)
+		}
+	}
+}
+
+// With Check set, an answer's text reaches OnEvent only once it passes:
+// a rejected answer is never shown. Text beside tool calls isn't an
+// answer, so it isn't held back by Check.
+func TestLoopHoldsTextUntilCheckPasses(t *testing.T) {
+	turns := []struct {
+		deltas []string
+		msg    Message
+	}{
+		{[]string{"Looking"}, Message{Content: "Looking", ToolCalls: []ToolCall{{ID: "1", Name: "noop", Arguments: "{}"}}}},
+		{[]string{"bad ", "answer"}, Message{Content: "bad answer"}},
+		{[]string{"good"}, Message{Content: "good"}},
+	}
+	n := 0
+	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		tt := turns[n]
+		n++
+		for _, d := range tt.deltas {
+			req.OnText(d)
+		}
+		return Response{Message: tt.msg}, nil
+	})
+	var got []string
+	l := Loop{
+		Model:    model,
+		Dispatch: func(context.Context, ToolCall) (string, error) { return "ok", nil },
+		Check: func(answer string) error {
+			if answer != "good" {
+				return errors.New("not good")
+			}
+			return nil
+		},
+		OnEvent: func(e Event) {
+			switch e.Kind {
+			case TextDelta:
+				got = append(got, fmt.Sprintf("%d:%s", e.Turn, e.Text))
+			case ModelResponded, AnswerRejected:
+				got = append(got, fmt.Sprintf("%d:%s", e.Turn, e.Kind))
+			}
+		},
+	}
+	res, err := l.Run(context.Background(), nil)
+	if err != nil || res.Final != "good" {
+		t.Fatalf("final %q, err %v", res.Final, err)
+	}
+	want := "1:Looking,1:model_responded,2:model_responded,2:answer_rejected,3:good,3:model_responded"
+	if strings.Join(got, ",") != want {
+		t.Errorf("events\n got %s\nwant %s", strings.Join(got, ","), want)
+	}
+}
+
+// A Model that calls OnText from several goroutines doesn't race the held
+// text, and text after Complete returns is dropped. Run with -race.
+func TestLoopHeldTextIsSafe(t *testing.T) {
+	var late func(string)
+	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		var wg sync.WaitGroup
+		for range 20 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req.OnText("x")
+			}()
+		}
+		wg.Wait()
+		late = req.OnText
+		return Response{Message: Message{Content: "ok"}}, nil
+	})
+	var deltas atomic.Int32
+	l := Loop{Model: model, Check: func(string) error { return nil }, OnEvent: func(e Event) {
+		if e.Kind == TextDelta {
+			deltas.Add(1)
+		}
+	}}
+	if _, err := l.Run(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	late("too late")
+	if n := deltas.Load(); n != 20 {
+		t.Errorf("%d deltas, want 20", n)
 	}
 }

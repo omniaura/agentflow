@@ -259,3 +259,21 @@ func TestStructuredOutput(t *testing.T) {
 		t.Errorf("format = %v", format)
 	}
 }
+
+func TestStreamsText(t *testing.T) {
+	f := &fakeClaude{answers: [][]string{answer("end_turn",
+		`{"type":"thinking","thinking":"private","signature":"s"}`,
+		`{"type":"text","text":"Hello there"}`)}}
+	var deltas []string
+	resp, err := newModel(t, f).Complete(context.Background(), afagent.Request{
+		Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}},
+		OnText:   func(s string) { deltas = append(deltas, s) },
+	})
+	if err != nil || resp.Message.Content != "Hello there" {
+		t.Fatalf("got %v, %+v", err, resp)
+	}
+	// Text only: thinking stays out of the stream.
+	if strings.Join(deltas, "") != "Hello there" {
+		t.Errorf("deltas = %q", deltas)
+	}
+}

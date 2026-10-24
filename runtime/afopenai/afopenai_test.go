@@ -22,6 +22,7 @@ import (
 type fakeOpenAI struct {
 	mu      sync.Mutex
 	answers []string
+	chunks  []string // Streamed to requests with "stream": true.
 	bodies  []map[string]any
 }
 
@@ -39,6 +40,15 @@ func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.bodies = append(f.bodies, body)
+	if body["stream"] == true {
+		// Stream the scripted chunks.
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, c := range f.chunks {
+			io.WriteString(w, "data: "+c+"\n\n")
+		}
+		io.WriteString(w, "data: [DONE]\n\n")
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if len(f.bodies) > len(f.answers) {
 		w.WriteHeader(http.StatusBadRequest)
@@ -172,5 +182,44 @@ func TestStructuredOutput(t *testing.T) {
 	js := rf["json_schema"].(map[string]any)
 	if rf["type"] != "json_schema" || js["name"] != "verdict" || js["strict"] != true || js["description"] != "The verdict." || js["schema"].(map[string]any)["required"].([]any)[0] != "ok" {
 		t.Errorf("response_format = %v", rf)
+	}
+}
+
+func TestStreamsText(t *testing.T) {
+	chunk := func(delta, finish string) string {
+		fr := "null"
+		if finish != "" {
+			fr = `"` + finish + `"`
+		}
+		return `{"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":` + delta + `,"finish_reason":` + fr + `}]}`
+	}
+	f := &fakeOpenAI{chunks: []string{
+		chunk(`{"role":"assistant","content":"Look"}`, ""),
+		chunk(`{"content":"ing up."}`, ""),
+		chunk(`{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup_order","arguments":"{\"order_id\":"}}]}`, ""),
+		chunk(`{"tool_calls":[{"index":0,"function":{"arguments":"\"A-1\"}"}}]}`, ""),
+		chunk(`{}`, "tool_calls"),
+		`{"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"prompt_tokens_details":{"cached_tokens":64}}}`,
+	}}
+	var deltas []string
+	resp, err := newModel(t, f).Complete(context.Background(), afagent.Request{
+		Messages: []afagent.Message{{Role: afagent.User, Content: "where is A-1"}},
+		OnText:   func(s string) { deltas = append(deltas, s) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(deltas, "|") != "Look|ing up." || resp.Message.Content != "Looking up." {
+		t.Errorf("deltas %q, content %q", deltas, resp.Message.Content)
+	}
+	if c := resp.Message.ToolCalls; len(c) != 1 || c[0].ID != "call_1" || c[0].Arguments != `{"order_id":"A-1"}` {
+		t.Errorf("tool calls = %+v", c)
+	}
+	if resp.Usage != (afagent.Usage{InputTokens: 100, CachedInputTokens: 64, OutputTokens: 20}) {
+		t.Errorf("usage = %+v", resp.Usage)
+	}
+	req := f.bodies[0]
+	if req["stream"] != true || req["stream_options"].(map[string]any)["include_usage"] != true {
+		t.Errorf("request = %v", req)
 	}
 }
