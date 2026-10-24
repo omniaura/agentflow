@@ -215,7 +215,8 @@ Answers customer questions about their orders.
   with `afthreadtest.Run`, and answer queued messages with `afthread.Run(ctx, store, owner,
   thread, agentFunc)`: it delivers mid-run messages and saves before every turn. If the store
   implements `afthread.Runs`, set `OnEvent: afthread.Recorder(ctx)` in the agent func to record
-  the run's events.
+  the run's events. Agents message each other through `afthread.Messenger` (Send queues on the
+  recipient's inbox; replies come back the same way), with `CanMessage` for permissions.
 - Long conversations: `runtime/afcompact`. Set `BeforeTurn: (&afcompact.Compactor{Budget: n,
   Summarize: afcompact.Summarize(model), SummarizeChunk: afcompact.SummarizeChunk(model)}).BeforeTurn`.
   It microcompacts old tool results, condenses large ones in parallel chunks (Digest), then folds

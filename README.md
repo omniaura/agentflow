@@ -734,6 +734,18 @@ compactor.OnCompact = func(stage string, before, after int) {
 
 `Events(ctx, owner, run, after)` returns the events after a sequence number, so a client can follow a run, and an operator can see where a crashed one stopped. `afthreadtest.Run` checks a store's `Runs` when it implements it.
 
+**Agents messaging each other.** `afthread.Messenger` carries messages between one owner's agents, which is what their `send_message` and `list_agents` tools call:
+- `Send` queues the text on the recipient's inbox, marked as from the sender. The recipient gets it between its turns, or in its next run, and answers the same way, so messaging works both ways: between a parent and its subagents, or any two agents.
+- A `Directory` finds an agent's thread, by default its oldest, and lists the agents. `Memory` implements it from its threads' `Agent` field.
+- `CanMessage` decides who may message whom.
+- `Notify` wakes the recipient's worker, for example by queueing a job.
+
+```go
+m := &afthread.Messenger{Store: store, Directory: store, Owner: userID, From: "support",
+	Notify: func(ctx context.Context, owner, thread string) error { return jobs.Enqueue(owner, thread) }}
+reply, err := m.Send(ctx, "tracker", "Where is order A-1?")
+```
+
 ### Compaction
 
 `runtime/afcompact` keeps an agent's conversation within its model's context window, with stages that run cheapest first:
