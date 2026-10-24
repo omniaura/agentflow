@@ -125,7 +125,7 @@ func TestLoopDiagnostics(t *testing.T) {
 }
 
 func TestLintAgentReferences(t *testing.T) {
-	const ok = ".title A\nHi.\n\n.title B\nYo.\n\n.tool look\nLooks.\n\n.output o\n.field x\n\n.agent helper\n.system B\n.tools look\n"
+	const ok = ".title A\nHi.\n\n.title B\nYo.\n\n.tool look\nLooks.\n\n.output o\n.field x\n\n.agent helper\n.system B\n.tools look\n.returns o\n"
 	if d := lintString(t, ok); len(d) != 0 {
 		t.Fatalf("expected no diagnostics, got %#v", d)
 	}
@@ -137,6 +137,7 @@ func TestLintAgentReferences(t *testing.T) {
 		{"unknown system title", ".title A\nHi.\n\n.agent x\n.maxturns 3\n.system Nope\n", `no prompt titled "Nope" in this file (have "A")`, 6},
 		{"ambiguous system", ".title A\nHi.\n\n.title B\nYo.\n\n.agent x\n", "the file has 2 prompts", 7},
 		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, find\n", "no tool find in this file (have look)", 8},
+		{"unknown output", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.returns look\n", "no output look in this file (it declares none)", 8},
 		{"output is not a tool", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.tools o\n", "no tool o in this file (it declares none)", 8},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

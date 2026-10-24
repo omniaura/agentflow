@@ -54,6 +54,42 @@ const (
 	OfferRefundReasonLate    = "late"
 )
 
+// TriageOutput is the triage structured output.
+type TriageOutput struct {
+	// What the customer needs.
+	Category string `json:"category"`
+	// The order the message is about, if any.
+	OrderId string `json:"order_id,omitempty"`
+	// Whether a person should answer within the hour.
+	Urgent bool `json:"urgent"`
+}
+
+// TriageSchema is the triage structured output. Send its OpenAI or
+// Anthropic format with a request, and Decode the model's answer into
+// TriageOutput.
+var TriageSchema = &aftool.Output[TriageOutput]{
+	Name:        "triage",
+	Description: `Sorts one customer message.`,
+	Schema:      []byte(`{"type":"object","properties":{"category":{"type":"string","description":"What the customer needs.","enum":["order","refund","account","other"]},"order_id":{"anyOf":[{"type":"string","description":"The order the message is about, if any."},{"type":"null"}]},"urgent":{"type":"boolean","description":"Whether a person should answer within the hour."}},"required":["category","order_id","urgent"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "category", Required: true, Shape: aftool.Shape{Kind: aftool.String, Enum: []string{"order", "refund", "account", "other"}}},
+		{Name: "order_id", Shape: aftool.Shape{Kind: aftool.String}},
+		{Name: "urgent", Required: true, Shape: aftool.Shape{Kind: aftool.Boolean}},
+	}},
+	Fields: `- "category" (one of "order", "refund", "account", "other"): What the customer needs.
+- "order_id" (string, or null): The order the message is about, if any.
+- "urgent" (true or false): Whether a person should answer within the hour.
+`,
+}
+
+// Values of the triage tool's category parameter.
+const (
+	TriageCategoryOrder   = "order"
+	TriageCategoryRefund  = "refund"
+	TriageCategoryAccount = "account"
+	TriageCategoryOther   = "other"
+)
+
 // SupportTools runs the tools of the support agent. Each method gets the call's
 // decoded arguments; its result or error goes back to the model.
 type SupportTools interface {
@@ -117,6 +153,82 @@ func (a *SupportAgent) dispatch(ctx context.Context, call afagent.ToolCall) (str
 			return "", err
 		}
 		return a.Tools.OfferRefund(ctx, args)
+	}
+	return "", fmt.Errorf("there is no tool named %q", call.Name)
+}
+
+// TriagerTools runs the tools of the triager agent. Each method gets the call's
+// decoded arguments; its result or error goes back to the model.
+type TriagerTools interface {
+	// LookupOrder: Load one order by ID. Returns its status and total.
+	LookupOrder(ctx context.Context, args LookupOrderArgs) (string, error)
+}
+
+// TriagerAgent is the triager agent.
+//
+// Sorts customer messages, looking orders up when it helps.
+type TriagerAgent struct {
+	Model afagent.Model
+	Tools TriagerTools
+	// MaxTurns bounds the model calls of a run; 0 or less means 3.
+	MaxTurns int
+	// Concurrency is how many tool calls of a turn run at once.
+	Concurrency int
+	// OnEvent, when set, sees each model response and tool call. With
+	// Concurrency above 1 it is called concurrently.
+	OnEvent func(afagent.Event)
+}
+
+// TriagerAgentTools describes the tools of the triager agent to the model.
+var TriagerAgentTools = []afagent.ToolSpec{
+	{Name: LookupOrderTool.Name, Description: LookupOrderTool.Description, Schema: LookupOrderTool.Schema},
+}
+
+// TriagerAgentResult is a finished run of the triager agent: its answer, decoded, and
+// the run.
+type TriagerAgentResult struct {
+	Output TriageOutput
+	afagent.Result
+}
+
+// Run continues the conversation in messages until the model answers
+// without calling a tool, with a valid triage output, which it decodes.
+func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afagent.Message) (TriagerAgentResult, error) {
+	maxTurns := a.MaxTurns
+	if maxTurns <= 0 {
+		maxTurns = 3
+	}
+	loop := afagent.Loop{
+		Model:       a.Model,
+		System:      system.String(),
+		Tools:       TriagerAgentTools,
+		MaxTurns:    maxTurns,
+		Concurrency: a.Concurrency,
+		OnEvent:     a.OnEvent,
+		Dispatch:    a.dispatch,
+		Output:      &afagent.OutputSpec{Name: TriageSchema.Name, Description: TriageSchema.Description, Schema: TriageSchema.Schema},
+		Check: func(answer string) error {
+			_, err := TriageSchema.Decode(answer)
+			return err
+		},
+	}
+	res, err := loop.Run(ctx, messages)
+	out := TriagerAgentResult{Result: res}
+	if err != nil {
+		return out, err
+	}
+	out.Output, err = TriageSchema.Decode(res.Final)
+	return out, err
+}
+
+func (a *TriagerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
+	switch call.Name {
+	case LookupOrderTool.Name:
+		args, err := LookupOrderTool.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		return a.Tools.LookupOrder(ctx, args)
 	}
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
 }

@@ -18,3 +18,17 @@ Show the customer a refund offer they must accept.
 .maxturns 6
 
 Answers customer questions about their orders.
+
+.output triage
+.field category enum(order, refund, account, other) What the customer needs.
+.field order_id? The order the message is about, if any.
+.field urgent bool Whether a person should answer within the hour.
+
+Sorts one customer message.
+
+.agent triager
+.tools lookup_order
+.returns triage
+.maxturns 3
+
+Sorts customer messages, looking orders up when it helps.

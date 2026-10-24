@@ -4,7 +4,8 @@
 //	agent := &SupportAgent{Model: &afanthropic.Model{}, Tools: impl}
 //
 // Requests stream, so long answers don't time out, and use automatic prompt
-// caching, so each turn of an agent reuses the conversation before it.
+// caching, so each turn of an agent reuses the conversation before it. A
+// structured output (Request.Output) is sent as output_config.format.
 // Assistant messages keep Claude's own content blocks in Message.Native, so
 // thinking blocks go back to Claude unchanged on the next turn.
 package afanthropic
@@ -97,6 +98,13 @@ func (m *Model) params(req afagent.Request) (anthropic.MessageNewParams, error) 
 		return p, err
 	}
 	p.Messages = msgs
+	if req.Output != nil {
+		var schema map[string]any
+		if err := json.Unmarshal(req.Output.Schema, &schema); err != nil {
+			return p, fmt.Errorf("afanthropic: output %s: schema: %w", req.Output.Name, err)
+		}
+		p.OutputConfig.Format = anthropic.JSONOutputFormatParam{Schema: schema}
+	}
 	if m.Params != nil {
 		m.Params(&p)
 	}

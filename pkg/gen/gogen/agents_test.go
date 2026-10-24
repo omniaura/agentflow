@@ -56,6 +56,7 @@ func TestGenAgentErrors(t *testing.T) {
 		{"unknown system", ".title A\nHi.\n\n.agent x\n.system Nope\n", "no prompt titled \"Nope\" in this file (have \"A\")"},
 		{"ambiguous system", ".title A\nHi.\n\n.title B\nYo.\n\n.agent x\n", "the file has 2 prompts; name the system prompt with .system <title>"},
 		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools find\n", "no tool find in this file (have look)"},
+		{"unknown output", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.returns p\n", "no output p in this file (have o)"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := genAgentFile(t, tt.src)

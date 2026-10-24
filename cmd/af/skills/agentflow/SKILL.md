@@ -164,6 +164,9 @@ Answers customer questions about their orders.
   until the model answers without calling a tool.
 - `.system Title` picks the system prompt; it is optional when the file has one prompt.
   `.tools a, b` limits the tools; the default is every tool in the file.
+- `.returns name` makes the final answer an `.output` of the file. `Run` then returns
+  `<Name>AgentResult`, whose `Output` field is decoded and checked. Answers that don't
+  decode go back to the model to retry. Use it whenever code reads the agent's answer.
 - Run it with `(&SupportAgent{Model: m, Tools: impl}).Run(ctx, &Support{Shop: "Acme"},
   afagent.Message{Role: afagent.User, Content: q})`. `res.Final` is the answer.
 - `Model` is `afagent.Model`. Use `&afanthropic.Model{}` (Claude) or
