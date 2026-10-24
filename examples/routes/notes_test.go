@@ -5,12 +5,10 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omniaura/agentflow/examples/routes/db"
 )
 
@@ -63,22 +61,9 @@ func (f *fakeNotes) PinNote(ctx context.Context, arg db.PinNoteParams) (int64, e
 }
 
 func notesQueries(t *testing.T) NotesQueries {
-	url := os.Getenv("AF_TEST_DATABASE_URL")
-	if url == "" {
+	pool := testPool(t)
+	if pool == nil {
 		return &fakeNotes{}
-	}
-	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	schema, err := os.ReadFile("db/schema.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS todos, notes; "+string(schema)); err != nil {
-		t.Fatal(err)
 	}
 	return db.New(pool)
 }

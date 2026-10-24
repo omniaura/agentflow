@@ -779,10 +779,19 @@ func isStructPath(path [][]byte, inputs ast.InputStruct) bool {
 // genDecls generates the file's declaration sections: tools, then routes.
 func genDecls(f ast.File, opts Options, imports map[string]bool) ([]byte, error) {
 	var buf bytes.Buffer
-	if len(f.Tools) > 0 {
+	tools, sqlTools, err := bindSQLTools(f, opts)
+	if err != nil {
+		return nil, err
+	}
+	if len(tools) > 0 {
 		imports[AftoolImport] = true
-		if genTools(&buf, f.Tools) {
+		if genTools(&buf, tools) {
 			imports["encoding/json"] = true
+		}
+	}
+	if len(sqlTools) > 0 {
+		if err := genSQLTools(&buf, f.Name, sqlTools, imports); err != nil {
+			return nil, err
 		}
 	}
 	if len(f.Outputs) > 0 {

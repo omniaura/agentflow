@@ -104,10 +104,11 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf("query %s is written here, so it cannot name a package", r.Query)}
 			}
 			r.SQLKind, r.SQLOffset = kind, off
-			r.SQL = strings.TrimSpace(string(src[i:end]))
-			if r.SQL == "" {
-				return nil, &Error{Offset: off, Msg: "write the query on the lines after .sql"}
+			sql, err := sqlBody(src, i, end, RouteDirectives)
+			if err != nil {
+				return nil, err
 			}
+			r.SQL = sql
 			i = end
 		case hasDirective(b, ".auth"):
 			for _, name := range strings.FieldsFunc(strings.TrimPrefix(l, ".auth"), func(r rune) bool { return r == ' ' || r == '\t' || r == ',' }) {

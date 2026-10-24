@@ -274,6 +274,47 @@ if err != nil {
 
 `Decode` rejects arguments that are too large, unknown or missing properties, null required values, wrong types and values outside an enum. Every error is an `*aftool.ArgsError` worded for the model, so you can return it as the tool result and let the model fix its call. The runtime package `github.com/omniaura/agentflow/runtime/aftool` has no dependencies.
 
+#### Tools written in SQL
+
+A tool that is one database query needs no Go at all:
+
+```af
+.tool find_notes
+.param text The words to look for.
+.auth owner_id
+
+Finds the caller's notes that contain the text.
+
+.sql :many
+SELECT id, body, pinned FROM notes
+WHERE owner_id = @owner_id AND strpos(lower(body), lower(@text)) > 0
+```
+
+`af gen` hands the query to sqlc as `FindNotesTool`, so a sqlc config must read the file's `_af.sql`. It then generates the tool from sqlc's output:
+- **Parameters:** inferred from the query's arguments. Integers become `integer`, text stays `string`, and database types such as `pgtype.UUID` or `time.Time` are parsed from strings. `.param` is only needed for a description or a narrower type.
+- **Caller arguments:** `.auth owner_id` takes the argument from the caller, so the model can't see or set it.
+- **Implementation:** a `<File>SQLTools` struct implements the tools:
+
+```go
+tools := &AssistantSQLTools{
+	Queries: db.New(pool),
+	// The caller your auth middleware put in the context.
+	Caller: func(ctx context.Context) (Caller, error) { return callerFrom(ctx) },
+}
+agent := &NotesAgent{Model: model, Tools: tools} // or embed it next to Go tools
+```
+
+Results are returned as follows:
+
+| Query | The model receives |
+| --- | --- |
+| `:one` | the row, as JSON |
+| `:many` | the rows, as JSON (`[]` when there are none) |
+| `:exec` | `{"ok":true}` |
+| `:execrows` | `{"rows_affected":n}` |
+| no row, or zero rows changed | a `not found` error (another owner's row looks the same as a missing one) |
+| a database or caller failure | `internal error` or `unauthorized` (`*aftool.Error`; the cause stays available to `OnEvent` and logs) |
+
 ### Routes
 
 A `.route` section serves a [sqlc](https://sqlc.dev) query over HTTP. You write the SQL. sqlc generates the typed query. One line of `.af` generates the handler: authentication, argument binding, strict decoding, the query call, and the JSON response or error.

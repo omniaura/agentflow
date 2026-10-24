@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -29,7 +30,7 @@ import (
 var SectionDirectives = []string{".tool", ".route", ".output", ".agent"}
 
 // ToolDirectives are the directives allowed inside a tool section.
-var ToolDirectives = []string{".param", ".maxbytes"}
+var ToolDirectives = []string{".param", ".maxbytes", ".auth", ".sql"}
 
 // OutputDirectives are the directives allowed inside an output section.
 var OutputDirectives = []string{".field", ".maxbytes"}
@@ -79,6 +80,14 @@ type Tool struct {
 	Start, End int
 	// Output marks an .output section.
 	Output bool
+	// SQL is the query that implements the tool, written after a .sql
+	// line, and SQLKind its sqlc command; both are empty for a tool you
+	// implement in Go. SQLOffset is the .sql line's byte offset.
+	SQL, SQLKind string
+	SQLOffset    int
+	// Auth names the query arguments that come from the caller, not from
+	// the model.
+	Auth []string
 	// Warnings flag likely mistakes that still parse, such as a misspelled
 	// type read as the start of a description.
 	Warnings []*Error
@@ -258,8 +267,40 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".maxbytes needs a positive integer, got %q", v)}
 			}
 			t.MaxBytes = n
+		case !t.Output && hasDirective([]byte(l), ".sql"):
+			// The rest of the section is the query.
+			kind := strings.TrimSpace(strings.TrimPrefix(l, ".sql"))
+			if !slices.Contains(SQLKinds, kind) {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".sql needs the query's sqlc command, one of %s; got %q", strings.Join(SQLKinds, ", "), kind)}
+			}
+			t.SQLKind, t.SQLOffset = kind, off
+			sql, err := sqlBody(src, i, end, ToolDirectives)
+			if err != nil {
+				return nil, err
+			}
+			t.SQL = sql
+			i = end
+		case !t.Output && hasDirective([]byte(l), ".auth"):
+			for _, name := range strings.FieldsFunc(strings.TrimPrefix(l, ".auth"), func(r rune) bool { return r == ' ' || r == '\t' || r == ',' }) {
+				if !identRE.MatchString(name) {
+					return nil, &Error{Offset: off, Msg: fmt.Sprintf(".auth name %q must be an identifier", name)}
+				}
+				if !slices.Contains(t.Auth, name) {
+					t.Auth = append(t.Auth, name)
+				}
+			}
 		default:
 			desc = append(desc, l)
+		}
+	}
+	if len(t.Auth) > 0 && t.SQL == "" {
+		return nil, &Error{Offset: start, Msg: ".auth names arguments of the tool's query: add the query after a .sql line"}
+	}
+	for _, name := range t.Auth {
+		for _, p := range t.Params {
+			if p.Name == name {
+				return nil, &Error{Offset: p.Offset, Msg: fmt.Sprintf("%s comes from the caller (.auth), so the model cannot set it", name)}
+			}
 		}
 	}
 	t.Description = strings.TrimRight(trimLeadingBlankLines(strings.Join(desc, "\n")), " \t\n")
@@ -558,4 +599,38 @@ func parseType(s string) (Type, error) {
 		return t, fmt.Errorf("unknown parameter type %q; want string, int, float, bool, enum(a,b), object, any, or [] of one", s)
 	}
 	return t, nil
+}
+
+// sqlBody returns the query that follows a .sql line: the rest of the
+// section, src[start:end]. A section directive in it was meant to come
+// before .sql, so it is an error rather than SQL.
+func sqlBody(src []byte, start, end int, directives []string) (string, error) {
+	for i := start; i < end; {
+		off := i
+		var l string
+		l, i = line(src, i, end)
+		for _, d := range directives {
+			switch {
+			case !strings.HasPrefix(l, d), len(l) > len(d) && isIdentByte(l[len(d)]):
+				// Not this directive: SQL such as the .authentic of a
+				// qualified name split across lines.
+			case !hasDirective([]byte(l), d):
+				// Such as .auth, or .sql:many: no SQL starts like this.
+				return "", &Error{Offset: off, Msg: fmt.Sprintf("malformed %s directive in the query", d)}
+			case d == ".sql":
+				return "", &Error{Offset: off, Msg: "a section has one query: only one .sql line"}
+			default:
+				return "", &Error{Offset: off, Msg: fmt.Sprintf("%s must come before .sql: the lines after .sql are the query", d)}
+			}
+		}
+	}
+	sql := strings.TrimSpace(string(src[start:end]))
+	if sql == "" {
+		return "", &Error{Offset: start, Msg: "write the query on the lines after .sql"}
+	}
+	return sql, nil
+}
+
+func isIdentByte(c byte) bool {
+	return c == '_' || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 }

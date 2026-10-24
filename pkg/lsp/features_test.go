@@ -242,7 +242,7 @@ func TestDirectiveCompletions(t *testing.T) {
 	if got := labels(doc.GetCompletionItems(Position{Line: 1, Character: 0})); !slices.Contains(got, ".tool") || slices.Contains(got, ".param") {
 		t.Fatalf("in a prompt: %v", got)
 	}
-	if got := labels(doc.GetCompletionItems(Position{Line: 5, Character: 0})); !slices.Contains(got, ".param") || !slices.Contains(got, ".route") {
+	if got := labels(doc.GetCompletionItems(Position{Line: 5, Character: 0})); !slices.Contains(got, ".param") || !slices.Contains(got, ".sql") || !slices.Contains(got, ".route") {
 		t.Fatalf("in a tool: %v", got)
 	}
 	if got := labels(doc.GetCompletionItems(Position{Line: 4, Character: 9})); !slices.Contains(got, "enum()") || slices.Contains(got, ".param") {

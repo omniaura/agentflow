@@ -68,7 +68,12 @@ func TestSkillExamplesGenerate(t *testing.T) {
 			t.Errorf("example %d: %s:%d:%d: %s %s", i, d.File, d.Line, d.Column, d.Code, d.Message)
 		}
 		name := filepath.Join(t.TempDir(), "example.af")
-		if bytes.Contains(src, []byte(".route ")) {
+		switch {
+		case bytes.Contains(src, []byte("\n.sql ")):
+			// Inline queries must be ones sqlc generated: those of
+			// examples/routes/assistant.af. Render writes nothing.
+			name = filepath.Join("..", "..", "..", "examples", "routes", "assistant.af")
+		case bytes.Contains(src, []byte(".route ")):
 			// Route examples use the todo queries of examples/routes.
 			name = filepath.Join("..", "..", "..", "examples", "routes", "skill_example.af")
 		}

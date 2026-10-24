@@ -116,6 +116,34 @@ case OfferRefundReasonDamaged:
 values outside an enum. Don't hand-write JSON Schemas, args structs or argument
 validation for a tool that a `.tool` section can declare.
 
+A tool that is one database query is written in SQL, and af generates its Go too:
+
+```af
+.title Notes
+
+You help with notes.
+
+.tool pin_note
+.auth owner_id
+
+Pins one of the caller's notes.
+
+.sql :execrows
+UPDATE notes SET pinned = true WHERE id = @note_id AND owner_id = @owner_id
+```
+
+- `.sql :one|:many|:exec|:execrows` ends the section. The query goes to sqlc as
+  `PinNoteTool` (name + `Tool`), so the module needs a sqlc config that reads `<file>_af.sql`.
+- **No `.param` needed:** the parameters are inferred from the query's arguments
+  (`note_id` is an integer). Add `.param note_id The note's ID.` to give it a description.
+- `.auth owner_id` reads `owner_id` from the caller, never from the model. Use it for every
+  ownership check.
+- af generates `<File>SQLTools{Queries, Caller}`, whose methods implement the tools.
+  `Caller func(ctx) (Caller, error)` reads the caller from the run's context. Embed it in
+  an agent's tools type, or pass it as the tools when every tool is SQL.
+- **Results:** rows come back to the model as JSON. No row is `not found`, and a database
+  failure is `internal error`, with the cause kept for logs.
+
 ### Structured outputs
 
 ```af

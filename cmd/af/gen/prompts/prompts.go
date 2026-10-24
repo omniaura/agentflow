@@ -34,6 +34,7 @@ import (
 
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/ast"
+	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/eject"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
 	"github.com/omniaura/agentflow/pkg/lint"
@@ -167,10 +168,16 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 			return "", nil, err
 		}
 	}
-	if len(ff.Routes) > 0 {
+	if sqlTools := slices.ContainsFunc(ff.Tools, func(t *decl.Tool) bool { return t.SQL != "" }); len(ff.Routes) > 0 || sqlTools {
 		repo, err := sqlcgo.Find(filepath.Dir(name))
 		if err != nil {
-			return "", nil, &gogen.RouteError{Offset: ff.Routes[0].QueryOffset, Err: err}
+			off := 0
+			if len(ff.Routes) > 0 {
+				off = ff.Routes[0].QueryOffset
+			} else if q := sqlQueries(ff); len(q) > 0 {
+				off = q[0].offset
+			}
+			return "", nil, &gogen.RouteError{Offset: off, Err: err}
 		}
 		if err := checkSQLRoutes(name, ff, repo); err != nil {
 			return "", nil, err
