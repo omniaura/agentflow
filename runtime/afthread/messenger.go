@@ -43,6 +43,10 @@ type Messenger struct {
 	// Notify, when set, is told a thread got a message, so its worker can
 	// run, such as by queueing a job.
 	Notify func(ctx context.Context, owner, thread string) error
+	// OnNotifyError, when set, gets Notify's error. The message is stored
+	// by then, so the send still succeeds: the recipient sees it on its
+	// next run.
+	OnNotifyError func(ctx context.Context, err error)
 }
 
 // Send queues text for the agent named to and returns the tool result for
@@ -71,7 +75,12 @@ func (m *Messenger) Send(ctx context.Context, to, text string) (string, error) {
 	}
 	if m.Notify != nil {
 		if err := m.Notify(ctx, m.Owner, thread); err != nil {
-			return "", err
+			// Stored is sent: failing here would invite a retry that sends
+			// it twice.
+			if m.OnNotifyError != nil {
+				m.OnNotifyError(ctx, err)
+			}
+			return fmt.Sprintf("Sent to the %s agent, which will see it on its next run. Its reply, if any, arrives as a message from it.", to), nil
 		}
 	}
 	return fmt.Sprintf("Sent to the %s agent. Its reply, if any, arrives as a message from it.", to), nil

@@ -48,10 +48,14 @@ func TestMessenger(t *testing.T) {
 	if list, err := m.List(ctx); err != nil || list != `[{"name":"tracker","description":"Tracks parcels."}]` {
 		t.Fatalf("List = %s, %v", list, err)
 	}
-	// A failing Notify fails the send, so the caller knows.
+	// A failing Notify doesn't fail a stored send, which a retry would
+	// duplicate: the message waits for the recipient's next run.
+	var notifyErr error
 	m.Notify = func(context.Context, string, string) error { return errors.New("queue down") }
-	if _, err := m.Send(ctx, "tracker", "again"); err == nil || err.Error() != "queue down" {
-		t.Fatalf("Notify error: %v", err)
+	m.OnNotifyError = func(ctx context.Context, err error) { notifyErr = err }
+	got, err = m.Send(ctx, "tracker", "again")
+	if err != nil || !strings.Contains(got, "next run") || notifyErr == nil || notifyErr.Error() != "queue down" || len(s.Inbox("ann", tracker.ID)) != 2 {
+		t.Fatalf("Notify error: %q, %v, %v", got, err, notifyErr)
 	}
 	_ = support
 }
