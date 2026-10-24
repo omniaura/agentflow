@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -58,12 +59,18 @@ var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var symbolicConditionalPattern = regexp.MustCompile(`<\?[^\n>]*(>=|<=|==|!=)`)
 
 func Lint(name string, src []byte) ([]Diagnostic, error) {
+	return LintRead(name, src, os.ReadFile)
+}
+
+// LintRead is Lint reading the other .af files of name's directory, whose
+// tools an agent may name, with read: an editor passes its open buffers.
+func LintRead(name string, src []byte, read ast.ReadFunc) ([]Diagnostic, error) {
 	tokens, err := token.Tokenize(src)
 	if err != nil {
 		return nil, err
 	}
 
-	l := &linter{name: name, src: src, lineStarts: lineStarts(src)}
+	l := &linter{name: name, src: src, lineStarts: lineStarts(src), read: read}
 	l.checkRawSymbolicOperators()
 	l.check(tokens)
 	return l.diagnostics, nil
@@ -89,6 +96,7 @@ type linter struct {
 	titleTexts []string
 	tools      []string
 	toolDecls  []*decl.Tool
+	read       ast.ReadFunc
 	outputs    []string
 	agents     []*decl.Agent
 	hasTitle   bool
@@ -156,7 +164,7 @@ func (l *linter) checkAgent(a *decl.Agent) {
 		return
 	}
 	// .tools may name tools of the other .af files of the package.
-	siblings := ast.SiblingTools(l.name)
+	siblings := ast.SiblingToolsRead(l.name, l.read)
 	for _, name := range a.Tools {
 		if slices.Contains(l.tools, name) && !slices.ContainsFunc(siblings, func(s ast.SiblingTool) bool { return s.Tool.Name == name }) {
 			continue

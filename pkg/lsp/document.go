@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -49,6 +50,10 @@ type Document struct {
 	// Parsed AST and tokens from AgentFlow parser
 	AST    ast.File
 	Tokens token.Slice
+
+	// read reads the other .af files of the document's directory: open
+	// buffers first, then the disk. Nil reads the disk.
+	read ast.ReadFunc
 
 	// Analysis results
 	Variables []Variable
@@ -126,6 +131,7 @@ func (dm *DocumentManager) OpenDocument(document protocol.TextDocumentItem) (*Do
 		Version: document.Version,
 		Content: docBytes,
 		Lines:   bytes.Split(docBytes, []byte("\n")),
+		read:    dm.readFile,
 	}
 
 	slog.Debug("Document content split into lines",
@@ -296,6 +302,29 @@ func (dm *DocumentManager) CloseDocument(uri string) {
 }
 
 // GetDocument retrieves a document
+// readFile returns the buffer of the open document at path, unsaved edits
+// included, or else the file on disk.
+func (dm *DocumentManager) readFile(path string) ([]byte, error) {
+	dm.mu.RLock()
+	for _, d := range dm.documents {
+		if d.path() == path {
+			b := d.Content
+			dm.mu.RUnlock()
+			return b, nil
+		}
+	}
+	dm.mu.RUnlock()
+	return os.ReadFile(path)
+}
+
+// readSibling reads another .af file of the document's directory.
+func (d *Document) readSibling(path string) ([]byte, error) {
+	if d.read == nil {
+		return os.ReadFile(path)
+	}
+	return d.read(path)
+}
+
 func (dm *DocumentManager) GetDocument(uri string) (*Document, bool) {
 	start := time.Now()
 

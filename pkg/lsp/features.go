@@ -44,7 +44,13 @@ func (d *Document) Diagnostics() []protocol.Diagnostic {
 		}
 		out = append(out, diagnostic(e.Range, protocol.DiagnosticSeverityError, e.Code, e.Message))
 	}
-	ds, err := lint.Lint(extractFilename(d.URI), d.Content)
+	// The full path, so lint finds the tools of the other .af files of
+	// the document's directory.
+	name := d.path()
+	if name == "" {
+		name = extractFilename(d.URI)
+	}
+	ds, err := lint.LintRead(name, d.Content, d.readSibling)
 	if err != nil {
 		return out
 	}
@@ -297,15 +303,11 @@ func (d *Document) agentToolDefinition(a *decl.Agent, sec token.T, off int) []pr
 		}
 	}
 	if p := d.path(); p != "" {
-		for _, sib := range ast.SiblingTools(p) {
+		for _, sib := range ast.SiblingToolsRead(p, d.readSibling) {
 			if sib.Tool.Name != name {
 				continue
 			}
-			src, err := os.ReadFile(sib.Path)
-			if err != nil {
-				continue
-			}
-			pos := offsetToPosition(src, sib.Tool.Start)
+			pos := offsetToPosition(sib.Src, sib.Tool.Start)
 			locs = append(locs, protocol.Location{URI: fileURI(sib.Path), Range: Range{Start: pos, End: pos}.protocol()})
 		}
 	}
@@ -642,7 +644,7 @@ func (d *Document) toolNameCompletions(beforeCursor []byte) []CompletionItem {
 		}
 	}
 	if p := d.path(); p != "" {
-		for _, sib := range ast.SiblingTools(p) {
+		for _, sib := range ast.SiblingToolsRead(p, d.readSibling) {
 			add(sib.Tool, "tool in "+filepath.Base(sib.Path))
 		}
 	}

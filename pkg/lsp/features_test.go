@@ -513,3 +513,36 @@ func TestAgentToolsDefinitionOfADuplicate(t *testing.T) {
 		t.Fatalf("definitions = %v", got)
 	}
 }
+
+// Unsaved edits to a sibling count: the tool exists only in its buffer.
+func TestAgentToolsReadOpenBuffers(t *testing.T) {
+	dir := t.TempDir()
+	shipping := filepath.Join(dir, "shipping.af")
+	os.WriteFile(shipping, []byte(".tool old_name\n\nOld.\n"), 0o644)
+	dm := NewDocumentManager()
+	_, err := dm.OpenDocument(protocol.TextDocumentItem{URI: fileURI(shipping), Text: ".tool track\n\nTracks.\n"})
+	require.NoError(t, err)
+	src := ".title A\nHi.\n\n.agent x\n.tools track\n"
+	doc, err := dm.OpenDocument(protocol.TextDocumentItem{URI: fileURI(filepath.Join(dir, "support.af")), Text: src})
+	require.NoError(t, err)
+
+	for _, d := range doc.Diagnostics() {
+		t.Errorf("diagnostic for a tool of an open buffer: %+v", d)
+	}
+	loc := doc.Definition(at(t, doc, "track", 0))
+	if len(loc) != 1 || !strings.HasSuffix(string(loc[0].URI), "/shipping.af") {
+		t.Errorf("definition = %+v", loc)
+	}
+	labels := map[string]bool{}
+	for _, it := range doc.directiveCompletions(Position{Line: 4, Character: len(".tools ")}, []byte(".tools ")) {
+		labels[it.Label] = true
+	}
+	if !labels["track"] || labels["old_name"] {
+		t.Errorf("completions = %v", labels)
+	}
+	// Closed, the sibling is read from disk again.
+	dm.CloseDocument(fileURI(shipping))
+	if ds := doc.Diagnostics(); len(ds) != 1 || !strings.Contains(ds[0].Message, "no tool track") || !strings.Contains(ds[0].Message, "have old_name") {
+		t.Errorf("after close: %+v", ds)
+	}
+}

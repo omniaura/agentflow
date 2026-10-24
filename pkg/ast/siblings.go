@@ -13,16 +13,26 @@ import (
 // SiblingTool is a tool declared in another .af file of the same
 // directory, whose generated code shares the Go package.
 type SiblingTool struct {
-	// Path is the .af file that declares the tool.
+	// Path is the .af file that declares the tool, and Src its source.
 	Path string
+	Src  []byte
 	Tool *decl.Tool
 }
+
+// ReadFunc reads a file, such as os.ReadFile, or an editor's buffer of it
+// before the disk.
+type ReadFunc func(path string) ([]byte, error)
 
 // SiblingTools returns the tools declared in the .af files next to path,
 // other than path itself, in file order. An agent's .tools may name them.
 // A file that can't be read or parsed is skipped: it reports its own
 // errors when it is generated or linted.
 func SiblingTools(path string) []SiblingTool {
+	return SiblingToolsRead(path, os.ReadFile)
+}
+
+// SiblingToolsRead is SiblingTools reading each file with read.
+func SiblingToolsRead(path string, read ReadFunc) []SiblingTool {
 	dir := filepath.Dir(path)
 	paths, err := filepath.Glob(filepath.Join(dir, "*.af"))
 	if err != nil {
@@ -35,7 +45,7 @@ func SiblingTools(path string) []SiblingTool {
 		if filepath.Base(p) == self {
 			continue
 		}
-		src, err := os.ReadFile(p)
+		src, err := read(p)
 		if err != nil {
 			continue
 		}
@@ -44,7 +54,7 @@ func SiblingTools(path string) []SiblingTool {
 			continue
 		}
 		for _, t := range f.Tools {
-			out = append(out, SiblingTool{Path: p, Tool: t})
+			out = append(out, SiblingTool{Path: p, Src: src, Tool: t})
 		}
 	}
 	return out
