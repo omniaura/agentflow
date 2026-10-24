@@ -21,25 +21,25 @@ func TestSiblingTools(t *testing.T) {
 	got := SiblingTools(filepath.Join(dir, "a.af"))
 	var names []string
 	for _, s := range got {
-		names = append(names, filepath.Base(s.Path)+":"+s.Tool.Name)
+		names = append(names, filepath.Base(s.Path)+":"+s.Name())
 	}
 	// Outputs aren't tools; unparsable and non-.af files are skipped.
 	if strings.Join(names, ",") != "b.af:track,c.af:find" {
 		t.Fatalf("got %v", names)
 	}
 	// A file isn't its own sibling, even when it doesn't exist yet.
-	if got := SiblingTools(filepath.Join(dir, "c.af")); len(got) != 1 || got[0].Tool.Name != "track" {
+	if got := SiblingTools(filepath.Join(dir, "c.af")); len(got) != 2 || got[0].Name() != "x" || got[1].Name() != "track" {
 		t.Fatalf("siblings of c.af = %+v", got)
 	}
 
-	if tool, err := FindTool(nil, got, "track"); err != nil || tool.Name != "track" {
+	if tool, _, err := FindTool(nil, nil, got, "track"); err != nil || tool.Name != "track" {
 		t.Fatalf("FindTool track = %v, %v", tool, err)
 	}
-	if _, err := FindTool(nil, got, "nope"); err == nil || !strings.Contains(err.Error(), "no tool nope in this file or the other .af files of its directory (have track, find)") {
+	if _, _, err := FindTool(nil, nil, got, "nope"); err == nil || !strings.Contains(err.Error(), "no tool or agent nope in this file or the other .af files of its directory (have track, find)") {
 		t.Fatalf("missing tool: %v", err)
 	}
 	own, _ := NewFile("c.af", []byte(".tool track\n\nAgain.\n"))
-	if _, err := FindTool(own.Tools, got, "track"); err == nil || !strings.Contains(err.Error(), "tool track is declared in this file and b.af") {
+	if _, _, err := FindTool(own.Tools, nil, got, "track"); err == nil || !strings.Contains(err.Error(), "track is declared in this file and b.af") {
 		t.Fatalf("duplicate tool: %v", err)
 	}
 }

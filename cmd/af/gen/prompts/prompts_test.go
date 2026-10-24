@@ -130,7 +130,7 @@ func TestRenderAgentToolsOfOtherFiles(t *testing.T) {
 		t.Errorf("redeclared the tool:\n%s", code)
 	}
 	_, _, err = Render(name, []byte(".title Support\nHi.\n\n.agent tracker\n.tools track\n"))
-	if err == nil || !strings.Contains(err.Error(), "no tool track in this file or the other .af files of its directory (have track_shipment)") {
+	if err == nil || !strings.Contains(err.Error(), "no tool or agent track in this file or the other .af files of its directory (have tracker, track_shipment)") {
 		t.Fatalf("missing tool: %v", err)
 	}
 }

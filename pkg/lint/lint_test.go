@@ -138,10 +138,12 @@ func TestLintAgentReferences(t *testing.T) {
 		{"unknown system", ".title A\nHi.\n\n.agent x\n.tools\n", "", 0},
 		{"unknown system title", ".title A\nHi.\n\n.agent x\n.maxturns 3\n.system Nope\n", `no prompt titled "Nope" in this file (have "A")`, 6},
 		{"ambiguous system", ".title A\nHi.\n\n.title B\nYo.\n\n.agent x\n", "the file has 2 prompts", 7},
-		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, find\n", "no tool find in this file or the other .af files of its directory (have look)", 8},
+		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, find\n", "no tool or agent find in this file or the other .af files of its directory (have look, x)", 8},
 		{"unknown output", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.returns look\n", "no output look in this file (it declares none)", 8},
 		{"route served twice", ".title A\nHi.\n\n.agent x\n.serve POST /chat\n\n.agent y\n.serve POST /chat\n", "route POST /chat is declared twice", 8},
-		{"output is not a tool", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.tools o\n", "no tool o in this file or the other .af files of its directory (they declare none)", 8},
+		{"itself", ".title A\nHi.\n\n.agent x\n.tools x\n\nDoes x.\n", "agent x lists itself in .tools", 5},
+		{"subagent without a description", ".title A\nHi.\n\n.agent x\n.tools y\n\n.agent y\n", "agent y needs a description to be called as a tool", 5},
+		{"output is not a tool", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.tools o\n", "no tool or agent o in this file or the other .af files of its directory (have x)", 8},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			d := lintString(t, tt.src)
@@ -163,7 +165,7 @@ func TestLintAgentToolsOfOtherFiles(t *testing.T) {
 	// A tool declared twice in the package is reported where it's used.
 	dup := src + "\n.tool track\nAgain.\n"
 	d, err := Lint(name, []byte(dup))
-	if err != nil || len(d) != 1 || d[0].Code != "AF011" || d[0].Line != 8 || !strings.Contains(d[0].Message, "tool track is declared in this file and shipping.af") {
+	if err != nil || len(d) != 1 || d[0].Code != "AF011" || d[0].Line != 8 || !strings.Contains(d[0].Message, "track is declared in this file and shipping.af") {
 		t.Fatalf("duplicate: %v %#v", err, d)
 	}
 }

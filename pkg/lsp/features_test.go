@@ -492,7 +492,8 @@ func TestAgentToolsDefinitionAndCompletion(t *testing.T) {
 	for _, it := range doc.directiveCompletions(Position{Line: line, Character: len(".tools lookup_order, ")}, []byte(".tools lookup_order, ")) {
 		labels[it.Label] = it.Detail
 	}
-	if labels["track_shipment"] != "tool in shipping.af" || labels["offer_refund"] != "tool in this file" || labels["lookup_order"] != "" || len(labels) != 2 {
+	// Other agents are offered as subagents; the tracker itself isn't.
+	if labels["track_shipment"] != "tool in shipping.af" || labels["offer_refund"] != "tool in this file" || labels["support"] != "agent in this file" || labels["lookup_order"] != "" || labels["tracker"] != "" {
 		t.Fatalf("completions = %v", labels)
 	}
 }
@@ -542,7 +543,7 @@ func TestAgentToolsReadOpenBuffers(t *testing.T) {
 	}
 	// Closed, the sibling is read from disk again.
 	dm.CloseDocument(fileURI(shipping))
-	if ds := doc.Diagnostics(); len(ds) != 1 || !strings.Contains(ds[0].Message, "no tool track") || !strings.Contains(ds[0].Message, "have old_name") {
+	if ds := doc.Diagnostics(); len(ds) != 1 || !strings.Contains(ds[0].Message, "no tool or agent track") || !strings.Contains(ds[0].Message, "old_name") {
 		t.Errorf("after close: %+v", ds)
 	}
 }
