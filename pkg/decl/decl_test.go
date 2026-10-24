@@ -247,3 +247,25 @@ func TestParseSQLTool(t *testing.T) {
 		t.Error(".output accepted .sql")
 	}
 }
+
+func TestParseToolEmpty(t *testing.T) {
+	f, err := Parse([]byte(".tool pin_note\nPins a note.\n.empty 404 is part of the message for a model\n.sql :execrows\nUPDATE notes SET pinned = true WHERE id = @id\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := f.Tools[0].Empty; e == nil || e.Msg != "404 is part of the message for a model" || e.Status != 0 || f.Tools[0].Description != "Pins a note." {
+		t.Fatalf("got %+v, description %q", e, f.Tools[0].Description)
+	}
+	for src, msg := range map[string]string{
+		".tool t\nT.\n.empty gone\n":                             ".empty says what the tool's query finding no row means",
+		".tool t\nT.\n.empty\n.sql :one\nSELECT 1\n":             ".empty needs the message",
+		".tool t\nT.\n.empty a\n.empty b\n.sql :one\nSELECT 1\n": "only one .empty line",
+		".tool t\nT.\n.sql :one\nSELECT 1\n.empty gone\n":        ".empty must come before .sql",
+	} {
+		_, err := Parse([]byte(src))
+		var de *Error
+		if !errors.As(err, &de) || !strings.Contains(de.Msg, msg) {
+			t.Errorf("%q: got %v, want %q", src, err, msg)
+		}
+	}
+}

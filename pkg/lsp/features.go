@@ -547,6 +547,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".auth", "query arguments read from the caller, not the model")
 		add(".sql", "implement the tool with a sqlc query: .sql :one|:many|:exec|:execrows")
 		add(".sqlc", "run a query sqlc reads: .sqlc queries/notes.sql [ListNotes], or .sqlc ListNotes")
+		add(".empty", "what the model is told when the query finds no row: .empty message")
 	case ".agent":
 		add(".system", "the system prompt's title (default: the file's only prompt)")
 		add(".tools", "the tools it may call (default: every tool in the file)")
@@ -561,6 +562,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".public", "serve without authentication")
 		add(".status", "success status code")
 		add(".maxbytes", "cap the request body")
+		add(".empty", "the error when the query finds no row: .empty [4xx] message (default 404)")
 		add(".sql", "write the query here: .sql :one|:many|:exec|:execrows, then the SQL")
 	}
 	add(".title", "start a prompt")
@@ -642,6 +644,9 @@ func (d *Document) SectionHover(pos Position) string {
 		}
 		if !s.Public {
 			b.WriteString("\nRequires authentication.\n")
+		}
+		if e := s.Empty; e != nil && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.ExecRows) {
+			fmt.Fprintf(&b, "\nNo row: %d %q.\n", e.Status, e.Msg)
 		}
 	}
 	return b.String()

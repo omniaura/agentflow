@@ -171,3 +171,31 @@ func TestGenerateSQLRunsSqlc(t *testing.T) {
 		t.Fatal("_af.sql was not removed")
 	}
 }
+
+// Following af gen's advice to add the _af.sql to sqlc.yaml leaves the
+// file unchanged, but sqlc still has to generate its queries.
+func TestGenerateSQLRunsSqlcForUngeneratedQueries(t *testing.T) {
+	root := writeModule(t, "other.sql")
+	name := filepath.Join(root, "api", "api.af")
+	os.MkdirAll(filepath.Dir(name), 0o755)
+	os.WriteFile(name, []byte(".route GET /x/{id} GetY\n.public\n.sql :one\nSELECT @id::bigint\n"), 0o644)
+	bin := t.TempDir()
+	log := filepath.Join(bin, "log")
+	os.WriteFile(filepath.Join(bin, "sqlc"), []byte("#!/bin/sh\necho \"$PWD $@\" >> "+log+"\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	var out bytes.Buffer
+	if err := generate([]string{name}, &out); err == nil {
+		t.Fatal("generated a route whose query no sqlc config reads")
+	}
+	if _, err := os.Stat(log); err == nil {
+		t.Fatal("sqlc ran for a file no config reads")
+	}
+	os.WriteFile(filepath.Join(root, "sqlc.yaml"), []byte("version: \"2\"\nsql:\n  - queries: [api/api_af.sql]\n    gen:\n      go: {package: db, out: db, sql_package: pgx/v5}\n"), 0o644)
+	sqlcgo.ResetCache()
+	// The fake sqlc generates nothing, so GetY is still missing after it.
+	generate([]string{name}, &out)
+	if b, _ := os.ReadFile(log); strings.TrimSpace(string(b)) != root+" generate -f sqlc.yaml" {
+		t.Fatalf("sqlc ran as %q", b)
+	}
+}

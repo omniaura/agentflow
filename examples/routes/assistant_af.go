@@ -159,7 +159,7 @@ func (t *AssistantSQLTools) PinNote(ctx context.Context, args PinNoteArgs) (stri
 		return "", &aftool.Error{Msg: "internal error", Err: err}
 	}
 	if n == 0 {
-		return "", &aftool.Error{Msg: "not found"}
+		return "", &aftool.Error{Msg: "no note of yours has that id"}
 	}
 	return fmt.Sprintf(`{"rows_affected":%d}`, n), nil
 }

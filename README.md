@@ -382,8 +382,26 @@ Arguments named by the path or by `.auth` never come from the request body, so a
 | `.public` | Skip authentication. Routes authenticate by default. |
 | `.status 201` | The success status. |
 | `.maxbytes n` | Cap the request body (default 1 MiB). |
+| `.empty [4xx] message` | The error when a `:one` query finds no row, or an `:execrows` query changes none (default `404 not found`). |
 
 The text that isn't a directive becomes the handler's doc comment.
+
+**Checks in SQL, failures with `.empty`.** A handler that loads a row to check who owns it, a limit or a state, then writes, can usually be one statement whose `WHERE` holds the checks. `.empty` names what an empty result means:
+
+```af
+.route POST /notes/{id}/copies CopyNote
+.auth owner_id
+.status 201
+.empty 409 that note is not yours, or you already have 5 notes
+.sql :one
+INSERT INTO notes (owner_id, body)
+SELECT src.owner_id, src.body FROM notes src
+WHERE src.id = @id AND src.owner_id = @owner_id
+  AND (SELECT count(*) FROM notes WHERE owner_id = @owner_id) < 5
+RETURNING *
+```
+
+The check and the write are one statement. A handler that reads, then writes, can race another request in between. `.empty` on a SQL tool sets what the model is told instead of `not found`: `.empty no note of yours has that id`.
 
 **Writing the query in the route.** End a route with `.sql` and its sqlc command, and write the query below it. The endpoint and its SQL then live in one place:
 

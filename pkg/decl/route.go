@@ -9,7 +9,7 @@ import (
 )
 
 // RouteDirectives are the directives allowed inside a route section.
-var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".sql"}
+var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".empty", ".sql"}
 
 // SQLKinds are the sqlc query commands a .sql line may name.
 var SQLKinds = []string{":one", ":many", ":exec", ":execrows"}
@@ -37,8 +37,11 @@ type Route struct {
 	Auth   []string
 	Public bool
 	// Status is the success status; 0 means the default for the query.
-	Status      int
-	MaxBytes    int
+	Status   int
+	MaxBytes int
+	// Empty, from .empty, is the error for a :one query that finds no row
+	// or an :execrows query that changes none, instead of 404 not found.
+	Empty       *Empty
 	Description string
 	// SQL is the query written in the section after a .sql line, which af
 	// gen hands to sqlc, and SQLKind its sqlc command (":one", ...). Both
@@ -131,6 +134,15 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".status needs a 2xx status code, got %q", v)}
 			}
 			r.Status = n
+		case hasDirective(b, ".empty"):
+			if r.Empty != nil {
+				return nil, &Error{Offset: off, Msg: "only one .empty line"}
+			}
+			e, err := parseEmpty(strings.TrimSpace(strings.TrimPrefix(l, ".empty")), off)
+			if err != nil {
+				return nil, err
+			}
+			r.Empty = e
 		case hasDirective(b, ".maxbytes"):
 			v := strings.TrimSpace(strings.TrimPrefix(l, ".maxbytes"))
 			n, err := strconv.Atoi(v)
@@ -153,4 +165,37 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 // arguments from the query string rather than a JSON body.
 func (r *Route) BodyFromQueryString() bool {
 	return r.Method == "GET" || r.Method == "HEAD" || r.Method == "DELETE"
+}
+
+// Empty is the failure a query that finds no row or changes none reports,
+// from a .empty line:
+//
+//	.empty 409 you already have 20 thought trains
+//
+// A query can check what a handler would check in Go (who owns a row, a
+// limit, a state) in its WHERE clause; .empty then names the failure.
+type Empty struct {
+	// Status is the HTTP status of a route's error, 400-499; a tool's
+	// Empty has none.
+	Status int
+	// Msg is the message the client or model sees.
+	Msg    string
+	Offset int
+}
+
+// parseEmpty parses the arguments of a route's .empty line: an optional
+// 4xx status, then the message.
+func parseEmpty(args string, off int) (*Empty, error) {
+	e := &Empty{Status: 404, Msg: args, Offset: off}
+	if first, rest, _ := strings.Cut(args, " "); len(first) == 3 && first[0] >= '0' && first[0] <= '9' {
+		n, err := strconv.Atoi(first)
+		if err != nil || n < 400 || n > 499 {
+			return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty needs a 4xx status, got %q", first)}
+		}
+		e.Status, e.Msg = n, strings.TrimSpace(rest)
+	}
+	if e.Msg == "" {
+		return nil, &Error{Offset: off, Msg: "usage: .empty [4xx status] message, as in .empty 409 you already have 20 thought trains"}
+	}
+	return e, nil
 }

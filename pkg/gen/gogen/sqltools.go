@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/omniaura/agentflow/pkg/ast"
@@ -346,12 +347,19 @@ func writeSQLTool(buf *bytes.Buffer, name string, st *sqlTool, imports map[strin
 	}
 	call += ")"
 	failed := "if err != nil {\nreturn \"\", &aftool.Error{Msg: \"internal error\", Err: err}\n}\n"
+	empty := strconv.Quote("not found")
+	if t.Empty != nil {
+		if q.Kind != sqlcgo.One && q.Kind != sqlcgo.ExecRows {
+			return fmt.Errorf(".empty applies to a :one query that finds no row or an :execrows query that changes none; query %s is %s", q.Name, q.Kind)
+		}
+		empty = strconv.Quote(t.Empty.Msg)
+	}
 	switch q.Kind {
 	case sqlcgo.One:
 		path, expr := st.pkg.NoRowsImport()
 		imports[path] = true
 		fmt.Fprintf(buf, "row, err := %s\n", call)
-		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nreturn \"\", &aftool.Error{Msg: \"not found\", Err: err}\n}\n", expr)
+		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nreturn \"\", &aftool.Error{Msg: %s, Err: err}\n}\n", expr, empty)
 		buf.WriteString(failed)
 		buf.WriteString("b, err := json.Marshal(row)\nreturn string(b), err\n}\n\n")
 	case sqlcgo.Many:
@@ -363,7 +371,7 @@ func writeSQLTool(buf *bytes.Buffer, name string, st *sqlTool, imports map[strin
 		fmt.Fprintf(buf, "n, err := %s\n", call)
 		buf.WriteString(failed)
 		// No row changed: missing, or not the caller's.
-		buf.WriteString("if n == 0 {\nreturn \"\", &aftool.Error{Msg: \"not found\"}\n}\n")
+		fmt.Fprintf(buf, "if n == 0 {\nreturn \"\", &aftool.Error{Msg: %s}\n}\n", empty)
 		buf.WriteString("return fmt.Sprintf(`{\"rows_affected\":%d}`, n), nil\n}\n\n")
 		imports["fmt"] = true
 	default:

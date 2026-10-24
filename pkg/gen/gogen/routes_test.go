@@ -78,3 +78,38 @@ func TestGenRoutesNeedsSqlc(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestGenRoutesEmpty(t *testing.T) {
+	code, err := genRoutesFile(t, ".route GET /a/{id} GetTodo\n.auth owner_id\n.empty 403 that todo is not yours\n\n.route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n.empty 409 that todo is gone or not yours\n\n.route DELETE /a/{id} DeleteTodo\n.auth owner_id\n.empty 418 teapot\n\n.route GET /b/{id} GetTodoTitle\n.public\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"errApiGetTodo     = errs.NewFactory(http.StatusForbidden, \"that todo is not yours\")",
+		"errApiSetTodoDone = errs.NewFactory(http.StatusConflict, \"that todo is gone or not yours\")",
+		// A status without a net/http name is written as a number.
+		"errApiDeleteTodo  = errs.NewFactory(418, \"teapot\")",
+		"rt.fail(w, r, errApiGetTodo.New(r.Context()).AddError(err))",
+		"if n == 0 {\n\t\trt.fail(w, r, errApiSetTodoDone.New(r.Context()))",
+		// Routes without .empty keep 404.
+		"rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))",
+		`"github.com/omniaura/go-kit/errs"`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q in\n%s", want, code)
+		}
+	}
+	// No .empty, no errs import.
+	code, err = genRoutesFile(t, ".route GET /b/{id} GetTodoTitle\n.public\n")
+	if err != nil || strings.Contains(code, "go-kit/errs") {
+		t.Errorf("errs imported without .empty: %v", err)
+	}
+	// :many has no empty result to name, nor has :exec.
+	for _, src := range []string{".route GET /a ListTodos\n.auth owner_id\n.empty none\n", ".route POST /a/{id} SetTodoDone\n.auth owner_id\n\n.route GET /n ListNotes\n.auth owner_id\n.empty none\n"} {
+		_, err := genRoutesFile(t, src)
+		var re *RouteError
+		if !errors.As(err, &re) || !strings.Contains(err.Error(), ".empty applies to a :one query") || src[re.Offset:re.Offset+6] != ".empty" {
+			t.Errorf("%q: got %v", src, err)
+		}
+	}
+}

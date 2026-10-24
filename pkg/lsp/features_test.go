@@ -344,3 +344,23 @@ func TestAgentSections(t *testing.T) {
 		t.Fatalf("directives = %v", labels)
 	}
 }
+
+func TestRouteEmptyHoverAndCompletion(t *testing.T) {
+	path, err := filepath.Abs("../../examples/routes/note_copies.af")
+	require.NoError(t, err)
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	doc := openAt(t, path, string(src))
+	hover := doc.SectionHover(at(t, doc, "CopyNote", 0))
+	if !strings.Contains(hover, `No row: 409 "that note is not yours, or you already have 5 notes".`) {
+		t.Errorf("hover:\n%s", hover)
+	}
+	doc = openAt(t, path, ".route GET /x GetTodo\n.\n")
+	var labels []string
+	for _, c := range doc.directiveCompletions(Position{Line: 1, Character: 1}, []byte(".")) {
+		labels = append(labels, c.Label)
+	}
+	if !slices.Contains(labels, ".empty") {
+		t.Errorf("route completions: %v", labels)
+	}
+}

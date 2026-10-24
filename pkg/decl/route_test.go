@@ -50,6 +50,11 @@ func TestParseRouteErrors(t *testing.T) {
 		{"sql empty", ".route GET /x Q\n.sql :one\n\n", "write the query on the lines after .sql"},
 		{"sql qualified", ".route GET /x db.Q\n.sql :one\nSELECT 1\n", "cannot name a package"},
 		{"sql twice", ".route GET /x Q\n.sql :one\nSELECT 1\n.route GET /y Q\n.sql :one\nSELECT 2\n", "query Q is written twice"},
+		{"empty without message", ".route GET /x Q\n.empty 409\n", "usage: .empty [4xx status] message"},
+		{"empty blank", ".route GET /x Q\n.empty\n", "usage: .empty"},
+		{"empty 5xx", ".route GET /x Q\n.empty 503 down\n", `.empty needs a 4xx status, got "503"`},
+		{"empty twice", ".route GET /x Q\n.empty a\n.empty b\n", "only one .empty line"},
+		{"empty after sql", ".route GET /x Q\n.sql :one\nSELECT 1\n.empty gone\n", ".empty must come before .sql"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := Parse([]byte(tt.src))
@@ -74,5 +79,28 @@ func TestParseRouteSQL(t *testing.T) {
 	// A second route may serve a query written elsewhere in the file.
 	if f.Routes[1].SQL != "" || f.Routes[1].Query != "UpdateNote" {
 		t.Fatalf("second route = %+v", f.Routes[1])
+	}
+}
+
+func TestParseRouteEmpty(t *testing.T) {
+	for _, tt := range []struct {
+		line   string
+		status int
+		msg    string
+	}{
+		{".empty 409 you already have 5 notes", 409, "you already have 5 notes"},
+		{".empty that note is gone", 404, "that note is gone"},
+		// A leading number that is not a status is part of the message.
+		{".empty 5 notes at most", 404, "5 notes at most"},
+		{".empty 2025 was a year", 404, "2025 was a year"},
+	} {
+		f, err := Parse([]byte(".route GET /x Q\n" + tt.line + "\n"))
+		if err != nil {
+			t.Fatalf("%s: %v", tt.line, err)
+		}
+		e := f.Routes[0].Empty
+		if e == nil || e.Status != tt.status || e.Msg != tt.msg || e.Offset != len(".route GET /x Q\n") {
+			t.Errorf("%s: got %+v", tt.line, e)
+		}
 	}
 }

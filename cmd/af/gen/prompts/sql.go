@@ -195,7 +195,8 @@ func checkSQLRoutes(name string, f ast.File, repo *sqlcgo.Repo) error {
 }
 
 // generateSQL writes the _af.sql of every file with inline queries, then
-// runs sqlc generate for each config whose queries changed. Files that do
+// runs sqlc generate for each config whose queries changed or are not
+// generated yet. Files that do
 // not parse are left to the Go pass to report.
 func generateSQL(files []string, out io.Writer) error {
 	var configs []string
@@ -224,12 +225,16 @@ func generateSQL(files []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if !changed {
-			continue
+		if changed {
+			slog.Info("Generated", "file", path)
 		}
-		slog.Info("Generated", "file", path)
 		repo, err := sqlcgo.Find(filepath.Dir(name))
 		if err != nil {
+			continue
+		}
+		// Unchanged queries still need sqlc when it hasn't generated them,
+		// such as after adding the file to sqlc.yaml on af gen's advice.
+		if !changed && checkSQLRoutes(name, f, repo) == nil {
 			continue
 		}
 		if p, err := sqlPackage(name, repo); err == nil && !slices.Contains(configs, p.Config) {

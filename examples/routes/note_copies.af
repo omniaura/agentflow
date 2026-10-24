@@ -1,0 +1,12 @@
+.route POST /notes/{id}/copies CopyNote
+.auth owner_id
+.status 201
+.empty 409 that note is not yours, or you already have 5 notes
+Copies one of the caller's notes, while they have fewer than 5. The query
+checks both in SQL, so the handler runs one statement.
+.sql :one
+INSERT INTO notes (owner_id, body)
+SELECT src.owner_id, src.body FROM notes src
+WHERE src.id = @id AND src.owner_id = @owner_id
+  AND (SELECT count(*) FROM notes WHERE owner_id = @owner_id) < 5
+RETURNING *

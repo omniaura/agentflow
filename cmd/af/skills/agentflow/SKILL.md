@@ -242,6 +242,11 @@ Creates a todo for the caller.
   DELETE). `user_id`, `userId` and `UserID` all match one argument.
 - Routes authenticate by default; `.public` skips it. `.status`, `.maxbytes` and a
   description (which becomes the doc comment) are optional.
+- Put checks in the SQL, not in Go: ownership, limits and states go in the `WHERE` of
+  one statement (`UPDATE ... WHERE id = @id AND owner_id = @owner_id`, `INSERT ...
+  SELECT ... WHERE (SELECT count(*) ...) < 5`). Then `.empty [4xx] message` names the
+  failure when a `:one` finds no row or an `:execrows` changes none (default 404). On a
+  SQL tool, `.empty message` is what the model is told instead of "not found".
 - The generated code is a `<File>Queries` interface and a `<File>Routes` struct. Declare
   `type Caller struct{ OwnerID string }` in the package, set `Queries`, `Auth` and
   optionally `OnError`, then call `Register(mux)`.

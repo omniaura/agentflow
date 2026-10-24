@@ -14,6 +14,9 @@ import (
 // AfhttpImport is the runtime package generated route code imports.
 const AfhttpImport = "github.com/omniaura/agentflow/runtime/afhttp"
 
+// ErrsImport is go-kit's errs, which generated code declares errors with.
+const ErrsImport = "github.com/omniaura/go-kit/errs"
+
 // Options configure generation.
 type Options struct {
 	// Queries resolves the sqlc query a .route names. Files with routes
@@ -42,6 +45,8 @@ type boundRoute struct {
 	pkg     *sqlcgo.Package
 	q       *sqlcgo.Query
 	handler string
+	// empty is the errs factory of the route's .empty, or "".
+	empty string
 	// source of each argument, by index: "path", "auth", "query" or "body".
 	sources []string
 }
@@ -67,14 +72,34 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		uses[q.Name]++
 		bound = append(bound, b)
 	}
+	name := camel(file)
+	var empties []*boundRoute
 	for _, b := range bound {
 		b.handler = b.q.Name
 		if uses[b.q.Name] > 1 {
 			b.handler += camel(strings.ToLower(b.r.Method))
 		}
+		if e := b.r.Empty; e != nil {
+			if b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.ExecRows {
+				return &RouteError{Offset: e.Offset, Err: fmt.Errorf(".empty applies to a :one query that finds no row or an :execrows query that changes none; query %s is %s", b.q.Name, b.q.Kind)}
+			}
+			b.empty = "err" + name + b.handler
+			empties = append(empties, b)
+		}
+	}
+	if len(empties) > 0 {
+		imports[ErrsImport] = true
+		buf.WriteString("// The errors of the routes with .empty: what a query that finds no row,\n// or changes none, means.\nvar (\n")
+		for _, b := range empties {
+			status := strconv.Itoa(b.r.Empty.Status)
+			if n, ok := statusNames[b.r.Empty.Status]; ok {
+				status = "http." + n
+			}
+			fmt.Fprintf(buf, "%s = errs.NewFactory(%s, %s)\n", b.empty, status, strconv.Quote(b.r.Empty.Msg))
+		}
+		buf.WriteString(")\n\n")
 	}
 
-	name := camel(file)
 	authed := slices.ContainsFunc(bound, func(b *boundRoute) bool { return !b.r.Public })
 	imports["context"] = true
 	imports["net/http"] = true
@@ -139,6 +164,15 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		writeHandler(buf, name, b, imports)
 	}
 	return nil
+}
+
+// emptyErr is the errs factory for a query that finds no row or changes
+// none.
+func (b *boundRoute) emptyErr() string {
+	if b.empty != "" {
+		return b.empty
+	}
+	return "afhttp.ErrNotFound"
 }
 
 func argType(b *boundRoute) string {
@@ -328,7 +362,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		imports[path] = true
 		imports["errors"] = true
 		fmt.Fprintf(buf, "row, err := %s\n", call)
-		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))\nreturn\n}\n", expr)
+		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, %s.New(r.Context()).AddError(err))\nreturn\n}\n", expr, b.emptyErr())
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, row)\n", status("http.StatusOK"))
 	case sqlcgo.Many:
@@ -339,7 +373,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 	case sqlcgo.ExecRows:
 		fmt.Fprintf(buf, "n, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
-		buf.WriteString("if n == 0 {\nrt.fail(w, r, afhttp.ErrNotFound.New(r.Context()))\nreturn\n}\n")
+		fmt.Fprintf(buf, "if n == 0 {\nrt.fail(w, r, %s.New(r.Context()))\nreturn\n}\n", b.emptyErr())
 		fmt.Fprintf(buf, "w.WriteHeader(%s)\n", status("http.StatusNoContent"))
 	default:
 		fmt.Fprintf(buf, "if err := %s; err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n", call)
@@ -356,6 +390,17 @@ var statusNames = map[int]string{
 	204: "StatusNoContent",
 	205: "StatusResetContent",
 	206: "StatusPartialContent",
+	400: "StatusBadRequest",
+	401: "StatusUnauthorized",
+	402: "StatusPaymentRequired",
+	403: "StatusForbidden",
+	404: "StatusNotFound",
+	409: "StatusConflict",
+	410: "StatusGone",
+	412: "StatusPreconditionFailed",
+	422: "StatusUnprocessableEntity",
+	423: "StatusLocked",
+	429: "StatusTooManyRequests",
 }
 
 // pathName returns the {name} in r's path that a binds to.
