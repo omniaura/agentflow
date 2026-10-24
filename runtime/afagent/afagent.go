@@ -12,7 +12,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
 	"sync"
+	"time"
 )
 
 // Role is who wrote a message.
@@ -111,6 +114,38 @@ type Response struct {
 // Model is a chat model that can call tools.
 type Model interface {
 	Complete(ctx context.Context, req Request) (Response, error)
+}
+
+// ModelError is a model call the provider answered with an HTTP error
+// status. Adapters return it, so wrappers such as those in afmodel can
+// tell a failure worth trying again (rate limited, overloaded) from one
+// that isn't (a bad request).
+type ModelError struct {
+	Status int
+	// RetryAfter is how long the provider asked to wait, or 0.
+	RetryAfter time.Duration
+	Err        error
+}
+
+func (e *ModelError) Error() string { return e.Err.Error() }
+
+func (e *ModelError) Unwrap() error { return e.Err }
+
+// RetryAfter reads how long a provider's response asks to wait before
+// trying again: retry-after-ms, or Retry-After in seconds or as a date.
+// It returns 0 when h says nothing usable.
+func RetryAfter(h http.Header) time.Duration {
+	if ms, err := strconv.ParseFloat(h.Get("Retry-After-Ms"), 64); err == nil && ms > 0 {
+		return time.Duration(ms * float64(time.Millisecond))
+	}
+	v := h.Get("Retry-After")
+	if secs, err := strconv.ParseFloat(v, 64); err == nil && secs > 0 {
+		return time.Duration(secs * float64(time.Second))
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		return max(0, time.Until(t))
+	}
+	return 0
 }
 
 // ModelFunc adapts a function to a Model.

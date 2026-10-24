@@ -10,12 +10,16 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
+	"github.com/omniaura/agentflow/runtime/afmodel"
+	"github.com/omniaura/go-kit/errs"
 )
 
 // fakeClaude streams each scripted answer in turn as server-sent events and
@@ -275,5 +279,60 @@ func TestStreamsText(t *testing.T) {
 	// Text only: thinking stays out of the stream.
 	if strings.Join(deltas, "") != "Hello there" {
 		t.Errorf("deltas = %q", deltas)
+	}
+}
+
+// An API error comes back as an *afagent.ModelError with its status and
+// Retry-After hint, so afmodel can retry or fall back.
+func TestAPIErrorsCarryStatus(t *testing.T) {
+	for _, tt := range []struct {
+		status int
+		header string
+		after  time.Duration
+	}{
+		{529, "3", 3 * time.Second},
+		{429, "", 0},
+		{400, "", 0},
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if tt.header != "" {
+				w.Header().Set("Retry-After", tt.header)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(tt.status)
+			fmt.Fprint(w, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+		}))
+		c := anthropic.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("test"), option.WithMaxRetries(0))
+		_, err := (&Model{Client: &c}).Complete(context.Background(), afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}})
+		srv.Close()
+		var me *afagent.ModelError
+		if !errors.As(err, &me) || me.Status != tt.status || me.RetryAfter != tt.after || !strings.HasPrefix(err.Error(), "afanthropic: ") {
+			t.Errorf("%d: got %#v", tt.status, err)
+		}
+	}
+}
+
+// afmodel.Retry rides out Claude being overloaded: the first call gets a
+// 529 with Retry-After, the retry succeeds, and the agent loop finishes.
+func TestRetryOverloadedClaude(t *testing.T) {
+	f := &fakeClaude{answers: [][]string{answer("end_turn", `{"type":"text","text":"Done."}`)}}
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After-Ms", "20")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(529)
+			io.WriteString(w, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+			return
+		}
+		f.ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	c := anthropic.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("test"), option.WithMaxRetries(0))
+	start := time.Now()
+	loop := afagent.Loop{Model: afmodel.Retry(&Model{Client: &c}, errs.FixedRetry(3, time.Millisecond))}
+	res, err := loop.Run(context.Background(), []afagent.Message{{Role: afagent.User, Content: "go"}})
+	if err != nil || res.Final != "Done." || calls.Load() != 2 || time.Since(start) < 20*time.Millisecond {
+		t.Fatalf("got %q, %v after %d calls in %v", res.Final, err, calls.Load(), time.Since(start))
 	}
 }

@@ -601,7 +601,28 @@ model := &afanthropic.Model{} // claude-opus-5-5, 16000 max tokens by default
 model := &afopenai.Model{Model: modelID, Options: []option.RequestOption{option.WithBaseURL(gatewayURL)}}
 ```
 
-`afanthropic` streams, so long answers don't time out, and turns on prompt caching, so each turn reuses the conversation before it. It keeps Claude's own content blocks on each assistant message (`Message.Native`), so thinking blocks go back unchanged on the next turn. Both adapters report cached input tokens in `Usage`, and return errors wrapping `afagent.ErrTruncated` for an answer cut off by the token limit and `afagent.ErrRefused` for a refusal. A `Params` hook adjusts each request, for example to set thinking, effort or `tool_choice`.
+`afanthropic` streams, so long answers don't time out, and turns on prompt caching, so each turn reuses the conversation before it. It keeps Claude's own content blocks on each assistant message (`Message.Native`), so thinking blocks go back unchanged on the next turn. Both adapters report cached input tokens in `Usage`, and return errors wrapping `afagent.ErrTruncated` for an answer cut off by the token limit and `afagent.ErrRefused` for a refusal. A `Params` hook adjusts each request, for example to set thinking, effort or `tool_choice`. When the API answers with an error, they return an `*afagent.ModelError` with its HTTP status and `Retry-After` hint.
+
+### Retries, fallback and metering
+
+`runtime/afmodel` wraps any `afagent.Model` with what an LLM gateway adds. The wrappers are models themselves, so they compose:
+
+```go
+model := afmodel.Meter(
+	afmodel.Fallback(
+		afmodel.Retry(claude, errs.ExponentialRetry(3, time.Second, 10*time.Second)),
+		gpt,
+	),
+	func(ctx context.Context, c afmodel.Call) { bill(ctx, c.Response.Usage) },
+)
+agent := &SupportAgent{Model: model, Tools: impl}
+```
+
+- **`Retry(m, policy)`** retries transient failures under a go-kit `errs.RetryPolicy`: 408, 425, 429, 5xx, Anthropic's 529 (overloaded), and network errors. It waits the policy's backoff, or the provider's `Retry-After` when that is longer, and gives up when a hint exceeds `policy.MaxRetryAfter`.
+- **`Fallback(models...)`** moves to the next model when one fails transiently. A bad request fails at once, since every provider would reject it.
+- **`Meter(m, record)`** reports each call, failed or not, with its usage and duration. Wrap each provider to bill them apart.
+
+A call that already streamed text is never retried or sent to another model, so a client never sees an answer start twice. The SDKs also retry on their own; pass `option.WithMaxRetries(0)` when `Retry` should own the policy.
 
 ## Examples
 
@@ -817,7 +838,7 @@ Code generated for `.tool`, `.route` and `.agent` imports small runtime packages
     go tool af eject          # or: af eject aftool
     go tool af gen prompts ./...
 
-The model adapters `afanthropic` and `afopenai` are ejected only when named: `af eject afanthropic`. An ejected adapter is your LLM gateway, and you can add retries, routing or logging to it. Ejected packages import each other's copies. If you eject a package after something that imports it, `af eject` updates the earlier copy and keeps your edits.
+The adapters `afanthropic` and `afopenai`, and `afmodel`, are ejected only when named: `af eject afanthropic afmodel`. Ejected, they are your LLM gateway, and you can add routing, logging or your own retry rules to them. Ejected packages import each other's copies. If you eject a package after something that imports it, `af eject` updates the earlier copy and keeps your edits.
 
 `af eject` copies the packages to `internal/agentflow/<package>` (choose another place with `--dir`) and records them in `agentflow.json` at the module root. From then on, `af gen` makes generated code import your copies. Their only dependencies are the model SDKs (for the adapters) and `go-kit/errs` (for `afhttp`), so a module that ejects everything doesn't need agentflow as a library at all.
 

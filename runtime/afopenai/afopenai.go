@@ -58,7 +58,7 @@ func (m *Model) Complete(ctx context.Context, req afagent.Request) (afagent.Resp
 	if req.OnText == nil {
 		cc, err := client.Chat.Completions.New(ctx, params)
 		if err != nil {
-			return afagent.Response{}, fmt.Errorf("afopenai: %w", err)
+			return afagent.Response{}, apiError(err)
 		}
 		return response(cc)
 	}
@@ -79,7 +79,7 @@ func (m *Model) Complete(ctx context.Context, req afagent.Request) (afagent.Resp
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return afagent.Response{}, fmt.Errorf("afopenai: %w", err)
+		return afagent.Response{}, apiError(err)
 	}
 	return response(&acc.ChatCompletion)
 }
@@ -186,3 +186,18 @@ func response(cc *openai.ChatCompletion) (afagent.Response, error) {
 }
 
 var _ afagent.Model = (*Model)(nil)
+
+// apiError wraps a failed request, as an *afagent.ModelError with the
+// status and Retry-After hint when the API answered with an error.
+func apiError(err error) error {
+	err = fmt.Errorf("afopenai: %w", err)
+	var e *openai.Error
+	if !errors.As(err, &e) {
+		return err
+	}
+	me := &afagent.ModelError{Status: e.StatusCode, Err: err}
+	if e.Response != nil {
+		me.RetryAfter = afagent.RetryAfter(e.Response.Header)
+	}
+	return me
+}
