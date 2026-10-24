@@ -75,6 +75,10 @@ type Request struct {
 	// pass it as the provider's structured output format; the model may
 	// still call tools before answering.
 	Output *OutputSpec
+	// NoToolCalls means the model must answer this turn without calling a
+	// tool. Adapters still send Tools, with tool choice none: providers
+	// reject a conversation holding tool calls when no tools are defined.
+	NoToolCalls bool
 	// OnText, when set, receives the answer's text as the model writes
 	// it. Adapters that stream call it; others may never call it. Call it
 	// from one goroutine at a time, in the order of the text, and only
@@ -204,6 +208,10 @@ type Result struct {
 	Messages []Message
 	Turns    int
 	Usage    Usage
+	// OutOfTurns means the answer came on the last turn, with tools
+	// withheld by AnswerOnLastTurn: the model may have stopped short of
+	// what it meant to do.
+	OutOfTurns bool
 }
 
 // Model adapters wrap these errors for answers the loop can't use.
@@ -217,7 +225,8 @@ var (
 
 // ErrMaxTurns means the model kept calling tools, or giving answers Check
 // rejected, for MaxTurns model calls. After a rejected last answer the
-// error also wraps Check's.
+// error also wraps Check's. With AnswerOnLastTurn, only a rejected last
+// answer, or tool calls the model made anyway, end the loop with it.
 var ErrMaxTurns = errors.New("afagent: the agent did not finish within its turn limit")
 
 // DefaultMaxTurns bounds a loop whose MaxTurns is 0.
@@ -239,6 +248,10 @@ type Loop struct {
 	Check func(answer string) error
 	// MaxTurns bounds the model calls; 0 means DefaultMaxTurns.
 	MaxTurns int
+	// AnswerOnLastTurn withholds the tools on the last turn, so the model
+	// answers with what it has instead of the loop ending in ErrMaxTurns.
+	// Result.OutOfTurns reports such an answer.
+	AnswerOnLastTurn bool
 	// Concurrency is how many tool calls of one turn run at once; 0 or 1
 	// runs them in order.
 	Concurrency int
@@ -262,6 +275,7 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		}
 		res.Turns++
 		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
+		req.NoToolCalls = l.AnswerOnLastTurn && len(l.Tools) > 0 && res.Turns == maxTurns
 		// held is the turn's text while Check may still reject it. The
 		// mutex keeps a Model that breaks OnText's contract from racing.
 		var (
@@ -316,7 +330,13 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 				continue
 			}
 			res.Final = resp.Message.Content
+			res.OutOfTurns = req.NoToolCalls
 			return res, nil
+		}
+		if req.NoToolCalls {
+			// The model called tools it was told it couldn't; running them
+			// would leave their results unanswered.
+			return res, fmt.Errorf("%w: the model called tools on its last turn, when it was to answer", ErrMaxTurns)
 		}
 		res.Messages = append(res.Messages, l.runTools(ctx, res.Turns, resp.Message.ToolCalls)...)
 	}

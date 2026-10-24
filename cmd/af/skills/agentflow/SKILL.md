@@ -197,6 +197,9 @@ Answers customer questions about their orders.
 - `.agent name` generates `SupportAgent`, a `SupportTools` interface with one method per
   tool (`LookupOrder(ctx, LookupOrderArgs) (string, error)`) and `Run`, which loops
   until the model answers without calling a tool.
+- On the last of `.maxturns` turns the model may not call tools, so a run ends with an
+  answer rather than `afagent.ErrMaxTurns`. `res.OutOfTurns` reports it; check it where
+  an unfinished run matters. Don't hand-write a separate "now give your final answer" call.
 - `.system Title` picks the system prompt; it is optional when the file has one prompt.
   `.tools a, b` limits the tools; the default is every tool in the file.
 - `.returns name` makes the final answer an `.output` of the file. `Run` then returns

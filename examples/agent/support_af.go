@@ -131,13 +131,14 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 		maxTurns = 6
 	}
 	loop := afagent.Loop{
-		Model:       a.Model,
-		System:      system.String(),
-		Tools:       SupportAgentTools,
-		MaxTurns:    maxTurns,
-		Concurrency: a.Concurrency,
-		OnEvent:     a.OnEvent,
-		Dispatch:    a.dispatch,
+		Model:            a.Model,
+		System:           system.String(),
+		Tools:            SupportAgentTools,
+		MaxTurns:         maxTurns,
+		Concurrency:      a.Concurrency,
+		OnEvent:          a.OnEvent,
+		Dispatch:         a.dispatch,
+		AnswerOnLastTurn: true,
 	}
 	return loop.Run(ctx, messages)
 }
@@ -206,14 +207,15 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		maxTurns = 3
 	}
 	loop := afagent.Loop{
-		Model:       a.Model,
-		System:      system.String(),
-		Tools:       TriagerAgentTools,
-		MaxTurns:    maxTurns,
-		Concurrency: a.Concurrency,
-		OnEvent:     a.OnEvent,
-		Dispatch:    a.dispatch,
-		Output:      &afagent.OutputSpec{Name: TriageSchema.Name, Description: TriageSchema.Description, Schema: TriageSchema.Schema},
+		Model:            a.Model,
+		System:           system.String(),
+		Tools:            TriagerAgentTools,
+		MaxTurns:         maxTurns,
+		Concurrency:      a.Concurrency,
+		OnEvent:          a.OnEvent,
+		Dispatch:         a.dispatch,
+		AnswerOnLastTurn: true,
+		Output:           &afagent.OutputSpec{Name: TriageSchema.Name, Description: TriageSchema.Description, Schema: TriageSchema.Schema},
 		Check: func(answer string) error {
 			out, err := TriageSchema.Decode(answer)
 			if err == nil && a.Check != nil {

@@ -102,6 +102,9 @@ func (m *Model) params(req afagent.Request) (anthropic.MessageNewParams, error) 
 		}
 		p.Tools = append(p.Tools, anthropic.ToolUnionParam{OfTool: &tool})
 	}
+	if req.NoToolCalls && len(p.Tools) > 0 {
+		p.ToolChoice = anthropic.ToolChoiceUnionParam{OfNone: &anthropic.ToolChoiceNoneParam{}}
+	}
 	msgs, err := messages(req.Messages)
 	if err != nil {
 		return p, err

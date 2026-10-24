@@ -535,7 +535,7 @@ Answers customer questions about their orders.
 | --- | --- |
 | `.system Title` | The prompt to use as the system prompt. Optional when the file has one prompt. |
 | `.tools a, b` | The tools the agent may call. All the file's tools when omitted. |
-| `.maxturns n` | The most model calls a run may make (default 10). |
+| `.maxturns n` | The most model calls a run may make (default 10). On the last one the model may not call tools, so it answers with what it has. |
 | `.returns name` | The `.output` its final answer must be. `Run` then returns it decoded. |
 | `.serve POST /path` | Also serve the agent over HTTP (`POST` or `PUT`). |
 
@@ -571,10 +571,12 @@ With `.returns`, the agent ends with structured data instead of text. The model 
 ```go
 res, err := (&TriagerAgent{Model: model, Tools: impl}).Run(ctx, &Support{Shop: "Acme"}, msg)
 if err != nil {
-	return err // e.g. afagent.ErrMaxTurns: no valid triage within .maxturns
+	return err // e.g. afagent.ErrMaxTurns: the last answer was still not a valid triage
 }
 if res.Output.Urgent { ... } // res.Output is a TriageOutput
 ```
+
+When a run reaches `.maxturns`, the last request still lists the tools but sets the provider's tool choice to `none`. The model then answers instead of calling one more tool, and `res.OutOfTurns` reports that the answer came under that limit. A run ends in `afagent.ErrMaxTurns` only when that last answer is rejected, or when the model calls tools anyway. `afagent.Loop` does this when `AnswerOnLastTurn` is set, and generated agents set it.
 
 The adapters send the output's strict schema as the provider's structured output format. `Run` checks each final answer with the output's decoder. An answer that doesn't decode goes back to the model with the error, so it can try again within `.maxturns`.
 
