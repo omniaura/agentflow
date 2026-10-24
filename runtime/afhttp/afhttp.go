@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // DefaultMaxBytes caps a request body when its .route section sets no
@@ -191,4 +192,66 @@ func ParseQuery(r *http.Request, name string, v any) error {
 		return nil
 	}
 	return Parse(name, values[0], v)
+}
+
+// WantsEventStream reports whether the client asked for a server-sent
+// event stream with Accept: text/event-stream.
+func WantsEventStream(r *http.Request) bool {
+	for _, v := range r.Header.Values("Accept") {
+		for _, part := range strings.Split(v, ",") {
+			mt, _, _ := strings.Cut(strings.TrimSpace(part), ";")
+			if strings.EqualFold(strings.TrimSpace(mt), "text/event-stream") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// EventStream writes server-sent events. Its methods are safe to call from
+// several goroutines.
+type EventStream struct {
+	mu sync.Mutex
+	w  http.ResponseWriter
+	rc *http.ResponseController
+}
+
+// NewEventStream starts a 200 text/event-stream response on w.
+func NewEventStream(w http.ResponseWriter) *EventStream {
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	// Ask proxies such as nginx not to buffer the stream.
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	s := &EventStream{w: w, rc: http.NewResponseController(w)}
+	s.rc.Flush()
+	return s
+}
+
+// Send writes one event, with data encoded as JSON, and flushes it.
+func (s *EventStream) Send(event string, data any) error {
+	b, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, b); err != nil {
+		return err
+	}
+	if err := s.rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
+	return nil
+}
+
+// SendError writes an error event with err's client-safe message: an
+// *Error's Msg, or "internal error".
+func (s *EventStream) SendError(err error) error {
+	var e *Error
+	if !errors.As(err, &e) {
+		e = &Error{Msg: "internal error"}
+	}
+	return s.Send("error", map[string]string{"error": e.Msg})
 }

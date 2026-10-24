@@ -513,6 +513,24 @@ srv := &TriagerAgentServer{
 srv.Register(mux)
 ```
 
+A client that sends `Accept: text/event-stream` gets the run as server-sent events:
+
+```
+event: tool_called
+data: {"name":"lookup_order"}
+
+event: tool_returned
+data: {"name":"lookup_order","failed":false}
+
+event: text
+data: {"text":"Your order"}
+
+event: done
+data: {"answer":"Your order A-1 ...","usage":{...}}
+```
+
+`text` events stream the answer as the model writes it. `afanthropic` streams always; `afopenai` switches to streaming when someone listens. With `.returns`, the text is the JSON being written. `tool_called`/`tool_returned` carry only the tool's name and whether it failed, never its arguments or results, and `answer_rejected` means the model is asked again. The stream ends with `done`, which has the same body as the JSON response, or with `error` (`{"error": "..."}`, a client-safe message) once the 200 has been sent. Errors before the run starts, such as a bad body or failed authentication, are still plain HTTP errors. `afagent.ClientEvent` gives the same projection for your own servers.
+
 The client sends only its new message, `{"message": "..."}`. It gets back `{"output": {...}, "usage": {...}}`, or `{"answer": "..."}` without `.returns`. The history comes from `Prepare` on the server, so a client can't forge the model's or a tool's earlier messages. Errors follow the `.route` conventions:
 - the body is strict and capped (`MaxBytes`, 1 MiB by default)
 - `Prepare` errors carry their `*afhttp.Error` status

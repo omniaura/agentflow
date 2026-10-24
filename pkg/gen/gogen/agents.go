@@ -273,18 +273,22 @@ func genAgentServer(buf *bytes.Buffer, a *decl.Agent, name, system string, retur
 	fmt.Fprintf(buf, "maxBytes := s.MaxBytes\nif maxBytes <= 0 {\nmaxBytes = 1 << 20\n}\nvar body %sAgentRequest\nif err := afhttp.DecodeBody(w, r, maxBytes, &body); err != nil {\ns.fail(w, r, err)\nreturn\n}\n", name)
 	buf.WriteString("if body.Message == \"\" {\ns.fail(w, r, afhttp.Errorf(http.StatusBadRequest, \"message is required\"))\nreturn\n}\n")
 	buf.WriteString("messages := append(history[:len(history):len(history)], afagent.Message{Role: afagent.User, Content: body.Message})\n")
+	// A client that accepts text/event-stream gets the run as it happens.
+	// The agent is copied per request, so concurrent streams don't share
+	// an OnEvent.
+	buf.WriteString("agent := s.Agent\nvar stream *afhttp.EventStream\nif afhttp.WantsEventStream(r) {\nstream = afhttp.NewEventStream(w)\ncopied := *s.Agent\nprev := copied.OnEvent\ncopied.OnEvent = func(e afagent.Event) {\nif prev != nil {\nprev(e)\n}\nif name, data, ok := afagent.ClientEvent(e); ok {\nstream.Send(name, data)\n}\n}\nagent = &copied\n}\n")
 	if system != "" {
-		buf.WriteString("res, err := s.Agent.Run(r.Context(), system, messages...)\n")
+		buf.WriteString("res, err := agent.Run(r.Context(), system, messages...)\n")
 	} else {
-		buf.WriteString("res, err := s.Agent.Run(r.Context(), messages...)\n")
+		buf.WriteString("res, err := agent.Run(r.Context(), messages...)\n")
 	}
-	buf.WriteString("if err != nil {\n")
-	buf.WriteString("if errors.Is(err, afagent.ErrMaxTurns) || errors.Is(err, afagent.ErrTruncated) || errors.Is(err, afagent.ErrRefused) {\n")
-	buf.WriteString("// The model, not the server, failed.\nerr = &afhttp.Error{Status: http.StatusBadGateway, Msg: \"the model could not answer\", Err: err}\n}\ns.fail(w, r, err)\nreturn\n}\n")
-	buf.WriteString("if s.Done != nil {\nif err := s.Done(r, res); err != nil {\ns.fail(w, r, err)\nreturn\n}\n}\n")
+	buf.WriteString("if err == nil && s.Done != nil {\nerr = s.Done(r, res)\n} else if errors.Is(err, afagent.ErrMaxTurns) || errors.Is(err, afagent.ErrTruncated) || errors.Is(err, afagent.ErrRefused) {\n")
+	buf.WriteString("// The model, not the server, failed.\nerr = &afhttp.Error{Status: http.StatusBadGateway, Msg: \"the model could not answer\", Err: err}\n}\n")
+	buf.WriteString("if err != nil {\nif stream != nil {\n// The status is sent: report the error as an event.\nstream.SendError(err)\nreturn\n}\ns.fail(w, r, err)\nreturn\n}\n")
 	if returns != nil {
-		fmt.Fprintf(buf, "afhttp.WriteJSON(w, http.StatusOK, %sAgentResponse{Output: res.Output, Usage: res.Usage})\n}\n\n", name)
+		fmt.Fprintf(buf, "resp := %sAgentResponse{Output: res.Output, Usage: res.Usage}\n", name)
 	} else {
-		fmt.Fprintf(buf, "afhttp.WriteJSON(w, http.StatusOK, %sAgentResponse{Answer: res.Final, Usage: res.Usage})\n}\n\n", name)
+		fmt.Fprintf(buf, "resp := %sAgentResponse{Answer: res.Final, Usage: res.Usage}\n", name)
 	}
+	buf.WriteString("if stream != nil {\nstream.Send(\"done\", resp)\nreturn\n}\nafhttp.WriteJSON(w, http.StatusOK, resp)\n}\n\n")
 }

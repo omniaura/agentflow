@@ -71,6 +71,9 @@ type Request struct {
 	// pass it as the provider's structured output format; the model may
 	// still call tools before answering.
 	Output *OutputSpec
+	// OnText, when set, receives the answer's text as the model writes
+	// it. Adapters that stream call it; others may never call it.
+	OnText func(text string)
 }
 
 // OutputSpec describes a structured final answer.
@@ -125,6 +128,9 @@ const (
 	// AnswerRejected follows a final answer that failed Check; Err says
 	// why, and the model is asked again.
 	AnswerRejected EventKind = "answer_rejected"
+	// TextDelta carries text as the model writes it, in Text, when the
+	// model streams. ModelResponded still follows with the whole message.
+	TextDelta EventKind = "text_delta"
 )
 
 // Event reports progress, for logs, metrics and streaming to a client.
@@ -136,6 +142,8 @@ type Event struct {
 	Call     *ToolCall
 	// Result and Err are a tool's outcome.
 	Result string
+	// Text is a TextDelta's text.
+	Text string
 	Err    error
 }
 
@@ -202,7 +210,12 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			return res, err
 		}
 		res.Turns++
-		resp, err := l.Model.Complete(ctx, Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output})
+		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
+		if l.OnEvent != nil {
+			turn := res.Turns
+			req.OnText = func(text string) { l.emit(Event{Kind: TextDelta, Turn: turn, Text: text}) }
+		}
+		resp, err := l.Model.Complete(ctx, req)
 		if err != nil {
 			return res, fmt.Errorf("afagent: turn %d: %w", res.Turns, err)
 		}
@@ -280,4 +293,26 @@ func (l *Loop) dispatch(ctx context.Context, call ToolCall) (out string, err err
 		}
 	}()
 	return l.Dispatch(ctx, call)
+}
+
+// ClientEvent is what of e is safe to show the end user, as a server-sent
+// event: its name and data. Tool arguments, results and errors stay on the
+// server; ok is false for events with nothing to show.
+//
+//	text            {"text": "..."}          the answer as it is written
+//	tool_called     {"name": "lookup_order"}
+//	tool_returned   {"name": "lookup_order", "failed": false}
+//	answer_rejected {}                       the model is asked again
+func ClientEvent(e Event) (name string, data any, ok bool) {
+	switch e.Kind {
+	case TextDelta:
+		return "text", map[string]string{"text": e.Text}, true
+	case ToolCalled:
+		return "tool_called", map[string]string{"name": e.Call.Name}, true
+	case ToolReturned:
+		return "tool_returned", map[string]any{"name": e.Call.Name, "failed": e.Err != nil}, true
+	case AnswerRejected:
+		return "answer_rejected", struct{}{}, true
+	}
+	return "", nil, false
 }

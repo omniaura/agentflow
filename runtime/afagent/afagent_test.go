@@ -213,3 +213,58 @@ func TestLoopCheckGivesUpAtMaxTurns(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestLoopStreamsText(t *testing.T) {
+	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		if req.OnText == nil {
+			t.Fatal("OnText is unset while OnEvent listens")
+		}
+		req.OnText("Hel")
+		req.OnText("lo")
+		return Response{Message: Message{Content: "Hello"}}, nil
+	})
+	var got []string
+	l := Loop{Model: model, OnEvent: func(e Event) {
+		if e.Kind == TextDelta {
+			got = append(got, fmt.Sprintf("%d:%s", e.Turn, e.Text))
+		}
+	}}
+	if _, err := l.Run(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got, ",") != "1:Hel,1:lo" {
+		t.Errorf("deltas = %v", got)
+	}
+	// Nobody listening: adapters needn't stream.
+	quiet := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		if req.OnText != nil {
+			t.Error("OnText set without OnEvent")
+		}
+		return Response{}, nil
+	})
+	(&Loop{Model: quiet}).Run(context.Background(), nil)
+}
+
+func TestClientEventKeepsToolDataOnTheServer(t *testing.T) {
+	call := &ToolCall{ID: "1", Name: "lookup_order", Arguments: `{"order_id":"secret-arg"}`}
+	for _, tt := range []struct {
+		e    Event
+		name string
+		data string
+	}{
+		{Event{Kind: TextDelta, Text: "hi"}, "text", `{"text":"hi"}`},
+		{Event{Kind: ToolCalled, Call: call}, "tool_called", `{"name":"lookup_order"}`},
+		{Event{Kind: ToolReturned, Call: call, Result: "secret-result"}, "tool_returned", `{"failed":false,"name":"lookup_order"}`},
+		{Event{Kind: ToolReturned, Call: call, Err: errors.New("secret-error")}, "tool_returned", `{"failed":true,"name":"lookup_order"}`},
+		{Event{Kind: AnswerRejected, Err: errors.New("secret-check")}, "answer_rejected", `{}`},
+	} {
+		name, data, ok := ClientEvent(tt.e)
+		b, _ := json.Marshal(data)
+		if !ok || name != tt.name || string(b) != tt.data {
+			t.Errorf("%s: got %s %s %v", tt.e.Kind, name, b, ok)
+		}
+	}
+	if _, _, ok := ClientEvent(Event{Kind: ModelResponded}); ok {
+		t.Error("model responses are not client events")
+	}
+}

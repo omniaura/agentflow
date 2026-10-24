@@ -299,22 +299,44 @@ func (s *TriagerAgentServer) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	messages := append(history[:len(history):len(history)], afagent.Message{Role: afagent.User, Content: body.Message})
-	res, err := s.Agent.Run(r.Context(), system, messages...)
+	agent := s.Agent
+	var stream *afhttp.EventStream
+	if afhttp.WantsEventStream(r) {
+		stream = afhttp.NewEventStream(w)
+		copied := *s.Agent
+		prev := copied.OnEvent
+		copied.OnEvent = func(e afagent.Event) {
+			if prev != nil {
+				prev(e)
+			}
+			if name, data, ok := afagent.ClientEvent(e); ok {
+				stream.Send(name, data)
+			}
+		}
+		agent = &copied
+	}
+	res, err := agent.Run(r.Context(), system, messages...)
+	if err == nil && s.Done != nil {
+		err = s.Done(r, res)
+	} else if errors.Is(err, afagent.ErrMaxTurns) || errors.Is(err, afagent.ErrTruncated) || errors.Is(err, afagent.ErrRefused) {
+		// The model, not the server, failed.
+		err = &afhttp.Error{Status: http.StatusBadGateway, Msg: "the model could not answer", Err: err}
+	}
 	if err != nil {
-		if errors.Is(err, afagent.ErrMaxTurns) || errors.Is(err, afagent.ErrTruncated) || errors.Is(err, afagent.ErrRefused) {
-			// The model, not the server, failed.
-			err = &afhttp.Error{Status: http.StatusBadGateway, Msg: "the model could not answer", Err: err}
+		if stream != nil {
+			// The status is sent: report the error as an event.
+			stream.SendError(err)
+			return
 		}
 		s.fail(w, r, err)
 		return
 	}
-	if s.Done != nil {
-		if err := s.Done(r, res); err != nil {
-			s.fail(w, r, err)
-			return
-		}
+	resp := TriagerAgentResponse{Output: res.Output, Usage: res.Usage}
+	if stream != nil {
+		stream.Send("done", resp)
+		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, TriagerAgentResponse{Output: res.Output, Usage: res.Usage})
+	afhttp.WriteJSON(w, http.StatusOK, resp)
 }
 
 type Support struct {

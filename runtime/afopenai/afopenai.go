@@ -55,11 +55,33 @@ func (m *Model) Complete(ctx context.Context, req afagent.Request) (afagent.Resp
 		c := openai.NewClient(m.Options...)
 		client = &c
 	}
-	cc, err := client.Chat.Completions.New(ctx, params)
-	if err != nil {
+	if req.OnText == nil {
+		cc, err := client.Chat.Completions.New(ctx, params)
+		if err != nil {
+			return afagent.Response{}, fmt.Errorf("afopenai: %w", err)
+		}
+		return response(cc)
+	}
+	// Someone is listening: stream, and accumulate the same completion.
+	params.StreamOptions.IncludeUsage = openai.Bool(true)
+	stream := client.Chat.Completions.NewStreaming(ctx, params)
+	defer stream.Close()
+	var acc openai.ChatCompletionAccumulator
+	for stream.Next() {
+		chunk := stream.Current()
+		if !acc.AddChunk(chunk) {
+			return afagent.Response{}, errors.New("afopenai: the stream sent an inconsistent chunk")
+		}
+		for _, c := range chunk.Choices {
+			if c.Index == 0 && c.Delta.Content != "" {
+				req.OnText(c.Delta.Content)
+			}
+		}
+	}
+	if err := stream.Err(); err != nil {
 		return afagent.Response{}, fmt.Errorf("afopenai: %w", err)
 	}
-	return response(cc)
+	return response(&acc.ChatCompletion)
 }
 
 func (m *Model) params(req afagent.Request) (openai.ChatCompletionNewParams, error) {

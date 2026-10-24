@@ -198,7 +198,9 @@ Answers customer questions about their orders.
 - `.serve POST /path` also generates `<Name>AgentServer{Agent, Prepare, Done}` with
   `Register(mux)`. The client posts `{"message": "..."}`. `Prepare` authenticates and
   returns the prompt values and the stored history, and `Done` stores `res.Messages`.
-  Never accept history from the client.
+  Never accept history from the client. Clients sending `Accept: text/event-stream` get
+  `text`, `tool_called`, `tool_returned`, `answer_rejected`, then `done` or `error` events.
+  Don't hand-write SSE plumbing for an agent endpoint.
 - Run it with `(&SupportAgent{Model: m, Tools: impl}).Run(ctx, &Support{Shop: "Acme"},
   afagent.Message{Role: afagent.User, Content: q})`. `res.Final` is the answer.
 - `Model` is `afagent.Model`. Use `&afanthropic.Model{}` (Claude) or
