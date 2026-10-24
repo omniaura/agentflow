@@ -46,3 +46,15 @@ func TestParseAgentErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestParseAgentMaxCalls(t *testing.T) {
+	f, err := Parse([]byte(".agent x\n.maxcalls 6\n.maxturns 5\n"))
+	if err != nil || f.Agents[0].MaxToolCalls != 6 || f.Agents[0].MaxTurns != 5 {
+		t.Fatalf("got %v, %+v", err, f.Agents)
+	}
+	for _, v := range []string{"", "0", "-1", "six"} {
+		if _, err := Parse([]byte(".agent x\n.maxcalls " + v + "\n")); err == nil || !strings.Contains(err.Error(), ".maxcalls needs a positive integer") {
+			t.Errorf(".maxcalls %q: %v", v, err)
+		}
+	}
+}

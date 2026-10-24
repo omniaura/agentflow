@@ -36,6 +36,7 @@ Sorts customer messages, looking orders up when it helps.
 
 .agent tracker
 .tools lookup_order, track_shipment
+.maxcalls 3
 .maxturns 4
 
 Tells customers where their parcel is. track_shipment is declared in

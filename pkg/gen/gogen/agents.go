@@ -79,6 +79,15 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			buf.WriteString("; 0 or less means afagent.DefaultMaxTurns.\n")
 		}
 		buf.WriteString("MaxTurns int\n")
+		if len(tools) > 0 {
+			buf.WriteString("// MaxToolCalls bounds the tool calls of a run; once they have run, the\n// model answers without tools")
+			if a.MaxToolCalls > 0 {
+				fmt.Fprintf(buf, ". 0 or less means %d.\n", a.MaxToolCalls)
+			} else {
+				buf.WriteString(". 0 or less means no bound.\n")
+			}
+			buf.WriteString("MaxToolCalls int\n")
+		}
 		buf.WriteString("// Concurrency is how many tool calls of a turn run at once.\nConcurrency int\n")
 		if len(tools) > 0 {
 			buf.WriteString("// Allow, when set, picks the tools of a run, such as the ones a\n// workspace enabled: only tools it allows are offered to the model,\n// and a call to another is refused. Nil allows every tool.\nAllow func(ctx context.Context, tool string) bool\n")
@@ -118,6 +127,12 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		if a.MaxTurns > 0 {
 			fmt.Fprintf(buf, "if maxTurns <= 0 {\nmaxTurns = %d\n}\n", a.MaxTurns)
 		}
+		if len(tools) > 0 {
+			buf.WriteString("maxToolCalls := a.MaxToolCalls\n")
+			if a.MaxToolCalls > 0 {
+				fmt.Fprintf(buf, "if maxToolCalls <= 0 {\nmaxToolCalls = %d\n}\n", a.MaxToolCalls)
+			}
+		}
 		toolsExpr := name + "AgentTools"
 		if len(tools) > 0 {
 			// Allow is asked once per run: dispatch then enforces the very
@@ -130,6 +145,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			// The last turn answers with what the tools found, rather than
 			// failing with ErrMaxTurns.
 			imports["slices"] = true
+			buf.WriteString("MaxToolCalls: maxToolCalls,\n")
 			buf.WriteString("Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {\nif !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {\n// The model may name a tool it wasn't offered.\nreturn \"\", fmt.Errorf(\"tool %s is not available in this conversation\", call.Name)\n}\nreturn a.dispatch(ctx, call)\n},\nAnswerOnLastTurn: true,\n")
 		}
 		if returns == nil {

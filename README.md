@@ -536,6 +536,7 @@ Answers customer questions about their orders.
 | `.system Title` | The prompt to use as the system prompt. Optional when the file has one prompt. |
 | `.tools a, b` | The tools the agent may call, from this file or any other `.af` file in its directory. All of this file's tools when omitted. |
 | `.maxturns n` | The most model calls a run may make (default 10). On the last one the model may not call tools, so it answers with what it has. |
+| `.maxcalls n` | The most tool calls a run may make. Once they have run, calls past the limit are refused and the model answers without tools: `res.OutOfToolCalls` reports it. The agent's `MaxToolCalls` field overrides it. |
 | `.returns name` | The `.output` its final answer must be. `Run` then returns it decoded. |
 | `.serve POST /path` | Also serve the agent over HTTP (`POST` or `PUT`). |
 

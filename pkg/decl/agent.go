@@ -7,7 +7,7 @@ import (
 )
 
 // AgentDirectives are the directives allowed inside an agent section.
-var AgentDirectives = []string{".system", ".tools", ".maxturns", ".returns", ".serve"}
+var AgentDirectives = []string{".system", ".tools", ".maxturns", ".maxcalls", ".returns", ".serve"}
 
 // Agent is a parsed .agent section: a tool-calling loop over the file's
 // prompts and tools.
@@ -29,6 +29,9 @@ type Agent struct {
 	// Tools are the tool names, or nil for every tool in the file.
 	Tools    []string
 	MaxTurns int
+	// MaxToolCalls, from .maxcalls, bounds the tool calls of a run; 0 means
+	// no bound.
+	MaxToolCalls int
 	// Returns names the .output the final answer must be, or "" for text.
 	Returns string
 	// ServeMethod and ServePath are the HTTP route of .serve, if any.
@@ -85,6 +88,13 @@ func ParseAgent(src []byte, start, end int) (*Agent, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".serve needs POST or PUT and a path, such as .serve POST /support/chat; got %q", strings.TrimSpace(strings.TrimPrefix(l, ".serve")))}
 			}
 			a.ServeMethod, a.ServePath = fields[0], fields[1]
+		case hasDirective(b, ".maxcalls"):
+			v := strings.TrimSpace(strings.TrimPrefix(l, ".maxcalls"))
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 1 {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".maxcalls needs a positive integer, got %q", v)}
+			}
+			a.MaxToolCalls = n
 		case hasDirective(b, ".maxturns"):
 			v := strings.TrimSpace(strings.TrimPrefix(l, ".maxturns"))
 			n, err := strconv.Atoi(v)

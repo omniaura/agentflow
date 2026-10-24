@@ -211,6 +211,9 @@ type NotesAgent struct {
 	Tools NotesTools
 	// MaxTurns bounds the model calls of a run; 0 or less means 6.
 	MaxTurns int
+	// MaxToolCalls bounds the tool calls of a run; once they have run, the
+	// model answers without tools. 0 or less means no bound.
+	MaxToolCalls int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
 	// Allow, when set, picks the tools of a run, such as the ones a
@@ -237,14 +240,16 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 	if maxTurns <= 0 {
 		maxTurns = 6
 	}
+	maxToolCalls := a.MaxToolCalls
 	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:       a.Model,
-		System:      system.String(),
-		Tools:       tools,
-		MaxTurns:    maxTurns,
-		Concurrency: a.Concurrency,
-		OnEvent:     a.OnEvent,
+		Model:        a.Model,
+		System:       system.String(),
+		Tools:        tools,
+		MaxTurns:     maxTurns,
+		Concurrency:  a.Concurrency,
+		OnEvent:      a.OnEvent,
+		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.

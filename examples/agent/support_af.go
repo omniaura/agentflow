@@ -111,6 +111,9 @@ type SupportAgent struct {
 	Tools SupportTools
 	// MaxTurns bounds the model calls of a run; 0 or less means 6.
 	MaxTurns int
+	// MaxToolCalls bounds the tool calls of a run; once they have run, the
+	// model answers without tools. 0 or less means no bound.
+	MaxToolCalls int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
 	// Allow, when set, picks the tools of a run, such as the ones a
@@ -135,14 +138,16 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 6
 	}
+	maxToolCalls := a.MaxToolCalls
 	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:       a.Model,
-		System:      system.String(),
-		Tools:       tools,
-		MaxTurns:    maxTurns,
-		Concurrency: a.Concurrency,
-		OnEvent:     a.OnEvent,
+		Model:        a.Model,
+		System:       system.String(),
+		Tools:        tools,
+		MaxTurns:     maxTurns,
+		Concurrency:  a.Concurrency,
+		OnEvent:      a.OnEvent,
+		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.
@@ -202,6 +207,9 @@ type TriagerAgent struct {
 	Tools TriagerTools
 	// MaxTurns bounds the model calls of a run; 0 or less means 3.
 	MaxTurns int
+	// MaxToolCalls bounds the tool calls of a run; once they have run, the
+	// model answers without tools. 0 or less means no bound.
+	MaxToolCalls int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
 	// Allow, when set, picks the tools of a run, such as the ones a
@@ -236,14 +244,16 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 3
 	}
+	maxToolCalls := a.MaxToolCalls
 	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:       a.Model,
-		System:      system.String(),
-		Tools:       tools,
-		MaxTurns:    maxTurns,
-		Concurrency: a.Concurrency,
-		OnEvent:     a.OnEvent,
+		Model:        a.Model,
+		System:       system.String(),
+		Tools:        tools,
+		MaxTurns:     maxTurns,
+		Concurrency:  a.Concurrency,
+		OnEvent:      a.OnEvent,
+		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.
@@ -417,6 +427,9 @@ type TrackerAgent struct {
 	Tools TrackerTools
 	// MaxTurns bounds the model calls of a run; 0 or less means 4.
 	MaxTurns int
+	// MaxToolCalls bounds the tool calls of a run; once they have run, the
+	// model answers without tools. 0 or less means 3.
+	MaxToolCalls int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
 	// Allow, when set, picks the tools of a run, such as the ones a
@@ -441,14 +454,19 @@ func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 4
 	}
+	maxToolCalls := a.MaxToolCalls
+	if maxToolCalls <= 0 {
+		maxToolCalls = 3
+	}
 	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:       a.Model,
-		System:      system.String(),
-		Tools:       tools,
-		MaxTurns:    maxTurns,
-		Concurrency: a.Concurrency,
-		OnEvent:     a.OnEvent,
+		Model:        a.Model,
+		System:       system.String(),
+		Tools:        tools,
+		MaxTurns:     maxTurns,
+		Concurrency:  a.Concurrency,
+		OnEvent:      a.OnEvent,
+		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.

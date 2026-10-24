@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -44,5 +45,27 @@ func TestTrackerUsesAnotherFilesTool(t *testing.T) {
 	}
 	if bad := (*seen)[1].Messages[2]; !bad.IsError {
 		t.Errorf("unknown argument accepted: %+v", bad)
+	}
+}
+
+// .maxcalls 3: after three tool calls the tracker answers without tools.
+func TestTrackerMaxCalls(t *testing.T) {
+	track := afagent.Message{ToolCalls: []afagent.ToolCall{call("1", "track_shipment", `{"order_id":"A-1"}`), call("2", "track_shipment", `{"order_id":"A-2"}`)}}
+	model, seen := script(t, track, track, afagent.Message{Content: "A-1 arrives Tuesday."})
+	res, err := (&TrackerAgent{Model: model, Tools: &courier{}}).Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "where are my parcels?"})
+	if err != nil || res.ToolCalls != 3 || !res.OutOfToolCalls || res.Final != "A-1 arrives Tuesday." {
+		t.Fatalf("got %v: %d calls, out %v, %q", err, res.ToolCalls, res.OutOfToolCalls, res.Final)
+	}
+	if !(*seen)[2].NoToolCalls {
+		t.Error("tools offered after the limit")
+	}
+	// The fourth call was refused, not run.
+	if last := res.Messages[len(res.Messages)-2]; !last.IsError || !strings.Contains(last.Content, "limit of 3 tool calls") {
+		t.Errorf("fourth call = %+v", last)
+	}
+	// MaxToolCalls overrides .maxcalls.
+	model, _ = script(t, track, track, track, afagent.Message{Content: "ok"})
+	if res, err := (&TrackerAgent{Model: model, Tools: &courier{}, MaxToolCalls: 10}).Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "hi"}); err != nil || res.ToolCalls != 6 {
+		t.Fatalf("MaxToolCalls 10: %v, %d calls", err, res.ToolCalls)
 	}
 }
