@@ -492,3 +492,32 @@ func TestNest(t *testing.T) {
 		t.Fatalf("past MaxDepth: %v", err)
 	}
 }
+
+func TestLoopBeforeTurn(t *testing.T) {
+	dispatch := func(context.Context, ToolCall) (string, error) { return "a long result", nil }
+	model, reqs := script(t, calls("x"), calls("x"), Message{Content: "done"})
+	var turns []int
+	l := Loop{Model: model, Tools: []ToolSpec{{Name: "x"}}, Dispatch: dispatch, BeforeTurn: func(ctx context.Context, turn int, msgs []Message) ([]Message, error) {
+		turns = append(turns, turn)
+		if turn == 3 {
+			// Compact: replace the conversation, and add a message that
+			// arrived meanwhile.
+			return []Message{{Role: User, Content: "summary of 4 messages"}, {Role: User, Content: "also: hurry"}}, nil
+		}
+		return msgs, nil
+	}}
+	res, err := l.Run(context.Background(), []Message{{Role: User, Content: "go"}})
+	if err != nil || res.Final != "done" || fmt.Sprint(turns) != "[1 2 3]" {
+		t.Fatalf("got %v, %+v, turns %v", err, res, turns)
+	}
+	// The model saw the replaced conversation, and the result keeps it.
+	if third := (*reqs)[2].Messages; len(third) != 2 || third[1].Content != "also: hurry" || len(res.Messages) != 3 {
+		t.Fatalf("third request = %+v, result %+v", third, res.Messages)
+	}
+	// Its error ends the run before the model is called.
+	model, reqs = script(t)
+	l = Loop{Model: model, BeforeTurn: func(context.Context, int, []Message) ([]Message, error) { return nil, errors.New("over budget") }}
+	if _, err := l.Run(context.Background(), nil); err == nil || err.Error() != "over budget" || len(*reqs) != 0 {
+		t.Fatalf("error: %v, %d requests", err, len(*reqs))
+	}
+}

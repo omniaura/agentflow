@@ -223,6 +223,9 @@ type NotesAgent struct {
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
+	// BeforeTurn, when set, may replace the conversation before each model
+	// call: to compact a long one, or add messages that arrived meanwhile.
+	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
 }
 
 // NotesAgentTools describes the tools of the notes agent to the model.
@@ -249,6 +252,7 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 		MaxTurns:     maxTurns,
 		Concurrency:  a.Concurrency,
 		OnEvent:      a.OnEvent,
+		BeforeTurn:   a.BeforeTurn,
 		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {

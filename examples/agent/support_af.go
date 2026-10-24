@@ -124,6 +124,9 @@ type SupportAgent struct {
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
+	// BeforeTurn, when set, may replace the conversation before each model
+	// call: to compact a long one, or add messages that arrived meanwhile.
+	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
 }
 
 // SupportAgentTools describes the tools of the support agent to the model.
@@ -148,6 +151,7 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 		MaxTurns:     maxTurns,
 		Concurrency:  a.Concurrency,
 		OnEvent:      a.OnEvent,
+		BeforeTurn:   a.BeforeTurn,
 		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
@@ -247,6 +251,9 @@ type TriagerAgent struct {
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
+	// BeforeTurn, when set, may replace the conversation before each model
+	// call: to compact a long one, or add messages that arrived meanwhile.
+	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
 	// Check, when set, vets a decoded answer beyond its schema, such as
 	// that it covers every input. Its error goes back to the model as
 	// written, and the model answers again within MaxTurns.
@@ -281,6 +288,7 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		MaxTurns:     maxTurns,
 		Concurrency:  a.Concurrency,
 		OnEvent:      a.OnEvent,
+		BeforeTurn:   a.BeforeTurn,
 		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
@@ -496,6 +504,9 @@ type TrackerAgent struct {
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
+	// BeforeTurn, when set, may replace the conversation before each model
+	// call: to compact a long one, or add messages that arrived meanwhile.
+	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
 }
 
 // TrackerAgentTools describes the tools of the tracker agent to the model.
@@ -523,6 +534,7 @@ func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		MaxTurns:     maxTurns,
 		Concurrency:  a.Concurrency,
 		OnEvent:      a.OnEvent,
+		BeforeTurn:   a.BeforeTurn,
 		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
@@ -627,6 +639,9 @@ type ConciergeAgent struct {
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
+	// BeforeTurn, when set, may replace the conversation before each model
+	// call: to compact a long one, or add messages that arrived meanwhile.
+	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
 }
 
 // ConciergeAgentTools describes the tools of the concierge agent to the model.
@@ -651,6 +666,7 @@ func (a *ConciergeAgent) Run(ctx context.Context, system *Support, messages ...a
 		MaxTurns:     maxTurns,
 		Concurrency:  a.Concurrency,
 		OnEvent:      a.OnEvent,
+		BeforeTurn:   a.BeforeTurn,
 		MaxToolCalls: maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {

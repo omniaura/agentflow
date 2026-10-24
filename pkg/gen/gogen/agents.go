@@ -106,6 +106,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			buf.WriteString("// Allow, when set, picks the tools of a run, such as the ones a\n// workspace enabled: only tools it allows are offered to the model,\n// and a call to another is refused. Nil allows every tool.\nAllow func(ctx context.Context, tool string) bool\n")
 		}
 		buf.WriteString("// OnEvent, when set, sees each model response and tool call. With\n// Concurrency above 1 it is called concurrently.\nOnEvent func(afagent.Event)\n")
+		buf.WriteString("// BeforeTurn, when set, may replace the conversation before each model\n// call: to compact a long one, or add messages that arrived meanwhile.\nBeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)\n")
 		if returns != nil {
 			fmt.Fprintf(buf, "// Check, when set, vets a decoded answer beyond its schema, such as\n// that it covers every input. Its error goes back to the model as\n// written, and the model answers again within MaxTurns.\nCheck func(ctx context.Context, out %sOutput) error\n", camel(returns.Name))
 		}
@@ -153,7 +154,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			buf.WriteString("tools := a.tools(ctx)\n")
 			toolsExpr = "tools"
 		}
-		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %s,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nOnEvent: a.OnEvent,\n", systemExpr, toolsExpr)
+		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %s,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nOnEvent: a.OnEvent,\nBeforeTurn: a.BeforeTurn,\n", systemExpr, toolsExpr)
 		if len(tools) > 0 {
 			// The last turn answers with what the tools found, rather than
 			// failing with ErrMaxTurns.
