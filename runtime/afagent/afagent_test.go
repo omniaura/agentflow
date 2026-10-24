@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -321,5 +322,37 @@ func TestLoopHoldsTextUntilCheckPasses(t *testing.T) {
 	want := "1:Looking,1:model_responded,2:model_responded,2:answer_rejected,3:good,3:model_responded"
 	if strings.Join(got, ",") != want {
 		t.Errorf("events\n got %s\nwant %s", strings.Join(got, ","), want)
+	}
+}
+
+// A Model that calls OnText from several goroutines doesn't race the held
+// text, and text after Complete returns is dropped. Run with -race.
+func TestLoopHeldTextIsSafe(t *testing.T) {
+	var late func(string)
+	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		var wg sync.WaitGroup
+		for range 20 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				req.OnText("x")
+			}()
+		}
+		wg.Wait()
+		late = req.OnText
+		return Response{Message: Message{Content: "ok"}}, nil
+	})
+	var deltas atomic.Int32
+	l := Loop{Model: model, Check: func(string) error { return nil }, OnEvent: func(e Event) {
+		if e.Kind == TextDelta {
+			deltas.Add(1)
+		}
+	}}
+	if _, err := l.Run(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	late("too late")
+	if n := deltas.Load(); n != 20 {
+		t.Errorf("%d deltas, want 20", n)
 	}
 }

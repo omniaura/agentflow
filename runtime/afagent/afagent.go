@@ -72,7 +72,9 @@ type Request struct {
 	// still call tools before answering.
 	Output *OutputSpec
 	// OnText, when set, receives the answer's text as the model writes
-	// it. Adapters that stream call it; others may never call it.
+	// it. Adapters that stream call it; others may never call it. Call it
+	// from one goroutine at a time, in the order of the text, and only
+	// before Complete returns: text after that is dropped.
 	OnText func(text string)
 }
 
@@ -213,20 +215,32 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		}
 		res.Turns++
 		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
-		// held is the turn's text while Check may still reject it.
-		var held []Event
+		// held is the turn's text while Check may still reject it. The
+		// mutex keeps a Model that breaks OnText's contract from racing.
+		var (
+			mu     sync.Mutex
+			held   []Event
+			closed bool
+		)
 		if l.OnEvent != nil {
 			turn := res.Turns
 			req.OnText = func(text string) {
 				e := Event{Kind: TextDelta, Turn: turn, Text: text}
 				if l.Check != nil {
-					held = append(held, e)
+					mu.Lock()
+					if !closed {
+						held = append(held, e)
+					}
+					mu.Unlock()
 					return
 				}
 				l.emit(e)
 			}
 		}
 		resp, err := l.Model.Complete(ctx, req)
+		mu.Lock()
+		closed = true
+		mu.Unlock()
 		if err != nil {
 			return res, fmt.Errorf("afagent: turn %d: %w", res.Turns, err)
 		}
