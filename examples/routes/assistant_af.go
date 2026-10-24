@@ -212,6 +212,10 @@ type NotesAgent struct {
 	MaxTurns int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
+	// Allow, when set, picks the tools of a run, such as the ones a
+	// workspace enabled: only tools it allows are offered to the model,
+	// and a call to another is refused. Nil allows every tool.
+	Allow func(ctx context.Context, tool string) bool
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -235,7 +239,7 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 	loop := afagent.Loop{
 		Model:            a.Model,
 		System:           system.String(),
-		Tools:            NotesAgentTools,
+		Tools:            a.tools(ctx),
 		MaxTurns:         maxTurns,
 		Concurrency:      a.Concurrency,
 		OnEvent:          a.OnEvent,
@@ -245,7 +249,24 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 	return loop.Run(ctx, messages)
 }
 
+// tools are the tools offered in a run: those Allow allows.
+func (a *NotesAgent) tools(ctx context.Context) []afagent.ToolSpec {
+	if a.Allow == nil {
+		return NotesAgentTools
+	}
+	var out []afagent.ToolSpec
+	for _, t := range NotesAgentTools {
+		if a.Allow(ctx, t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func (a *NotesAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
+	if a.Allow != nil && !a.Allow(ctx, call.Name) {
+		return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+	}
 	switch call.Name {
 	case ListNotesTool.Name:
 		args, err := ListNotesTool.Decode(call.Arguments)

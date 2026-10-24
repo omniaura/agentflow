@@ -555,7 +555,7 @@ res, err := agent.Run(ctx, &Support{Shop: "Acme"},
 // res.Final is the answer; res.Messages the conversation to store.
 ```
 
-Arguments that fail validation, unknown tools, tool errors and panics go back to the model as failed tool results, so it can correct itself. `OnEvent` sees every model response and tool call for logging and streaming. The model is the `afagent.Model` interface, one method that takes the system prompt, messages and tools and returns the next assistant message, so any provider or gateway plugs in. `afagent` has no dependencies and can be ejected like the other runtime packages.
+Arguments that fail validation, unknown tools, tool errors and panics go back to the model as failed tool results, so it can correct itself. `Allow` picks the tools of one run, such as the ones a workspace enabled: `Allow: func(ctx context.Context, tool string) bool { return enabled(ctx, tool) }`. Only allowed tools are offered to the model, and a call to another one, which a model can still make, is refused as a failed tool result. `OnEvent` sees every model response and tool call for logging and streaming. The model is the `afagent.Model` interface, one method that takes the system prompt, messages and tools and returns the next assistant message, so any provider or gateway plugs in. `afagent` has no dependencies and can be ejected like the other runtime packages.
 
 With `.returns`, the agent ends with structured data instead of text. The model can still call tools first:
 

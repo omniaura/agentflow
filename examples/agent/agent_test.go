@@ -207,3 +207,28 @@ func TestTriagerCheck(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// Allow picks a run's tools: offer_refund is neither offered nor run.
+func TestSupportAgentAllow(t *testing.T) {
+	model, seen := script(t,
+		afagent.Message{ToolCalls: []afagent.ToolCall{call("1", "offer_refund", `{"order_id":"A-1","reason":"late"}`)}},
+		afagent.Message{Content: "I can't offer refunds here."},
+	)
+	s := &shop{}
+	type key struct{}
+	agent := &SupportAgent{Model: model, Tools: s, Allow: func(ctx context.Context, tool string) bool {
+		// Allow sees the run's context, as with a workspace's settings.
+		return ctx.Value(key{}) == "workspace-1" && tool != "offer_refund"
+	}}
+	ctx := context.WithValue(context.Background(), key{}, "workspace-1")
+	res, err := agent.Run(ctx, &Support{}, afagent.Message{Role: afagent.User, Content: "refund A-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tools := (*seen)[0].Tools; len(tools) != 1 || tools[0].Name != "lookup_order" {
+		t.Errorf("offered %+v", tools)
+	}
+	if refused := res.Messages[2]; !refused.IsError || refused.Content != "tool offer_refund is not available in this conversation" || len(s.refunds) != 0 {
+		t.Errorf("refused call = %+v, refunds %v", refused, s.refunds)
+	}
+}

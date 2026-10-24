@@ -112,6 +112,10 @@ type SupportAgent struct {
 	MaxTurns int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
+	// Allow, when set, picks the tools of a run, such as the ones a
+	// workspace enabled: only tools it allows are offered to the model,
+	// and a call to another is refused. Nil allows every tool.
+	Allow func(ctx context.Context, tool string) bool
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -133,7 +137,7 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 	loop := afagent.Loop{
 		Model:            a.Model,
 		System:           system.String(),
-		Tools:            SupportAgentTools,
+		Tools:            a.tools(ctx),
 		MaxTurns:         maxTurns,
 		Concurrency:      a.Concurrency,
 		OnEvent:          a.OnEvent,
@@ -143,7 +147,24 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 	return loop.Run(ctx, messages)
 }
 
+// tools are the tools offered in a run: those Allow allows.
+func (a *SupportAgent) tools(ctx context.Context) []afagent.ToolSpec {
+	if a.Allow == nil {
+		return SupportAgentTools
+	}
+	var out []afagent.ToolSpec
+	for _, t := range SupportAgentTools {
+		if a.Allow(ctx, t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func (a *SupportAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
+	if a.Allow != nil && !a.Allow(ctx, call.Name) {
+		return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+	}
 	switch call.Name {
 	case LookupOrderTool.Name:
 		args, err := LookupOrderTool.Decode(call.Arguments)
@@ -178,6 +199,10 @@ type TriagerAgent struct {
 	MaxTurns int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
+	// Allow, when set, picks the tools of a run, such as the ones a
+	// workspace enabled: only tools it allows are offered to the model,
+	// and a call to another is refused. Nil allows every tool.
+	Allow func(ctx context.Context, tool string) bool
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -209,7 +234,7 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	loop := afagent.Loop{
 		Model:            a.Model,
 		System:           system.String(),
-		Tools:            TriagerAgentTools,
+		Tools:            a.tools(ctx),
 		MaxTurns:         maxTurns,
 		Concurrency:      a.Concurrency,
 		OnEvent:          a.OnEvent,
@@ -233,7 +258,24 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	return out, err
 }
 
+// tools are the tools offered in a run: those Allow allows.
+func (a *TriagerAgent) tools(ctx context.Context) []afagent.ToolSpec {
+	if a.Allow == nil {
+		return TriagerAgentTools
+	}
+	var out []afagent.ToolSpec
+	for _, t := range TriagerAgentTools {
+		if a.Allow(ctx, t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func (a *TriagerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
+	if a.Allow != nil && !a.Allow(ctx, call.Name) {
+		return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+	}
 	switch call.Name {
 	case LookupOrderTool.Name:
 		args, err := LookupOrderTool.Decode(call.Arguments)

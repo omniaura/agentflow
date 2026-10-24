@@ -80,6 +80,9 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		}
 		buf.WriteString("MaxTurns int\n")
 		buf.WriteString("// Concurrency is how many tool calls of a turn run at once.\nConcurrency int\n")
+		if len(tools) > 0 {
+			buf.WriteString("// Allow, when set, picks the tools of a run, such as the ones a\n// workspace enabled: only tools it allows are offered to the model,\n// and a call to another is refused. Nil allows every tool.\nAllow func(ctx context.Context, tool string) bool\n")
+		}
 		buf.WriteString("// OnEvent, when set, sees each model response and tool call. With\n// Concurrency above 1 it is called concurrently.\nOnEvent func(afagent.Event)\n")
 		if returns != nil {
 			fmt.Fprintf(buf, "// Check, when set, vets a decoded answer beyond its schema, such as\n// that it covers every input. Its error goes back to the model as\n// written, and the model answers again within MaxTurns.\nCheck func(ctx context.Context, out %sOutput) error\n", camel(returns.Name))
@@ -115,7 +118,11 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		if a.MaxTurns > 0 {
 			fmt.Fprintf(buf, "if maxTurns <= 0 {\nmaxTurns = %d\n}\n", a.MaxTurns)
 		}
-		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %sAgentTools,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nOnEvent: a.OnEvent,\n", systemExpr, name)
+		toolsExpr := name + "AgentTools"
+		if len(tools) > 0 {
+			toolsExpr = "a.tools(ctx)"
+		}
+		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %s,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nOnEvent: a.OnEvent,\n", systemExpr, toolsExpr)
 		if len(tools) > 0 {
 			// The last turn answers with what the tools found, rather than
 			// failing with ErrMaxTurns.
@@ -132,7 +139,10 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 
 		if len(tools) > 0 {
 			imports["fmt"] = true
+			fmt.Fprintf(buf, "// tools are the tools offered in a run: those Allow allows.\nfunc (a *%sAgent) tools(ctx context.Context) []afagent.ToolSpec {\nif a.Allow == nil {\nreturn %sAgentTools\n}\nvar out []afagent.ToolSpec\nfor _, t := range %sAgentTools {\nif a.Allow(ctx, t.Name) {\nout = append(out, t)\n}\n}\nreturn out\n}\n\n", name, name, name)
 			fmt.Fprintf(buf, "func (a *%sAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {\n", name)
+			// The model may name a tool it wasn't offered.
+			buf.WriteString("if a.Allow != nil && !a.Allow(ctx, call.Name) {\nreturn \"\", fmt.Errorf(\"tool %s is not available in this conversation\", call.Name)\n}\n")
 			buf.WriteString("switch call.Name {\n")
 			for _, t := range tools {
 				tn := camel(t.Name)
