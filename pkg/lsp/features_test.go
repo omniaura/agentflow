@@ -493,7 +493,7 @@ func TestAgentToolsDefinitionAndCompletion(t *testing.T) {
 		labels[it.Label] = it.Detail
 	}
 	// Other agents are offered as subagents; the tracker itself isn't.
-	if labels["track_shipment"] != "tool in shipping.af" || labels["offer_refund"] != "tool in this file" || labels["support"] != "agent in this file" || labels["lookup_order"] != "" || labels["tracker"] != "" {
+	if labels["track_shipment"] != "tool in shipping.af" || labels["offer_refund"] != "tool in this file" || labels["support"] != "agent in this file" || labels["lookup_order"] != "" || labels["tracker"] != "" || labels["send_message"] != "built-in tool" || labels["list_agents"] != "built-in tool" {
 		t.Fatalf("completions = %v", labels)
 	}
 }

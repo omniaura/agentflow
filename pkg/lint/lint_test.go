@@ -200,3 +200,9 @@ func TestLintSubagentCycleKeepsChecking(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestLintBuiltinTools(t *testing.T) {
+	if d := lintString(t, ".title A\nHi.\n\n.agent x\n.tools send_message, list_agents\n"); len(d) != 0 {
+		t.Fatalf("built-ins flagged: %#v", d)
+	}
+}

@@ -109,6 +109,8 @@ func FindTool(tools []*decl.Tool, agents []*decl.Agent, siblings []SiblingTool, 
 		return nil, nil, fmt.Errorf("%s is declared in %s; a package declares each tool and agent name once", name, strings.Join(where, " and "))
 	case tool != nil || agent != nil:
 		return tool, agent, nil
+	case decl.Builtins[name] != nil:
+		return decl.Builtins[name], nil, nil
 	}
 	have := make([]string, 0, len(tools)+len(agents)+len(siblings))
 	for _, t := range tools {

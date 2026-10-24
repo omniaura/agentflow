@@ -743,6 +743,137 @@ func (a *ConciergeAgent) AsTool(system *Support) func(ctx context.Context, task 
 	}
 }
 
+// CoordinatorAgent is the coordinator agent.
+//
+// Coordinates the other agents: finds who can help and messages them.
+// send_message and list_agents are built in; set Messenger to run them.
+type CoordinatorAgent struct {
+	Model afagent.Model
+	// Messenger runs the send_message and list_agents tools, such as an
+	// afthread.Messenger for this agent's owner, with From set to this agent.
+	Messenger afagent.Messenger
+	// MaxTurns bounds the model calls of a run; 0 or less means 4.
+	MaxTurns int
+	// MaxToolCalls bounds the tool calls of a run; once they have run, the
+	// model answers without tools. 0 or less means no bound.
+	MaxToolCalls int
+	// Concurrency is how many tool calls of a turn run at once.
+	Concurrency int
+	// Allow, when set, picks the tools of a run, such as the ones a
+	// workspace enabled: only tools it allows are offered to the model,
+	// and a call to another is refused. Nil allows every tool.
+	Allow func(ctx context.Context, tool string) bool
+	// OnEvent, when set, sees each model response and tool call. With
+	// Concurrency above 1 it is called concurrently.
+	OnEvent func(afagent.Event)
+	// BeforeTurn, when set, may replace the conversation before each model
+	// call: to compact a long one, or add messages that arrived meanwhile.
+	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+}
+
+// CoordinatorAgentTools describes the tools of the coordinator agent to the model.
+var CoordinatorAgentTools = []afagent.ToolSpec{
+	{Name: aftool.ListAgents.Name, Description: aftool.ListAgents.Description, Schema: aftool.ListAgents.Schema},
+	{Name: aftool.SendMessage.Name, Description: aftool.SendMessage.Description, Schema: aftool.SendMessage.Schema},
+}
+
+// Run continues the conversation in messages until the model answers
+// without calling a tool, and returns the answer and the conversation.
+func (a *CoordinatorAgent) Run(ctx context.Context, system *Support, messages ...afagent.Message) (afagent.Result, error) {
+	maxTurns := a.MaxTurns
+	if maxTurns <= 0 {
+		maxTurns = 4
+	}
+	maxToolCalls := a.MaxToolCalls
+	tools := a.tools(ctx)
+	loop := afagent.Loop{
+		Model:        a.Model,
+		System:       system.String(),
+		Tools:        tools,
+		MaxTurns:     maxTurns,
+		Concurrency:  a.Concurrency,
+		OnEvent:      a.OnEvent,
+		BeforeTurn:   a.BeforeTurn,
+		MaxToolCalls: maxToolCalls,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
+		AnswerOnLastTurn: true,
+	}
+	return loop.Run(ctx, messages)
+}
+
+// tools are the tools offered in a run: those Allow allows.
+func (a *CoordinatorAgent) tools(ctx context.Context) []afagent.ToolSpec {
+	if a.Allow == nil {
+		return CoordinatorAgentTools
+	}
+	var out []afagent.ToolSpec
+	for _, t := range CoordinatorAgentTools {
+		if a.Allow(ctx, t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func (a *CoordinatorAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
+	switch call.Name {
+	case aftool.ListAgents.Name:
+		args, err := aftool.ListAgents.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		if a.Messenger == nil {
+			return "", errors.New("messaging other agents is not set up")
+		}
+		_ = args
+		return a.Messenger.List(ctx)
+	case aftool.SendMessage.Name:
+		args, err := aftool.SendMessage.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		if a.Messenger == nil {
+			return "", errors.New("messaging other agents is not set up")
+		}
+		return a.Messenger.Send(ctx, args.To, args.Text)
+	}
+	return "", fmt.Errorf("there is no tool named %q", call.Name)
+}
+
+// CoordinatorAgentTool describes the coordinator agent as a tool another agent may
+// call with a task: name it in that agent's .tools.
+var CoordinatorAgentTool = &aftool.Def[aftool.Task]{
+	Name: "coordinator",
+	Description: `Coordinates the other agents: finds who can help and messages them.
+send_message and list_agents are built in; set Messenger to run them.`,
+	Schema: []byte(`{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "task", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AsTool runs the agent as another agent's tool: each call runs it
+// with the task as the user's message, and returns its answer.
+func (a *CoordinatorAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
+	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
+		if err != nil {
+			return "", err
+		}
+		return res.Final, nil
+	}
+}
+
 type Support struct {
 	Shop string
 }
