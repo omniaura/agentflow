@@ -193,6 +193,8 @@ func TestParseSQLTool(t *testing.T) {
 		{".tool t\nDoes t.\n.sql :one\nSELECT 1\n.auth owner_id\n", ".auth must come before .sql"},
 		{".tool t\nDoes t.\n.sql :one\nSELECT @x\n.param x int\n", ".param must come before .sql"},
 		{".route GET /a A\n.sql :one\nSELECT 1\n.public\n", ".public must come before .sql"},
+		{".tool t\nDoes t.\n.sql :one\nSELECT 1\n.auth,owner_id\n", "malformed .auth directive"},
+		{".tool t\nDoes t.\n.sql :one\nSELECT 1\n.sql:many\n", "malformed .sql directive"},
 	} {
 		if _, err := Parse([]byte(tt.src)); err == nil || !strings.Contains(err.Error(), tt.msg) {
 			t.Errorf("%q: got %v, want %q", tt.src, err, tt.msg)

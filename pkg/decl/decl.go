@@ -611,7 +611,10 @@ func sqlBody(src []byte, start, end int, directives []string) (string, error) {
 		l, i = line(src, i, end)
 		for _, d := range directives {
 			switch {
+			case !strings.HasPrefix(l, d):
 			case !hasDirective([]byte(l), d):
+				// Such as .auth, or .sql:many: no SQL starts like this.
+				return "", &Error{Offset: off, Msg: fmt.Sprintf("malformed %s directive in the query", d)}
 			case d == ".sql":
 				return "", &Error{Offset: off, Msg: "a section has one query: only one .sql line"}
 			default:

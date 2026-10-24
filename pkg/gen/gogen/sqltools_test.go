@@ -101,6 +101,14 @@ func TestConvert(t *testing.T) {
 			}
 		})
 	}
+	// An optional list still parses every element: only the list may be
+	// left out.
+	var list bytes.Buffer
+	optional := &decl.Param{Name: "x", Optional: true}
+	optional.Type.Array = true
+	if err := convert(&list, map[string]bool{}, optional, field("[]pgtype.UUID"), "arg.X", "args.X"); err != nil || strings.Contains(list.String(), `if v != ""`) || !strings.Contains(list.String(), `afhttp.Parse("x", v, &arg.X[i])`) {
+		t.Errorf("optional list (%v):\n%s", err, list.String())
+	}
 	var buf bytes.Buffer
 	if err := convert(&buf, map[string]bool{}, param(decl.Bool, true), field("[]int64"), "a", "b"); err == nil {
 		t.Error("a list of bools converted to []int64")

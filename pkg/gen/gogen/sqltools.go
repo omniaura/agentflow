@@ -158,8 +158,9 @@ func convert(buf *bytes.Buffer, imports map[string]bool, p *decl.Param, a sqlcgo
 			return nil
 		}
 		// Convert element by element, checking each like a single value.
+		// Optional applies to the list, not to its elements.
 		single := *p
-		single.Type.Array = false
+		single.Type.Array, single.Optional = false, false
 		fmt.Fprintf(buf, "%s = make(%s, len(%s))\nfor i, v := range %s {\n", dst, to, src, src)
 		if err := convert(buf, imports, &single, sqlcgo.Field{Name: a.Name, JSON: a.JSON, Type: sqlcgo.Type{Expr: elem}}, dst+"[i]", "v"); err != nil {
 			return fmt.Errorf("parameter %s is a list of %s, but query argument %s is %s", p.Name, from, a.JSON, to)
