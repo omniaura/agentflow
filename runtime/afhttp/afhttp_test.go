@@ -126,6 +126,38 @@ func TestDecodeBody(t *testing.T) {
 	}
 }
 
+// failingBody returns data, then fails like a dropped connection.
+type failingBody struct{ data string }
+
+func (b *failingBody) Read(p []byte) (int, error) {
+	if b.data == "" {
+		return 0, errors.New("read tcp: connection reset by peer")
+	}
+	n := copy(p, b.data)
+	b.data = b.data[n:]
+	return n, nil
+}
+
+func TestDecodeBodyReadFailures(t *testing.T) {
+	type body struct {
+		A string `json:"a"`
+	}
+	for _, in := range []string{`{"a":"x"}`, `{"a":`, ``} {
+		r := httptest.NewRequest("POST", "/", &failingBody{in})
+		var e *errs.Error
+		err := afhttp.DecodeBody(httptest.NewRecorder(), r, 0, &body{})
+		if !errors.As(err, &e) || e.Public().Status != 500 {
+			t.Errorf("%q then a read failure: got %v", in, err)
+		}
+	}
+	// Trailing data past the limit is too large, not unexpected.
+	err := afhttp.DecodeBody(httptest.NewRecorder(), httptest.NewRequest("POST", "/", strings.NewReader(`{"a":"x"} `+strings.Repeat("1", 100))), 20, &body{})
+	var e *errs.Error
+	if !errors.As(err, &e) || e.Public().Status != 413 {
+		t.Errorf("trailing data past the limit: got %v", err)
+	}
+}
+
 type pgError struct{ code string }
 
 func (e *pgError) Error() string    { return "ERROR: duplicate key (SQLSTATE " + e.code + ")" }
@@ -144,6 +176,8 @@ func TestErrors(t *testing.T) {
 		{afhttp.QueryFailed(ctx, &pgError{"23503"}), errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
 		// A wrapper around the queries can fail with its own errs factory.
 		{afhttp.QueryFailed(ctx, fmt.Errorf("list: %w", banned.New(ctx))), errs.Public{Status: 403, Code: "banned", Message: "banned"}},
+		// Even when the cause it wraps is a unique violation.
+		{afhttp.QueryFailed(ctx, banned.New(ctx).AddError(&pgError{"23505"})), errs.Public{Status: 403, Code: "banned", Message: "banned"}},
 		{afhttp.ErrNotFound.New(ctx), errs.Public{Status: 404, Code: "not_found", Message: "not found"}},
 		{afhttp.Unauthorized(ctx, cause), errs.Public{Status: 401, Code: "unauthorized", Message: "unauthorized", Action: errs.ActionSignIn}},
 		// An authenticator's own *errs.Error keeps its status.

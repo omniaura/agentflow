@@ -51,6 +51,10 @@ func Unauthorized(ctx context.Context, err error) *errs.Error {
 // wrapper around them, keeps its status; anything else is errs.Unknown,
 // whose message says nothing of the cause.
 func QueryFailed(ctx context.Context, err error) *errs.Error {
+	var e *errs.Error
+	if errors.As(err, &e) {
+		return errs.AsError(ctx, err)
+	}
 	var state interface{ SQLState() string }
 	if errors.As(err, &state) && state.SQLState() == "23505" {
 		return ErrConflict.New(ctx).AddError(err)
@@ -113,22 +117,54 @@ func DecodeBody(w http.ResponseWriter, r *http.Request, maxBytes int64, v any) e
 	invalid := func(problem string, err error) error {
 		return ErrInvalidRequest.New(ctx).Field("body", problem).AddError(err)
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
+	body := &bodyReader{r: http.MaxBytesReader(w, r.Body, maxBytes)}
+	// failed classifies the errors reading the body can cause, before the
+	// JSON is blamed.
+	failed := func(err error) error {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return ErrTooLarge.New(ctx).Param("max_bytes", maxBytes).AddError(err)
+		}
+		if body.err != nil {
+			// The connection, not the JSON, failed.
+			return errs.AsError(ctx, body.err)
+		}
+		return nil
+	}
+	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		var tooLarge *http.MaxBytesError
-		switch {
-		case errors.As(err, &tooLarge):
-			return ErrTooLarge.New(ctx).Param("max_bytes", maxBytes).AddError(err)
-		case errors.Is(err, io.EOF):
+		if e := failed(err); e != nil {
+			return e
+		}
+		if errors.Is(err, io.EOF) {
 			return invalid("is empty; send a JSON object", err)
 		}
 		return invalid(strings.TrimPrefix(err.Error(), "json: "), err)
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return invalid("has unexpected data after the JSON object", nil)
+		if e := failed(err); e != nil {
+			return e
+		}
+		return invalid("has unexpected data after the JSON object", err)
 	}
 	return nil
+}
+
+// bodyReader records the error reading a request body fails with, other
+// than its end or its size limit.
+type bodyReader struct {
+	r   io.Reader
+	err error
+}
+
+func (b *bodyReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	var tooLarge *http.MaxBytesError
+	if err != nil && err != io.EOF && !errors.As(err, &tooLarge) {
+		b.err = err
+	}
+	return n, err
 }
 
 // Scanner is implemented by database types such as pgtype.Text and
