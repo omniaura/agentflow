@@ -186,3 +186,17 @@ func TestLintSubagentCycle(t *testing.T) {
 		t.Fatalf("got\n%s", strings.Join(got, "\n"))
 	}
 }
+
+// A cycle doesn't hide the agent's other bad names, and is reported once.
+func TestLintSubagentCycleKeepsChecking(t *testing.T) {
+	d := lintString(t, ".title A\nHi.\n\n.agent x\n.tools y, z, nope\n\nDoes x.\n\n.agent y\n.tools x\n\nDoes y.\n\n.agent z\n\nDoes z.\n")
+	var got []string
+	for _, x := range d {
+		if x.Line == 5 {
+			got = append(got, x.Message)
+		}
+	}
+	if len(got) != 2 || !strings.Contains(got[0], "cycle (x → y → x)") || !strings.Contains(got[1], "no tool or agent nope") {
+		t.Fatalf("got %q", got)
+	}
+}

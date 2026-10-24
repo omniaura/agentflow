@@ -165,6 +165,7 @@ func (l *linter) checkAgent(a *decl.Agent) {
 	}
 	// .tools may name tools of the other .af files of the package.
 	siblings := ast.SiblingToolsRead(l.name, l.read)
+	cycled := false
 	for _, name := range a.Tools {
 		off := l.directiveOffset(a, ".tools")
 		_, sub, err := ast.FindTool(l.toolDecls, l.agents, siblings, name)
@@ -175,10 +176,11 @@ func (l *linter) checkAgent(a *decl.Agent) {
 			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s lists itself in .tools", a.Name))
 		case sub != nil && strings.TrimSpace(sub.Description) == "":
 			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: agent %s needs a description to be called as a tool: the model reads it to know when to call it", a.Name, sub.Name))
-		case sub != nil:
+		case sub != nil && !cycled:
 			if cycle := ast.SubagentCycle(a.Name, ast.PackageAgents(l.agents, siblings)); cycle != nil {
+				// Once per agent; its other names are still checked.
+				cycled = true
 				l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agents call each other in a cycle (%s), which could delegate without end", strings.Join(cycle, " → ")))
-				return
 			}
 		}
 	}
