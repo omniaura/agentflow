@@ -2,6 +2,7 @@ package afagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -164,5 +165,51 @@ func TestLoopDoesNotMutateInput(t *testing.T) {
 	}
 	if in[:2][1].Content != "" {
 		t.Error("Run wrote into the caller's slice")
+	}
+}
+
+func TestLoopCheckRejectsAnswer(t *testing.T) {
+	spec := &OutputSpec{Name: "verdict", Schema: json.RawMessage(`{"type":"object"}`)}
+	model, reqs := script(t, Message{Content: "prose"}, calls("a"), Message{Content: `{"ok":true}`})
+	var rejected []error
+	l := Loop{
+		Model:    model,
+		Output:   spec,
+		Dispatch: func(context.Context, ToolCall) (string, error) { return "", nil },
+		Check: func(answer string) error {
+			if !strings.HasPrefix(answer, "{") {
+				return errors.New("not JSON")
+			}
+			return nil
+		},
+		OnEvent: func(e Event) {
+			if e.Kind == AnswerRejected {
+				rejected = append(rejected, e.Err)
+			}
+		},
+	}
+	res, err := l.Run(context.Background(), []Message{{Role: User, Content: "judge"}})
+	if err != nil || res.Final != `{"ok":true}` || res.Turns != 3 {
+		t.Fatalf("got %v, %+v", err, res)
+	}
+	if len(rejected) != 1 || rejected[0].Error() != "not JSON" {
+		t.Errorf("rejected = %v", rejected)
+	}
+	// The rejection goes back as a user message after the bad answer.
+	if m := res.Messages[2]; m.Role != User || m.Content != "Your answer was rejected: not JSON. Answer again." {
+		t.Errorf("message = %+v", m)
+	}
+	for i, r := range *reqs {
+		if r.Output != spec {
+			t.Errorf("request %d has no output spec", i)
+		}
+	}
+}
+
+func TestLoopCheckGivesUpAtMaxTurns(t *testing.T) {
+	model, _ := script(t, Message{Content: "no"}, Message{Content: "no"})
+	l := Loop{Model: model, MaxTurns: 2, Check: func(string) error { return errors.New("bad") }}
+	if _, err := l.Run(context.Background(), nil); !errors.Is(err, ErrMaxTurns) {
+		t.Fatalf("got %v", err)
 	}
 }

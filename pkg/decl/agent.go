@@ -7,7 +7,7 @@ import (
 )
 
 // AgentDirectives are the directives allowed inside an agent section.
-var AgentDirectives = []string{".system", ".tools", ".maxturns"}
+var AgentDirectives = []string{".system", ".tools", ".maxturns", ".returns"}
 
 // Agent is a parsed .agent section: a tool-calling loop over the file's
 // prompts and tools.
@@ -20,14 +20,16 @@ var AgentDirectives = []string{".system", ".tools", ".maxturns"}
 //
 // Without .system, the system prompt is the file's only .title prompt, if it
 // has exactly one. Without .tools, the agent can call every tool declared
-// in the file.
+// in the file. With .returns, its final answer is the named .output.
 type Agent struct {
 	Name string
 	// System is the title of the system prompt, or "" when inferred.
 	System string
 	// Tools are the tool names, or nil for every tool in the file.
-	Tools       []string
-	MaxTurns    int
+	Tools    []string
+	MaxTurns int
+	// Returns names the .output the final answer must be, or "" for text.
+	Returns     string
 	Description string
 	Start, End  int
 }
@@ -68,6 +70,11 @@ func ParseAgent(src []byte, start, end int) (*Agent, error) {
 					}
 				}
 				a.Tools = append(a.Tools, n)
+			}
+		case hasDirective(b, ".returns"):
+			a.Returns = strings.TrimSpace(strings.TrimPrefix(l, ".returns"))
+			if !toolNameRE.MatchString(a.Returns) {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".returns needs the name of an .output in this file, got %q", a.Returns)}
 			}
 		case hasDirective(b, ".maxturns"):
 			v := strings.TrimSpace(strings.TrimPrefix(l, ".maxturns"))

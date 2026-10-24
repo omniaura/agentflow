@@ -434,6 +434,9 @@ func (d *Document) SectionSymbols() []protocol.DocumentSymbol {
 			if s.Tools != nil {
 				detail += " → " + strings.Join(s.Tools, ", ")
 			}
+			if s.Returns != "" {
+				detail += " ⇒ " + s.Returns
+			}
 			sym.Detail = &detail
 		}
 		out = append(out, sym)
@@ -507,6 +510,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".system", "the system prompt's title (default: the file's only prompt)")
 		add(".tools", "the tools it may call (default: every tool in the file)")
 		add(".maxturns", "bound the model calls of a run")
+		add(".returns", "the .output its final answer must be (default: text)")
 	case ".output":
 		add(".field", "output field: .field name [type] [description]")
 		add(".maxbytes", "cap the output's size")

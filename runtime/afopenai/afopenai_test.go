@@ -158,3 +158,19 @@ func TestParamsHookAndErrors(t *testing.T) {
 		t.Errorf("bad role: %v", err)
 	}
 }
+
+func TestStructuredOutput(t *testing.T) {
+	f := &fakeOpenAI{answers: []string{completion("stop", `{"role":"assistant","content":"{\"ok\":true}","refusal":null}`)}}
+	resp, err := newModel(t, f).Complete(context.Background(), afagent.Request{
+		Messages: []afagent.Message{{Role: afagent.User, Content: "judge"}},
+		Output:   &afagent.OutputSpec{Name: "verdict", Description: "The verdict.", Schema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`)},
+	})
+	if err != nil || resp.Message.Content != `{"ok":true}` {
+		t.Fatalf("got %v, %+v", err, resp)
+	}
+	rf := f.bodies[0]["response_format"].(map[string]any)
+	js := rf["json_schema"].(map[string]any)
+	if rf["type"] != "json_schema" || js["name"] != "verdict" || js["strict"] != true || js["description"] != "The verdict." || js["schema"].(map[string]any)["required"].([]any)[0] != "ok" {
+		t.Errorf("response_format = %v", rf)
+	}
+}

@@ -87,6 +87,7 @@ type linter struct {
 	// the whole file is read.
 	titleTexts []string
 	tools      []string
+	outputs    []string
 	agents     []*decl.Agent
 	hasTitle   bool
 	hasContent bool
@@ -127,8 +128,8 @@ func (l *linter) check(tokens token.Slice) {
 	}
 }
 
-// checkAgent reports an agent whose system prompt or tools are not in the
-// file.
+// checkAgent reports an agent whose system prompt, tools or output are not
+// in the file.
 func (l *linter) checkAgent(a *decl.Agent) {
 	quoted := make([]string, len(l.titleTexts))
 	for i, t := range l.titleTexts {
@@ -140,6 +141,14 @@ func (l *linter) checkAgent(a *decl.Agent) {
 		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: no prompt titled %q in this file (have %s)", a.Name, a.System, strings.Join(quoted, ", ")))
 	case a.System == "" && len(l.titleTexts) > 1:
 		l.add(token.T{Start: a.Start, End: a.Start}, SeverityError, "AF011", fmt.Sprintf("agent %s: the file has %d prompts; name the system prompt with .system <title>", a.Name, len(l.titleTexts)))
+	}
+	if a.Returns != "" && !slices.Contains(l.outputs, a.Returns) {
+		have := "it declares none"
+		if len(l.outputs) > 0 {
+			have = "have " + strings.Join(l.outputs, ", ")
+		}
+		off := l.directiveOffset(a, ".returns")
+		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: no output %s in this file (%s)", a.Name, a.Returns, have))
 	}
 	for _, name := range a.Tools {
 		if !slices.Contains(l.tools, name) {
@@ -195,6 +204,7 @@ func (l *linter) checkSection(tok token.T) {
 		key = fmt.Sprintf("tool %q", s.Name)
 		if s.Output {
 			key = fmt.Sprintf("output %q", s.Name)
+			l.outputs = append(l.outputs, s.Name)
 		} else {
 			l.tools = append(l.tools, s.Name)
 		}

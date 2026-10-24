@@ -298,7 +298,7 @@ func TestAgentSections(t *testing.T) {
 	for _, it := range doc.GetCompletionItems(Position{Line: 8, Character: 0}) {
 		labels = append(labels, it.Label)
 	}
-	if !slices.Contains(labels, ".maxturns") || slices.Contains(labels, ".param") {
+	if !slices.Contains(labels, ".maxturns") || !slices.Contains(labels, ".returns") || slices.Contains(labels, ".param") {
 		t.Fatalf("directives = %v", labels)
 	}
 }

@@ -244,3 +244,18 @@ func TestBadToolSchema(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestStructuredOutput(t *testing.T) {
+	f := &fakeClaude{answers: [][]string{answer("end_turn", `{"type":"text","text":"{\"ok\":true}"}`)}}
+	resp, err := newModel(t, f).Complete(context.Background(), afagent.Request{
+		Messages: []afagent.Message{{Role: afagent.User, Content: "judge"}},
+		Output:   &afagent.OutputSpec{Name: "verdict", Schema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`)},
+	})
+	if err != nil || resp.Message.Content != `{"ok":true}` {
+		t.Fatalf("got %v, %+v", err, resp)
+	}
+	format := f.bodies[0]["output_config"].(map[string]any)["format"].(map[string]any)
+	if format["type"] != "json_schema" || format["schema"].(map[string]any)["additionalProperties"] != false {
+		t.Errorf("format = %v", format)
+	}
+}

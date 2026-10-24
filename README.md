@@ -416,6 +416,7 @@ Answers customer questions about their orders.
 | `.system Title` | The prompt to use as the system prompt. Optional when the file has one prompt. |
 | `.tools a, b` | The tools the agent may call. All the file's tools when omitted. |
 | `.maxturns n` | The most model calls a run may make (default 10). |
+| `.returns name` | The `.output` its final answer must be. `Run` then returns it decoded. |
 
 You implement the tools as methods and bring a model:
 
@@ -432,6 +433,26 @@ res, err := agent.Run(ctx, &Support{Shop: "Acme"},
 ```
 
 Arguments that fail validation, unknown tools, tool errors and panics go back to the model as failed tool results, so it can correct itself. `OnEvent` sees every model response and tool call for logging and streaming. The model is the `afagent.Model` interface, one method that takes the system prompt, messages and tools and returns the next assistant message, so any provider or gateway plugs in. `afagent` has no dependencies and can be ejected like the other runtime packages.
+
+With `.returns`, the agent ends with structured data instead of text. The model can still call tools first:
+
+```af
+.output triage
+.field category enum(order, refund, account, other) What the customer needs.
+.field order_id? The order the message is about, if any.
+.field urgent bool Whether a person should answer within the hour.
+
+.agent triager
+.tools lookup_order
+.returns triage
+```
+
+```go
+res, err := (&TriagerAgent{Model: model, Tools: impl}).Run(ctx, &Support{Shop: "Acme"}, msg)
+if res.Output.Urgent { ... } // res.Output is a TriageOutput
+```
+
+The adapters send the output's strict schema as the provider's structured output format. `Run` checks each final answer with the output's decoder. An answer that doesn't decode goes back to the model with the error, so it can try again within `.maxturns`.
 
 Two adapters implement `afagent.Model` on the official SDKs:
 

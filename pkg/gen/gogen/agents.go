@@ -38,6 +38,10 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 		if err != nil {
 			return &DeclError{Offset: a.Start, Err: err}
 		}
+		returns, err := agentReturns(f, a)
+		if err != nil {
+			return &DeclError{Offset: a.Start, Err: err}
+		}
 		imports["context"] = true
 		imports[AfagentImport] = true
 		name := camel(a.Name)
@@ -94,8 +98,17 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 			params = "ctx context.Context, system *" + system + ", messages ...afagent.Message"
 			systemExpr = "system.String()"
 		}
-		fmt.Fprintf(buf, "// Run continues the conversation in messages until the model answers\n// without calling a tool, and returns the answer and the conversation.\n")
-		fmt.Fprintf(buf, "func (a *%sAgent) Run(%s) (afagent.Result, error) {\n", name, params)
+		result := "afagent.Result"
+		if returns != nil {
+			result = name + "AgentResult"
+			out := camel(returns.Name)
+			fmt.Fprintf(buf, "// %s is a finished run of the %s agent: its answer, decoded, and\n// the run.\n", result, a.Name)
+			fmt.Fprintf(buf, "type %s struct {\nOutput %sOutput\nafagent.Result\n}\n\n", result, out)
+			fmt.Fprintf(buf, "// Run continues the conversation in messages until the model answers\n// without calling a tool, with a valid %s output, which it decodes.\n", returns.Name)
+		} else {
+			fmt.Fprintf(buf, "// Run continues the conversation in messages until the model answers\n// without calling a tool, and returns the answer and the conversation.\n")
+		}
+		fmt.Fprintf(buf, "func (a *%sAgent) Run(%s) (%s, error) {\n", name, params, result)
 		buf.WriteString("maxTurns := a.MaxTurns\n")
 		if a.MaxTurns > 0 {
 			fmt.Fprintf(buf, "if maxTurns <= 0 {\nmaxTurns = %d\n}\n", a.MaxTurns)
@@ -104,7 +117,14 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 		if len(tools) > 0 {
 			buf.WriteString("Dispatch: a.dispatch,\n")
 		}
-		buf.WriteString("}\nreturn loop.Run(ctx, messages)\n}\n\n")
+		if returns == nil {
+			buf.WriteString("}\nreturn loop.Run(ctx, messages)\n}\n\n")
+		} else {
+			schema := camel(returns.Name) + "Schema"
+			fmt.Fprintf(buf, "Output: &afagent.OutputSpec{Name: %s.Name, Description: %s.Description, Schema: %s.Schema},\n", schema, schema, schema)
+			fmt.Fprintf(buf, "Check: func(answer string) error {\n_, err := %s.Decode(answer)\nreturn err\n},\n", schema)
+			fmt.Fprintf(buf, "}\nres, err := loop.Run(ctx, messages)\nout := %s{Result: res}\nif err != nil {\nreturn out, err\n}\nout.Output, err = %s.Decode(res.Final)\nreturn out, err\n}\n\n", result, schema)
+		}
 
 		if len(tools) > 0 {
 			imports["fmt"] = true
@@ -152,6 +172,25 @@ func agentSystem(f ast.File, a *decl.Agent) (string, error) {
 }
 
 // agentTools returns the tools the agent can call.
+// agentReturns returns the .output an agent answers with, or nil.
+func agentReturns(f ast.File, a *decl.Agent) (*decl.Tool, error) {
+	if a.Returns == "" {
+		return nil, nil
+	}
+	var have []string
+	for _, o := range f.Outputs {
+		if o.Name == a.Returns {
+			return o, nil
+		}
+		have = append(have, o.Name)
+	}
+	list := "it declares none"
+	if len(have) > 0 {
+		list = "have " + strings.Join(have, ", ")
+	}
+	return nil, fmt.Errorf("agent %s: no output %s in this file (%s)", a.Name, a.Returns, list)
+}
+
 func agentTools(f ast.File, a *decl.Agent) ([]*decl.Tool, error) {
 	if a.Tools == nil {
 		return f.Tools, nil

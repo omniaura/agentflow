@@ -67,6 +67,19 @@ type Request struct {
 	System   string
 	Messages []Message
 	Tools    []ToolSpec
+	// Output, when set, is the JSON the final answer must be. Adapters
+	// pass it as the provider's structured output format; the model may
+	// still call tools before answering.
+	Output *OutputSpec
+}
+
+// OutputSpec describes a structured final answer.
+type OutputSpec struct {
+	Name        string
+	Description string
+	// Schema is a strict JSON Schema: every property required, optional
+	// ones nullable, no other properties allowed.
+	Schema json.RawMessage
 }
 
 // Usage counts the tokens of model calls.
@@ -109,6 +122,9 @@ const (
 	// ToolCalled precedes running a tool, and ToolReturned follows it.
 	ToolCalled   EventKind = "tool_called"
 	ToolReturned EventKind = "tool_returned"
+	// AnswerRejected follows a final answer that failed Check; Err says
+	// why, and the model is asked again.
+	AnswerRejected EventKind = "answer_rejected"
 )
 
 // Event reports progress, for logs, metrics and streaming to a client.
@@ -156,6 +172,12 @@ type Loop struct {
 	// Dispatch runs one tool call. An error goes back to the model as a
 	// failed result, so it can recover; it does not stop the loop.
 	Dispatch func(ctx context.Context, call ToolCall) (string, error)
+	// Output, when set, asks the model for a structured final answer.
+	Output *OutputSpec
+	// Check, when set, vets a final answer. If it fails, the error goes
+	// back to the model as a user message and the loop goes on, within
+	// MaxTurns.
+	Check func(answer string) error
 	// MaxTurns bounds the model calls; 0 means DefaultMaxTurns.
 	MaxTurns int
 	// Concurrency is how many tool calls of one turn run at once; 0 or 1
@@ -180,7 +202,7 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			return res, err
 		}
 		res.Turns++
-		resp, err := l.Model.Complete(ctx, Request{System: l.System, Messages: res.Messages, Tools: l.Tools})
+		resp, err := l.Model.Complete(ctx, Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output})
 		if err != nil {
 			return res, fmt.Errorf("afagent: turn %d: %w", res.Turns, err)
 		}
@@ -189,6 +211,13 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		res.Messages = append(res.Messages, resp.Message)
 		l.emit(Event{Kind: ModelResponded, Turn: res.Turns, Response: &resp})
 		if len(resp.Message.ToolCalls) == 0 {
+			if l.Check != nil {
+				if err := l.Check(resp.Message.Content); err != nil {
+					l.emit(Event{Kind: AnswerRejected, Turn: res.Turns, Err: err})
+					res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", err)})
+					continue
+				}
+			}
 			res.Final = resp.Message.Content
 			return res, nil
 		}

@@ -5,7 +5,8 @@
 //	agent := &SupportAgent{Model: &afopenai.Model{Model: modelID}, Tools: impl}
 //
 // Point Options at another base URL (option.WithBaseURL) to use an
-// OpenAI-compatible gateway.
+// OpenAI-compatible gateway. A structured output (Request.Output) is sent as
+// a strict json_schema response_format.
 package afopenai
 
 import (
@@ -95,6 +96,17 @@ func (m *Model) params(req afagent.Request) (openai.ChatCompletionNewParams, err
 			fn.Description = openai.String(t.Description)
 		}
 		p.Tools = append(p.Tools, openai.ChatCompletionFunctionTool(fn))
+	}
+	if req.Output != nil {
+		var schema map[string]any
+		if err := json.Unmarshal(req.Output.Schema, &schema); err != nil {
+			return p, fmt.Errorf("afopenai: output %s: schema: %w", req.Output.Name, err)
+		}
+		format := shared.ResponseFormatJSONSchemaJSONSchemaParam{Name: req.Output.Name, Schema: schema, Strict: openai.Bool(true)}
+		if req.Output.Description != "" {
+			format.Description = openai.String(req.Output.Description)
+		}
+		p.ResponseFormat.OfJSONSchema = &shared.ResponseFormatJSONSchemaParam{JSONSchema: format}
 	}
 	if m.Params != nil {
 		m.Params(&p)

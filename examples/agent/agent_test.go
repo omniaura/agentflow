@@ -112,3 +112,42 @@ func TestSupportAgentMaxTurns(t *testing.T) {
 		t.Fatalf("last message = %+v", last)
 	}
 }
+
+func TestTriagerReturnsTypedOutput(t *testing.T) {
+	model, seen := script(t,
+		afagent.Message{Content: "This is about a late order."},
+		afagent.Message{ToolCalls: []afagent.ToolCall{call("1", "lookup_order", `{"order_id":"A-1"}`)}},
+		afagent.Message{Content: `{"category":"refund","order_id":"A-1","urgent":true}`},
+	)
+	var rejected int
+	agent := &TriagerAgent{Model: model, Tools: &shop{}, OnEvent: func(e afagent.Event) {
+		if e.Kind == afagent.AnswerRejected {
+			rejected++
+		}
+	}}
+	res, err := agent.Run(context.Background(), &Support{Shop: "Acme"}, afagent.Message{Role: afagent.User, Content: "A-1 came late, I want my money back"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output.Category != TriageCategoryRefund || res.Output.OrderId != "A-1" || !res.Output.Urgent {
+		t.Errorf("output = %+v", res.Output)
+	}
+	if rejected != 1 || res.Turns != 3 {
+		t.Errorf("rejected %d, turns %d", rejected, res.Turns)
+	}
+	req := (*seen)[0]
+	if req.Output == nil || req.Output.Name != "triage" || !strings.Contains(string(req.Output.Schema), `"additionalProperties":false`) {
+		t.Errorf("output spec = %+v", req.Output)
+	}
+	if len(req.Tools) != 1 || req.Tools[0].Name != "lookup_order" {
+		t.Errorf("tools = %+v", req.Tools)
+	}
+}
+
+func TestTriagerGivesUpOnInvalidAnswers(t *testing.T) {
+	model, _ := script(t, afagent.Message{Content: "{}"}, afagent.Message{Content: "{}"}, afagent.Message{Content: "{}"})
+	res, err := (&TriagerAgent{Model: model, Tools: &shop{}}).Run(context.Background(), &Support{Shop: "Acme"})
+	if !errors.Is(err, afagent.ErrMaxTurns) || res.Turns != 3 {
+		t.Fatalf("got %v after %d turns", err, res.Turns)
+	}
+}
