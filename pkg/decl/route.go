@@ -187,12 +187,12 @@ type Empty struct {
 // 4xx status, then the message.
 func parseEmpty(args string, off int) (*Empty, error) {
 	e := &Empty{Status: 404, Msg: args, Offset: off}
-	if first, rest, _ := strings.Cut(args, " "); len(first) == 3 && first[0] >= '0' && first[0] <= '9' {
-		n, err := strconv.Atoi(first)
+	if fields := strings.Fields(args); len(fields) > 0 && len(fields[0]) == 3 && fields[0][0] >= '0' && fields[0][0] <= '9' {
+		n, err := strconv.Atoi(fields[0])
 		if err != nil || n < 400 || n > 499 {
-			return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty needs a 4xx status, got %q", first)}
+			return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty needs a 4xx status, got %q", fields[0])}
 		}
-		e.Status, e.Msg = n, strings.TrimSpace(rest)
+		e.Status, e.Msg = n, strings.TrimSpace(strings.TrimPrefix(args, fields[0]))
 	}
 	if e.Msg == "" {
 		return nil, &Error{Offset: off, Msg: "usage: .empty [4xx status] message, as in .empty 409 you already have 20 thought trains"}

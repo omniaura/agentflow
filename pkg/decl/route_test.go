@@ -90,6 +90,7 @@ func TestParseRouteEmpty(t *testing.T) {
 	}{
 		{".empty 409 you already have 5 notes", 409, "you already have 5 notes"},
 		{".empty that note is gone", 404, "that note is gone"},
+		{".empty 409\tafter a tab", 409, "after a tab"},
 		// A leading number that is not a status is part of the message.
 		{".empty 5 notes at most", 404, "5 notes at most"},
 		{".empty 2025 was a year", 404, "2025 was a year"},

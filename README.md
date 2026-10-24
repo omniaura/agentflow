@@ -401,7 +401,7 @@ WHERE src.id = @id AND src.owner_id = @owner_id
 RETURNING *
 ```
 
-The check and the write are one statement. A handler that reads, then writes, can race another request in between. `.empty` on a SQL tool sets what the model is told instead of `not found`: `.empty no note of yours has that id`.
+Ownership and state checks in the `WHERE` of an `UPDATE` or `DELETE` hold under concurrent requests, because Postgres re-checks them on the row it locks. A `count(*)` limit doesn't: two inserts at once can both see 4 notes. The read-then-write handler it replaces has the same gap, so a limit that must hold exactly needs a lock or a trigger. `.empty` on a SQL tool sets what the model is told instead of `not found`: `.empty no note of yours has that id`.
 
 **Writing the query in the route.** End a route with `.sql` and its sqlc command, and write the query below it. The endpoint and its SQL then live in one place:
 

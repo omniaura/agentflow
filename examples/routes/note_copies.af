@@ -3,7 +3,8 @@
 .status 201
 .empty 409 that note is not yours, or you already have 5 notes
 Copies one of the caller's notes, while they have fewer than 5. The query
-checks both in SQL, so the handler runs one statement.
+checks both in SQL. Two copies at once can both see 4 notes; a limit that
+must hold under concurrent writes needs a lock or a trigger.
 .sql :one
 INSERT INTO notes (owner_id, body)
 SELECT src.owner_id, src.body FROM notes src
