@@ -209,7 +209,8 @@ Answers customer questions about their orders.
 - `BeforeTurn func(ctx, turn, messages) ([]Message, error)` on a generated agent replaces the
   conversation before each model call: compaction and context-budget checks go there, not in a
   hand-written loop.
-- Conversations that live in the database: `runtime/afthread`. Implement `afthread.Store` over
+- Conversations that live in the database: `runtime/afthread`. A new backend can use the Postgres
+  store `adapters/afthreadpg` (migration + sqlc queries). Otherwise implement `afthread.Store` over
   the existing tables (don't create new ones if threads and a message queue exist), check it
   with `afthreadtest.Run`, and answer queued messages with `afthread.Run(ctx, store, owner,
   thread, agentFunc)`: it delivers mid-run messages and saves before every turn. If the store
