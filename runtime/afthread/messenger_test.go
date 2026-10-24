@@ -57,6 +57,15 @@ func TestMessenger(t *testing.T) {
 	if err != nil || !strings.Contains(got, "next run") || notifyErr == nil || notifyErr.Error() != "queue down" || len(s.Inbox("ann", tracker.ID)) != 2 {
 		t.Fatalf("Notify error: %q, %v, %v", got, err, notifyErr)
 	}
+	// Panicking hooks don't fail a stored send either.
+	m.Notify = func(context.Context, string, string) error { panic("notify bug") }
+	m.OnNotifyError = func(ctx context.Context, err error) {
+		notifyErr = err
+		panic("logger bug")
+	}
+	if got, err := m.Send(ctx, "tracker", "third"); err != nil || !strings.Contains(got, "next run") || !strings.Contains(notifyErr.Error(), "notify bug") || len(s.Inbox("ann", tracker.ID)) != 3 {
+		t.Fatalf("panicking hooks: %q, %v, %v", got, err, notifyErr)
+	}
 	_ = support
 }
 

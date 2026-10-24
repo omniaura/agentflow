@@ -73,17 +73,34 @@ func (m *Messenger) Send(ctx context.Context, to, text string) (string, error) {
 	if _, err := m.Store.Send(ctx, m.Owner, thread, Incoming{From: m.From, Content: text}); err != nil {
 		return "", err
 	}
+	// Stored is sent: nothing after this may fail the send, which would
+	// invite a retry that sends it twice; not even a panicking hook.
 	if m.Notify != nil {
-		if err := m.Notify(ctx, m.Owner, thread); err != nil {
-			// Stored is sent: failing here would invite a retry that sends
-			// it twice.
-			if m.OnNotifyError != nil {
-				m.OnNotifyError(ctx, err)
-			}
+		if err := m.notify(ctx, thread); err != nil {
+			m.reportNotify(ctx, err)
 			return fmt.Sprintf("Sent to the %s agent, which will see it on its next run. Its reply, if any, arrives as a message from it.", to), nil
 		}
 	}
 	return fmt.Sprintf("Sent to the %s agent. Its reply, if any, arrives as a message from it.", to), nil
+}
+
+// notify calls Notify, turning a panic into its error.
+func (m *Messenger) notify(ctx context.Context, thread string) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("afthread: Notify panicked: %v", p)
+		}
+	}()
+	return m.Notify(ctx, m.Owner, thread)
+}
+
+// reportNotify hands err to OnNotifyError, ignoring a panic in it.
+func (m *Messenger) reportNotify(ctx context.Context, err error) {
+	if m.OnNotifyError == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	m.OnNotifyError(ctx, err)
 }
 
 // List returns the agents this agent may message, as JSON, for the
