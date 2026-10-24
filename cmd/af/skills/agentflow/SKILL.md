@@ -166,7 +166,10 @@ Answers customer questions about their orders.
   `.tools a, b` limits the tools; the default is every tool in the file.
 - Run it with `(&SupportAgent{Model: m, Tools: impl}).Run(ctx, &Support{Shop: "Acme"},
   afagent.Message{Role: afagent.User, Content: q})`. `res.Final` is the answer.
-- `Model` is `afagent.Model`: wrap the provider call in `afagent.ModelFunc`. Don't
+- `Model` is `afagent.Model`. Use `&afanthropic.Model{}` (Claude) or
+  `&afopenai.Model{Model: id}` (OpenAI-compatible) from
+  `github.com/omniaura/agentflow/runtime`, or wrap another provider call in
+  `afagent.ModelFunc`. Don't
   hand-write tool-calling loops, dispatch switches or argument decoding for an agent
   that an `.agent` section can declare. Bad arguments and tool errors already go back
   to the model as failed tool results.

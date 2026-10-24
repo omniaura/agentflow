@@ -49,7 +49,7 @@ func TestLoopRunsToolsUntilAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Final != "done" || res.Turns != 2 || res.Usage != (Usage{20, 4}) {
+	if res.Final != "done" || res.Turns != 2 || res.Usage != (Usage{InputTokens: 20, OutputTokens: 4}) {
 		t.Fatalf("res = %+v", res)
 	}
 	// user, assistant calls, two tool results, final answer.

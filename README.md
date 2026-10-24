@@ -433,6 +433,19 @@ res, err := agent.Run(ctx, &Support{Shop: "Acme"},
 
 Arguments that fail validation, unknown tools, tool errors and panics go back to the model as failed tool results, so it can correct itself. `OnEvent` sees every model response and tool call for logging and streaming. The model is the `afagent.Model` interface, one method that takes the system prompt, messages and tools and returns the next assistant message, so any provider or gateway plugs in. `afagent` has no dependencies and can be ejected like the other runtime packages.
 
+Two adapters implement `afagent.Model` on the official SDKs:
+
+```go
+// Claude, through github.com/anthropics/anthropic-sdk-go. Reads ANTHROPIC_API_KEY.
+model := &afanthropic.Model{} // claude-opus-5-5, 16000 max tokens by default
+
+// OpenAI Chat Completions, or any gateway that speaks it, through
+// github.com/openai/openai-go/v3. Reads OPENAI_API_KEY.
+model := &afopenai.Model{Model: modelID, Options: []option.RequestOption{option.WithBaseURL(gatewayURL)}}
+```
+
+`afanthropic` streams, so long answers don't time out, and turns on prompt caching, so each turn reuses the conversation before it. It keeps Claude's own content blocks on each assistant message (`Message.Native`), so thinking blocks go back unchanged on the next turn. Both adapters report cached input tokens in `Usage`, and return errors wrapping `afagent.ErrTruncated` for an answer cut off by the token limit and `afagent.ErrRefused` for a refusal. A `Params` hook adjusts each request, for example to set thinking, effort or `tool_choice`.
+
 ## Examples
 
 ### Basic Variables
@@ -644,6 +657,8 @@ Code generated for `.tool`, `.route` and `.agent` imports small runtime packages
 
     go tool af eject          # or: af eject aftool
     go tool af gen prompts ./...
+
+The model adapters `afanthropic` and `afopenai` are ejected only when named: `af eject afanthropic`. An ejected adapter is your LLM gateway, and you can add retries, routing or logging to it. Ejected packages import each other's copies. If you eject a package after something that imports it, `af eject` updates the earlier copy and keeps your edits.
 
 `af eject` copies the packages to `internal/agentflow/<package>` (choose another place with `--dir`) and records them in `agentflow.json` at the module root. From then on, `af gen` makes generated code import your copies. They have no dependencies, so a module that ejects everything doesn't need agentflow as a library at all.
 

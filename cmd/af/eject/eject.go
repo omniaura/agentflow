@@ -19,6 +19,7 @@ func CMD() *cobra.Command {
 		Long: `Copy agentflow's runtime packages (` + strings.Join(runtime.Packages, ", ") + `) into this module, so
 generated code imports your copy instead of github.com/omniaura/agentflow. The
 copy is yours to edit. With no arguments, eject copies every runtime package.
+The model adapters (` + strings.Join(runtime.Adapters, ", ") + `) are copied only when named.
 
 Run it again after upgrading af. Files you have not edited are replaced. Files
 you have edited are merged three ways with the version they came from, and any
