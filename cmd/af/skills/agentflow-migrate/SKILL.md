@@ -70,6 +70,18 @@ Each category has a `.af` replacement:
    or status codes. Then run `go tool af check ./...`.
 7. **Commit each site separately**, so each change is easy to review and revert.
 
+### Keep the response shape
+
+A `.route` responds with the sqlc row, or a list of rows, as JSON. Make that match what the
+old handler wrote, so clients don't break:
+- **An object around the result** (`map[string]any{"companies": rows}`): add `.wrap companies`.
+- **Field names:** sqlc names JSON fields after columns (and `json_tags_case_style`). Rename
+  with `AS` in the SELECT, and select only the fields the old response had.
+- **Computed fields** (URLs built in Go, redacted values): compute them in SQL, or keep the
+  handler.
+
+Pin the old shape with a test that decodes the response before switching.
+
 ### Handlers that read, check, then write
 
 Many handlers load a row, check something in Go and then write: who owns it, a limit

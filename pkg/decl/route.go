@@ -9,7 +9,7 @@ import (
 )
 
 // RouteDirectives are the directives allowed inside a route section.
-var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".empty", ".sql"}
+var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".empty", ".wrap", ".sql"}
 
 // SQLKinds are the sqlc query commands a .sql line may name.
 var SQLKinds = []string{":one", ":many", ":exec", ":execrows"}
@@ -41,7 +41,12 @@ type Route struct {
 	MaxBytes int
 	// Empty, from .empty, is the error for a :one query that finds no row
 	// or an :execrows query that changes none, instead of 404 not found.
-	Empty       *Empty
+	Empty *Empty
+	// Wrap, from .wrap, names the one field of a JSON object the response
+	// puts the query's result in: {"todos": [...]}. WrapOffset is the
+	// .wrap line's.
+	Wrap        string
+	WrapOffset  int
 	Description string
 	// SQL is the query written in the section after a .sql line, which af
 	// gen hands to sqlc, and SQLKind its sqlc command (":one", ...). Both
@@ -134,6 +139,15 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".status needs a 2xx status code, got %q", v)}
 			}
 			r.Status = n
+		case hasDirective(b, ".wrap"):
+			if r.Wrap != "" {
+				return nil, &Error{Offset: off, Msg: "only one .wrap line"}
+			}
+			key := strings.TrimSpace(strings.TrimPrefix(l, ".wrap"))
+			if !identRE.MatchString(key) {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf("usage: .wrap key, as in .wrap todos to respond {\"todos\": [...]}; got %q", key)}
+			}
+			r.Wrap, r.WrapOffset = key, off
 		case hasDirective(b, ".empty"):
 			if r.Empty != nil {
 				return nil, &Error{Offset: off, Msg: "only one .empty line"}

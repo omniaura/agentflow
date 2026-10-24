@@ -7,7 +7,8 @@ INSERT INTO notes (owner_id, body) VALUES (@owner_id, @body) RETURNING *
 
 .route GET /notes ListNotes
 .auth owner_id
-Lists the caller's notes, pinned first.
+.wrap notes
+Lists the caller's notes, pinned first, as {"notes": [...]}.
 .sql :many
 SELECT * FROM notes
 WHERE owner_id = @owner_id

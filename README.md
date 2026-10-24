@@ -383,6 +383,7 @@ Arguments named by the path or by `.auth` never come from the request body, so a
 | `.status 201` | The success status. |
 | `.maxbytes n` | Cap the request body (default 1 MiB). |
 | `.empty [4xx] message` | The error when a `:one` query finds no row, or an `:execrows` query changes none (default `404 not found`). |
+| `.wrap key` | Respond with a `:one` or `:many` result as the one field of an object: `.wrap notes` gives `{"notes": [...]}`. |
 
 The text that isn't a directive becomes the handler's doc comment.
 

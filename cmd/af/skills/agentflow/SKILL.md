@@ -242,6 +242,8 @@ Creates a todo for the caller.
   DELETE). `user_id`, `userId` and `UserID` all match one argument.
 - Routes authenticate by default; `.public` skips it. `.status`, `.maxbytes` and a
   description (which becomes the doc comment) are optional.
+- `.wrap notes` responds `{"notes": [...]}` instead of the bare array (`:one` and `:many`
+  only). Use it when clients expect an object, or to leave room for more fields.
 - Put checks in the SQL, not in Go: ownership, limits and states go in the `WHERE` of
   one statement (`UPDATE ... WHERE id = @id AND owner_id = @owner_id`, `INSERT ...
   SELECT ... WHERE (SELECT count(*) ...) < 5`). Then `.empty [4xx] message` names the
