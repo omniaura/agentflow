@@ -175,6 +175,43 @@ func TestSectionBounds(t *testing.T) {
 	}
 }
 
+func TestParseSQLCTool(t *testing.T) {
+	for _, tt := range []struct{ src, file, query string }{
+		{".tool t\n.sqlc queries/notes.sql\n.auth owner_id\nDoes t.\n", "queries/notes.sql", ""},
+		{".tool t\n.sqlc queries/notes.sql ListNotes\nDoes t.\n", "queries/notes.sql", "ListNotes"},
+		{".tool t\n.sqlc ListNotes\nDoes t.\n", "", "ListNotes"},
+		{".tool t\nDoes t.\n.sqlc db.ListNotes\n", "", "db.ListNotes"},
+	} {
+		f, err := Parse([]byte(tt.src))
+		if err != nil {
+			t.Errorf("%q: %v", tt.src, err)
+			continue
+		}
+		tool := f.Tools[0]
+		if tool.SQLCFile != tt.file || tool.SQLCQuery != tt.query || !tool.InSQL() || tool.SQL != "" || tool.Description != "Does t." {
+			t.Errorf("%q: tool = %+v", tt.src, tool)
+		}
+		// Errors about the query point at the .sqlc line.
+		if line := strings.Index(tt.src, ".sqlc"); tool.SQLOffset != line {
+			t.Errorf("%q: offset %d, want %d", tt.src, tool.SQLOffset, line)
+		}
+	}
+	for _, tt := range []struct{ src, msg string }{
+		{".tool t\n.sqlc\n", ".sqlc links a query sqlc reads"},
+		{".tool t\n.sqlc a.sql B C\n", ".sqlc links a query sqlc reads"},
+		{".tool t\n.sqlc notes ListNotes\n", `"notes" is not a .sql file`},
+		{".tool t\n.sqlc list-notes\n", `"list-notes" is neither a query name nor a .sql file`},
+		{".tool t\n.sqlc a.sql db.ListNotes\n", `"db.ListNotes" is not a query name`},
+		{".tool t\n.sqlc A\n.sqlc B\n", "only one .sqlc line"},
+		{".tool t\n.sqlc A\n.sql :one\nSELECT 1\n", "not both"},
+		{".tool t\n.sql :one\nSELECT 1\n.sqlc A\n", "not both"},
+	} {
+		if _, err := Parse([]byte(tt.src)); err == nil || !strings.Contains(err.Error(), tt.msg) {
+			t.Errorf("%q: got %v, want %q", tt.src, err, tt.msg)
+		}
+	}
+}
+
 func TestParseSQLTool(t *testing.T) {
 	src := ".tool pin_note\n.param note_id int Which note.\n.auth owner_id\nPins a note.\n.sql :execrows\nUPDATE notes SET pinned = true\nWHERE id = @note_id AND owner_id = @owner_id\n"
 	f, err := Parse([]byte(src))

@@ -4,6 +4,7 @@ sql:
     schema: db/schema.sql
     queries:
       - db/queries.sql
+      - db/search.sql
       - notes_af.sql
       - assistant_af.sql
     gen:
