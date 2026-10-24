@@ -24,15 +24,18 @@ type Options struct {
 	Imports map[string]string
 }
 
-// RouteError reports a .route that cannot be generated, at the byte offset
-// of its query name.
-type RouteError struct {
+// DeclError reports a declaration section that cannot be generated, such
+// as a .route whose query does not exist, at a byte offset in the source.
+type DeclError struct {
 	Offset int
 	Err    error
 }
 
-func (e *RouteError) Error() string { return e.Err.Error() }
-func (e *RouteError) Unwrap() error { return e.Err }
+func (e *DeclError) Error() string { return e.Err.Error() }
+func (e *DeclError) Unwrap() error { return e.Err }
+
+// RouteError is the DeclError of a .route.
+type RouteError = DeclError
 
 type boundRoute struct {
 	r       *decl.Route

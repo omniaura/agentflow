@@ -242,6 +242,8 @@ func (d *Document) Definition(pos Position) []protocol.Location {
 				return nil
 			}
 			return d.queryDefinition(s.Query)
+		case *decl.Agent:
+			return d.goDefinition(`type ` + string(bytcase.ToCamel([]byte(strings.ReplaceAll(s.Name, "-", "_")))) + `Agent struct`)
 		}
 	}
 	return nil
@@ -426,6 +428,13 @@ func (d *Document) SectionSymbols() []protocol.DocumentSymbol {
 			sym.Name, sym.Kind = s.Method+" "+s.Path, protocol.SymbolKindMethod
 			detail := "route → " + s.Query
 			sym.Detail = &detail
+		case *decl.Agent:
+			sym.Name, sym.Kind = s.Name, protocol.SymbolKindClass
+			detail := "agent"
+			if s.Tools != nil {
+				detail += " → " + strings.Join(s.Tools, ", ")
+			}
+			sym.Detail = &detail
 		}
 		out = append(out, sym)
 	}
@@ -494,6 +503,10 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 	case ".tool":
 		add(".param", "tool parameter: .param name [type] [description]")
 		add(".maxbytes", "cap the tool's arguments")
+	case ".agent":
+		add(".system", "the system prompt's title (default: the file's only prompt)")
+		add(".tools", "the tools it may call (default: every tool in the file)")
+		add(".maxturns", "bound the model calls of a run")
 	case ".output":
 		add(".field", "output field: .field name [type] [description]")
 		add(".maxbytes", "cap the output's size")
@@ -508,6 +521,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 	add(".tool", "declare an LLM tool: .tool name")
 	add(".route", "serve a sqlc query: .route METHOD /path Query")
 	add(".output", "declare a structured output: .output name")
+	add(".agent", "declare a tool-calling agent: .agent name")
 	return items
 }
 

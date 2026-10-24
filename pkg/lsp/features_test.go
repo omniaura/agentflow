@@ -282,3 +282,23 @@ func TestOutputSections(t *testing.T) {
 		t.Fatalf("directives = %v", labels)
 	}
 }
+
+func TestAgentSections(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a_af.go"), []byte("package a\n\ntype SupportAgent struct {\n}\n"), 0o644)
+	doc := openAt(t, filepath.Join(dir, "a.af"), ".title S\nHi.\n\n.tool t\nT.\n\n.agent support\n.tools t\n\n")
+	syms := doc.SectionSymbols()
+	if len(syms) != 2 || syms[1].Name != "support" || *syms[1].Detail != "agent → t" {
+		t.Fatalf("symbols = %+v", syms)
+	}
+	if loc := doc.Definition(at(t, doc, "support", 0)); len(loc) != 1 || loc[0].Range.Start.Line != 2 {
+		t.Fatalf("definition = %+v", loc)
+	}
+	var labels []string
+	for _, it := range doc.GetCompletionItems(Position{Line: 8, Character: 0}) {
+		labels = append(labels, it.Label)
+	}
+	if !slices.Contains(labels, ".maxturns") || slices.Contains(labels, ".param") {
+		t.Fatalf("directives = %v", labels)
+	}
+}

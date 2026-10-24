@@ -180,12 +180,12 @@ func sectionTokens(src []byte, tok token.T) []sectionToken {
 					out = append(out, sectionToken{fields[j].start, fields[j].end, typ})
 				}
 			}
-		case len(fields) > 0 && slices.Contains(decl.RouteDirectives, string(fields[0].text(src))):
+		case len(fields) > 0 && (slices.Contains(decl.RouteDirectives, string(fields[0].text(src))) || slices.Contains(decl.AgentDirectives, string(fields[0].text(src)))):
 			out = append(out, sectionToken{fields[0].start, fields[0].end, TokenTypeKeyword})
 			if len(fields) > 1 {
 				out = append(out, sectionToken{fields[1].start, end, TokenTypeParameter})
 			}
-		case len(fields) > 0 && (string(fields[0].text(src)) == ".tool" || string(fields[0].text(src)) == ".output"):
+		case len(fields) > 0 && (string(fields[0].text(src)) == ".tool" || string(fields[0].text(src)) == ".output" || string(fields[0].text(src)) == ".agent"):
 			out = append(out, sectionToken{fields[0].start, fields[0].end, TokenTypeKeyword})
 			if len(fields) > 1 {
 				out = append(out, sectionToken{fields[1].start, end, TokenTypeFunction})

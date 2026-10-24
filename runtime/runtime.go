@@ -10,12 +10,12 @@ import (
 	"strings"
 )
 
-//go:embed aftool/*.go afhttp/*.go
+//go:embed aftool/*.go afhttp/*.go afagent/*.go
 var sources embed.FS
 
 // Packages are the runtime packages, by name. Generated code imports
 // ImportPrefix + name.
-var Packages = []string{"afhttp", "aftool"}
+var Packages = []string{"afagent", "afhttp", "aftool"}
 
 // ImportPrefix is the import path of this directory, plus a slash.
 const ImportPrefix = "github.com/omniaura/agentflow/runtime/"

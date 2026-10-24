@@ -161,7 +161,7 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 		return "", nil, err
 	}
 	var opts gogen.Options
-	if len(ff.Tools) > 0 || len(ff.Routes) > 0 || len(ff.Outputs) > 0 {
+	if len(ff.Tools) > 0 || len(ff.Routes) > 0 || len(ff.Outputs) > 0 || len(ff.Agents) > 0 {
 		// Generated code imports the runtime, or the copy af eject made.
 		if opts.Imports, err = eject.Imports(filepath.Dir(name)); err != nil {
 			return "", nil, err
