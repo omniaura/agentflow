@@ -384,9 +384,31 @@ Arguments named by the path or by `.auth` never come from the request body, so a
 | `.maxbytes n` | Cap the request body (default 1 MiB). |
 | `.empty [4xx] message` | The error when a `:one` query finds no row, or an `:execrows` query changes none (default `404 not found`). |
 | `.wrap key` | Respond with a `:one` or `:many` result as the one field of an object: `.wrap notes` gives `{"notes": [...]}`. |
+| `.map fn` | Respond with `fn(row)`, a func of the package, for a `:one` result, or with `fn` applied to each row of a `:many` one. |
 | `.cache 5m` | Let caches keep a `GET` result, for at most a year: `private, max-age=300` (with `Vary: Authorization, Cookie`), or `public, max-age=300` on a `.public` route. Any other value is sent as written: `.cache no-cache`. |
 
 The text that isn't a directive becomes the handler's doc comment.
+
+**Shaping the response in Go.** When the response isn't the row, as when it renames fields, computes a URL or hides a column, write the mapping as a plain func and name it with `.map`. The handler stays generated: authentication, decoding, errors and caching.
+
+```af
+.route GET /cards ListTodos
+.auth owner_id
+.map todoCard
+.wrap cards
+```
+
+```go
+func todoCard(t db.Todo) TodoCard {
+	status := "open"
+	if t.Done {
+		status = "done"
+	}
+	return TodoCard{ID: t.ID, Title: t.Title, Status: status, URL: fmt.Sprintf("/todos/%d", t.ID)}
+}
+```
+
+`af gen` reports a `.map` that names no func of the package at its line.
 
 Responses of authenticated `:one` and `:many` routes, errors included, are sent with `Cache-Control: no-store` unless `.cache` says otherwise, so no browser or proxy keeps one caller's data. A `.cache` duration goes on successful responses only, so an error is never cached. On an authenticated route it also adds `Vary: Authorization, Cookie`: a browser shares one private cache between the accounts signed in to it, and this makes it ask again after a switch of accounts.
 

@@ -94,6 +94,16 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	AsError(r.Context(), err).Abort(w)
 }
 
+// Map returns fn applied to each row: the response of a .map route with a
+// :many query. It is never nil, so no rows respond [].
+func Map[Row, T any](rows []Row, fn func(Row) T) []T {
+	out := make([]T, len(rows))
+	for i, row := range rows {
+		out[i] = fn(row)
+	}
+	return out
+}
+
 // WriteJSON writes v as JSON with status, the response to r.
 func WriteJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 	b, err := json.Marshal(v)

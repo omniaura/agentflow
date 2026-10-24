@@ -141,6 +141,28 @@ func TestGenRoutesWrap(t *testing.T) {
 	}
 }
 
+func TestGenRoutesMap(t *testing.T) {
+	code, err := genRoutesFile(t, ".route GET /a ListTodos\n.auth owner_id\n.map todoCard\n.wrap cards\n\n.route GET /a/{id} GetTodo\n.auth owner_id\n.map todoCard\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// Each row of a :many result, inside the .wrap object.
+		`afhttp.WriteJSON(w, r, http.StatusOK, map[string]any{"cards": afhttp.Map(rows, todoCard)})`,
+		`afhttp.WriteJSON(w, r, http.StatusOK, todoCard(row))`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q in\n%s", want, code)
+		}
+	}
+	src := ".route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n.map todoCard\n"
+	_, err = genRoutesFile(t, src)
+	var re *RouteError
+	if !errors.As(err, &re) || !strings.Contains(err.Error(), ".map turns a :one or :many result into the response") || src[re.Offset:re.Offset+4] != ".map" {
+		t.Errorf("map on :execrows: %v", err)
+	}
+}
+
 func TestGenRoutesCache(t *testing.T) {
 	code, err := genRoutesFile(t, ".route GET /a ListTodos\n.auth owner_id\n\n.route GET /a/{id} GetTodo\n.auth owner_id\n.cache 5m\n\n.route GET /c CountTodos\n.public\n.cache 1m\n\n.route GET /t/{id} GetTodoTitle\n.public\n\n.route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n")
 	if err != nil {

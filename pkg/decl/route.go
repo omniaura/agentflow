@@ -10,7 +10,7 @@ import (
 )
 
 // RouteDirectives are the directives allowed inside a route section.
-var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".empty", ".wrap", ".cache", ".sql"}
+var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".empty", ".wrap", ".map", ".cache", ".sql"}
 
 // SQLKinds are the sqlc query commands a .sql line may name.
 var SQLKinds = []string{":one", ":many", ":exec", ":execrows"}
@@ -48,6 +48,11 @@ type Route struct {
 	// .wrap line's.
 	Wrap       string
 	WrapOffset int
+	// Map, from .map, names a func of the route's Go package that turns a
+	// row into what the response holds, applied to each row of a :many
+	// result. MapOffset is the .map line's.
+	Map       string
+	MapOffset int
 	// Cache, from .cache, is the Cache-Control value written as is, and
 	// MaxAge the seconds of a .cache duration; CacheOffset is the .cache
 	// line's. CacheControl resolves them.
@@ -155,6 +160,15 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf("usage: .wrap key, as in .wrap todos to respond {\"todos\": [...]}; got %q", key)}
 			}
 			r.Wrap, r.WrapOffset = key, off
+		case hasDirective(b, ".map"):
+			if r.Map != "" {
+				return nil, &Error{Offset: off, Msg: "only one .map line"}
+			}
+			fn := strings.TrimSpace(strings.TrimPrefix(l, ".map"))
+			if !identRE.MatchString(fn) {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf("usage: .map fn, naming a func of this package that turns a row into the response, as in .map todoCard; got %q", fn)}
+			}
+			r.Map, r.MapOffset = fn, off
 		case hasDirective(b, ".cache"):
 			if r.CacheOffset != 0 {
 				return nil, &Error{Offset: off, Msg: "only one .cache line"}

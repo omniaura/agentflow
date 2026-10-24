@@ -45,7 +45,7 @@ Each category has a `.af` replacement:
 | structured outputs | response-format schemas and the structs they decode into; the call that sends one, validates the answer and asks again | `.output`; for the call, an `.agent` with `.returns` and no tools, with the validation in `Check` |
 | tool-calling loops | a loop that calls a model, runs its tool calls and sends results back | `.agent` (+ `.returns`) |
 | prompt strings | long string constants with prompt text | `.title` prompts |
-| single-query handlers | decode request, call one sqlc query, write JSON | `.route` (+ `.sql`) |
+| single-query handlers | decode request, call one sqlc query, write JSON (or build it from the rows in Go) | `.route` (+ `.sql`; `.map` for the rows-to-JSON part) |
 | read-check-write handlers | call a sqlc read, check its result in Go, call a sqlc write | one `.route` + `.sql` holding the check, `.empty` for its failure (see below) |
 
 ### 2. Migrate one site at a time
@@ -81,8 +81,11 @@ old handler wrote, so clients don't break:
   If the old handler set a max-age, add `.cache` with it (`.cache 5m` sends `private,
   max-age=300`, or `public` on a `.public` route); for any other value, `.cache <value>`
   sends it as written.
-- **Computed fields** (URLs built in Go, redacted values): compute them in SQL, or keep the
-  handler.
+- **Computed fields** (URLs built in Go, renamed keys, redacted values): move the loop
+  body that builds each item into a func of the package, `func toCard(row db.X) Card`, and
+  add `.map toCard`. The route then responds with its result, for each row of a `:many`
+  query. Simple renames can be `AS` in the SQL instead. Keep the handler when building
+  the response needs the context, a service or another query.
 
 Pin the old shape with a test that decodes the response before switching.
 

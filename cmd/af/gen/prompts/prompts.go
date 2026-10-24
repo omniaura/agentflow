@@ -182,6 +182,9 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 		if err := checkSQLRoutes(name, ff, repo); err != nil {
 			return "", nil, err
 		}
+		if err := checkMapFuncs(name, ff); err != nil {
+			return "", nil, err
+		}
 		pinned := map[string]*sqlcgo.Package{}
 		if err := resolveSQLC(name, ff, repo, pinned); err != nil {
 			return "", nil, err

@@ -1,0 +1,9 @@
+.route GET /cards ListTodos
+.auth owner_id
+.map todoCard
+.wrap cards
+The caller's todos as board cards. Filter with ?done=true or ?done=false.
+
+.route GET /cards/{id} GetTodo
+.auth owner_id
+.map todoCard
