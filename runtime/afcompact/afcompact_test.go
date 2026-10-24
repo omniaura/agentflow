@@ -302,6 +302,15 @@ func TestDigest(t *testing.T) {
 	if _, err := afcompact.Digest(ctx, msgs, 8000, 3000, 1, failFirst); err == nil || calls != 1 {
 		t.Fatalf("after a failure: %v, %d calls", err, calls)
 	}
+	// Canceled midway: an error, never a digest with parts missing.
+	cctx, cancelRun := context.WithCancel(ctx)
+	cancelling := func(ctx context.Context, call afagent.ToolCall, part, parts int, chunk string) (string, error) {
+		cancelRun()
+		return "ok", nil
+	}
+	if out, err := afcompact.Digest(cctx, msgs, 8000, 3000, 1, cancelling); !errors.Is(err, context.Canceled) || out != nil {
+		t.Fatalf("canceled: %v, %v", err, out != nil)
+	}
 }
 
 // A short conversation with one huge result: the compactor condenses it

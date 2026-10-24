@@ -206,8 +206,10 @@ func Digest(ctx context.Context, msgs []afagent.Message, over, chunk, concurrenc
 	for range min(max(1, concurrency), len(jobs)) {
 		wg.Go(func() {
 			for j := range queue {
-				if ctx.Err() != nil {
-					// Failed or canceled: drain without calling.
+				if err := ctx.Err(); err != nil {
+					// Failed or canceled: drain without calling, and make
+					// sure a cancellation is the result.
+					fail(err)
 					continue
 				}
 				out, err := summarize(ctx, calls[msgs[j.msg].ToolCallID], j.part+1, len(parts[j.msg]), j.text)
@@ -238,6 +240,10 @@ feed:
 	wg.Wait()
 	if failed != nil {
 		return nil, failed
+	}
+	// Canceled after the last chunk was taken: never a partial digest.
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	out := append([]afagent.Message(nil), msgs...)
 	for i, ps := range parts {
