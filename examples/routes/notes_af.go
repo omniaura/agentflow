@@ -87,7 +87,7 @@ func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 
 // ListNotes serves GET /notes with the ListNotes query.
 //
-// Lists the caller's notes, pinned first.
+// Lists the caller's notes, pinned first, as {"notes": [...]}.
 func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
 		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
@@ -108,7 +108,7 @@ func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []db.Note{}
 	}
-	afhttp.WriteJSON(w, r, http.StatusOK, rows)
+	afhttp.WriteJSON(w, r, http.StatusOK, map[string]any{"notes": rows})
 }
 
 // UpdateNote serves PATCH /notes/{id} with the UpdateNote query.

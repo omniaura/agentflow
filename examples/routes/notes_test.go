@@ -2,6 +2,7 @@ package routes
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -102,5 +103,16 @@ func TestNoteRoutes(t *testing.T) {
 	list := do("GET", "/notes", "ann", "", 200)
 	if i, j := strings.Index(list, `"body":"second"`), strings.Index(list, `"body":"edited"`); i < 0 || j < 0 || i > j || strings.Contains(list, "bob") {
 		t.Fatalf("list = %s", list)
+	}
+	// .wrap notes: the list is the notes field of an object.
+	var wrapped struct {
+		Notes []db.Note `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(list), &wrapped); err != nil || len(wrapped.Notes) != 2 || !strings.HasPrefix(list, `{"notes":[`) {
+		t.Fatalf("list = %s (%v)", list, err)
+	}
+	// No notes is an empty list, not null.
+	if empty := do("GET", "/notes", "cat", "", 200); strings.TrimSpace(empty) != `{"notes":[]}` {
+		t.Fatalf("no notes = %s", empty)
 	}
 }

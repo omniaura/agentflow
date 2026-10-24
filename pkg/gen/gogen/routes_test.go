@@ -113,3 +113,30 @@ func TestGenRoutesEmpty(t *testing.T) {
 		}
 	}
 }
+
+func TestGenRoutesWrap(t *testing.T) {
+	code, err := genRoutesFile(t, ".route GET /a ListTodos\n.auth owner_id\n.wrap todos\n\n.route GET /a/{id} GetTodo\n.auth owner_id\n.wrap todo\n\n.route GET /c CountTodos\n.public\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`afhttp.WriteJSON(w, r, http.StatusOK, map[string]any{"todos": rows})`,
+		`afhttp.WriteJSON(w, r, http.StatusOK, map[string]any{"todo": row})`,
+		// No .wrap: the bare result.
+		`afhttp.WriteJSON(w, r, http.StatusOK, row)`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// An empty list is still [], not null, inside the object.
+	if !strings.Contains(code, "if rows == nil {\n\t\trows = []db.Todo{}") {
+		t.Error("the empty list is not []")
+	}
+	src := ".route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n.wrap result\n"
+	_, err = genRoutesFile(t, src)
+	var re *RouteError
+	if !errors.As(err, &re) || !strings.Contains(err.Error(), ".wrap puts a :one or :many result in an object") || src[re.Offset:re.Offset+5] != ".wrap" {
+		t.Errorf("wrap on :execrows: %v", err)
+	}
+}

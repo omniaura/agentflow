@@ -364,3 +364,17 @@ func TestRouteEmptyHoverAndCompletion(t *testing.T) {
 		t.Errorf("route completions: %v", labels)
 	}
 }
+
+func TestRouteWrapHover(t *testing.T) {
+	path, err := filepath.Abs("../../examples/routes/notes.af")
+	require.NoError(t, err)
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	doc := openAt(t, path, string(src))
+	if hover := doc.SectionHover(at(t, doc, "ListNotes", 0)); !strings.Contains(hover, "Responds `{\"notes\": ...}`.") {
+		t.Errorf("hover:\n%s", hover)
+	}
+	if hover := doc.SectionHover(at(t, doc, "CreateNote", 0)); strings.Contains(hover, "Responds `{") {
+		t.Errorf("hover of a route without .wrap:\n%s", hover)
+	}
+}

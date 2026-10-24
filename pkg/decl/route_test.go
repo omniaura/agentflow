@@ -54,6 +54,11 @@ func TestParseRouteErrors(t *testing.T) {
 		{"empty blank", ".route GET /x Q\n.empty\n", "usage: .empty"},
 		{"empty 5xx", ".route GET /x Q\n.empty 503 down\n", `.empty needs a 4xx status, got "503"`},
 		{"empty twice", ".route GET /x Q\n.empty a\n.empty b\n", "only one .empty line"},
+		{"wrap blank", ".route GET /x Q\n.wrap\n", "usage: .wrap key"},
+		{"wrap two words", ".route GET /x Q\n.wrap the todos\n", `got "the todos"`},
+		{"wrap dash", ".route GET /x Q\n.wrap my-todos\n", "usage: .wrap key"},
+		{"wrap twice", ".route GET /x Q\n.wrap a\n.wrap b\n", "only one .wrap line"},
+		{"wrap after sql", ".route GET /x Q\n.sql :many\nSELECT 1\n.wrap rows\n", ".wrap must come before .sql"},
 		{"empty after sql", ".route GET /x Q\n.sql :one\nSELECT 1\n.empty gone\n", ".empty must come before .sql"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -103,5 +108,16 @@ func TestParseRouteEmpty(t *testing.T) {
 		if e == nil || e.Status != tt.status || e.Msg != tt.msg || e.Offset != len(".route GET /x Q\n") {
 			t.Errorf("%s: got %+v", tt.line, e)
 		}
+	}
+}
+
+func TestParseRouteWrap(t *testing.T) {
+	f, err := Parse([]byte(".route GET /todos ListTodos\n.wrap todos\nLists todos.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := f.Routes[0]
+	if r.Wrap != "todos" || r.WrapOffset != len(".route GET /todos ListTodos\n") || r.Description != "Lists todos." {
+		t.Fatalf("got %q at %d, description %q", r.Wrap, r.WrapOffset, r.Description)
 	}
 }

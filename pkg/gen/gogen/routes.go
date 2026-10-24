@@ -79,6 +79,9 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		if uses[b.q.Name] > 1 {
 			b.handler += camel(strings.ToLower(b.r.Method))
 		}
+		if b.r.Wrap != "" && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
+			return &RouteError{Offset: b.r.WrapOffset, Err: fmt.Errorf(".wrap puts a :one or :many result in an object; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
+		}
 		if e := b.r.Empty; e != nil {
 			if b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.ExecRows {
 				return &RouteError{Offset: e.Offset, Err: fmt.Errorf(".empty applies to a :one query that finds no row or an :execrows query that changes none; query %s is %s", b.q.Name, b.q.Kind)}
@@ -164,6 +167,15 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		writeHandler(buf, name, b, imports)
 	}
 	return nil
+}
+
+// wrap is the value a route responds with: v, or an object holding v
+// under the route's .wrap key.
+func (b *boundRoute) wrap(v string) string {
+	if b.r.Wrap == "" {
+		return v
+	}
+	return fmt.Sprintf("map[string]any{%s: %s}", strconv.Quote(b.r.Wrap), v)
 }
 
 // emptyErr is the errs factory for a query that finds no row or changes
@@ -364,12 +376,12 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		fmt.Fprintf(buf, "row, err := %s\n", call)
 		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, %s.New(r.Context()).AddError(err))\nreturn\n}\n", expr, b.emptyErr())
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
-		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, row)\n", status("http.StatusOK"))
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), b.wrap("row"))
 	case sqlcgo.Many:
 		fmt.Fprintf(buf, "rows, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		fmt.Fprintf(buf, "if rows == nil {\nrows = []%s{}\n}\n", q.Result.Expr)
-		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, rows)\n", status("http.StatusOK"))
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), b.wrap("rows"))
 	case sqlcgo.ExecRows:
 		fmt.Fprintf(buf, "n, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")

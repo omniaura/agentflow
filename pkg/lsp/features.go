@@ -563,6 +563,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".status", "success status code")
 		add(".maxbytes", "cap the request body")
 		add(".empty", "the error when the query finds no row: .empty [4xx] message (default 404)")
+		add(".wrap", "respond with the result in an object: .wrap todos for {\"todos\": [...]}")
 		add(".sql", "write the query here: .sql :one|:many|:exec|:execrows, then the SQL")
 	}
 	add(".title", "start a prompt")
@@ -644,6 +645,9 @@ func (d *Document) SectionHover(pos Position) string {
 		}
 		if !s.Public {
 			b.WriteString("\nRequires authentication.\n")
+		}
+		if s.Wrap != "" && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many) {
+			fmt.Fprintf(&b, "\nResponds `{%q: ...}`.\n", s.Wrap)
 		}
 		if e := s.Empty; e != nil && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.ExecRows) {
 			fmt.Fprintf(&b, "\nNo row: %d %q.\n", e.Status, e.Msg)
