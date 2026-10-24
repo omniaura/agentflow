@@ -117,6 +117,7 @@ func inferParam(a sqlcgo.Field) (*decl.Param, error) {
 	case typ == "bool":
 		p.Type.Kind = decl.Bool
 	case p.Type.Array && typ != "string":
+		// A list of database types: say what the model sends.
 		return nil, fmt.Errorf("query argument %s has type %s; declare it with .param to say what the model sends", a.JSON, a.Type.Expr)
 	default:
 		// Strings, and database types that parse one, such as pgtype.UUID,
@@ -148,10 +149,22 @@ func goType(p *decl.Param) string {
 func convert(buf *bytes.Buffer, imports map[string]bool, p *decl.Param, a sqlcgo.Field, dst, src string) error {
 	from, to := goType(p), a.Type.Expr
 	if p.Type.Array {
-		if to != "[]"+from {
+		elem := strings.TrimPrefix(to, "[]")
+		switch {
+		case !strings.HasPrefix(to, "[]") || a.Type.Bytes:
+			return fmt.Errorf("parameter %s is a list, but query argument %s is %s", p.Name, a.JSON, to)
+		case elem == from:
+			fmt.Fprintf(buf, "%s = %s\n", dst, src)
+			return nil
+		}
+		// Convert element by element, checking each like a single value.
+		single := *p
+		single.Type.Array = false
+		fmt.Fprintf(buf, "%s = make(%s, len(%s))\nfor i, v := range %s {\n", dst, to, src, src)
+		if err := convert(buf, imports, &single, sqlcgo.Field{Name: a.Name, JSON: a.JSON, Type: sqlcgo.Type{Expr: elem}}, dst+"[i]", "v"); err != nil {
 			return fmt.Errorf("parameter %s is a list of %s, but query argument %s is %s", p.Name, from, a.JSON, to)
 		}
-		fmt.Fprintf(buf, "%s = %s\n", dst, src)
+		buf.WriteString("}\n")
 		return nil
 	}
 	parse := func(s string) {
@@ -165,8 +178,13 @@ func convert(buf *bytes.Buffer, imports map[string]bool, p *decl.Param, a sqlcgo
 		fmt.Fprintf(buf, "%s = %s\n", dst, src)
 	case from == "json.RawMessage" && a.Type.Bytes:
 		fmt.Fprintf(buf, "%s = []byte(%s)\n", dst, src)
-	case from == "int" && to == "int64", from == "float64" && to == "float32":
+	case from == "int" && to == "int64":
 		fmt.Fprintf(buf, "%s = %s(%s)\n", dst, to, src)
+	case from == "float64" && to == "float32":
+		// Parse, which rejects values float32 can't hold instead of
+		// turning them into infinity.
+		imports["strconv"] = true
+		parse(fmt.Sprintf("strconv.FormatFloat(%s, 'g', -1, 64)", src))
 	case from == "int" && slices.Contains(intTypes, to):
 		// Narrower integers: parse, which checks the range.
 		imports["strconv"] = true

@@ -48,6 +48,19 @@ func sqlQueries(f ast.File) []sqlQuery {
 	return qs
 }
 
+// duplicateQuery reports a query name f's routes and tools use twice,
+// which sqlc would reject, at the second one's .sql line.
+func duplicateQuery(f ast.File) error {
+	seen := map[string]bool{}
+	for _, q := range sqlQueries(f) {
+		if seen[q.name] {
+			return &gogen.RouteError{Offset: q.offset, Err: fmt.Errorf("query %s is written twice in %s.af; tool queries are named after the tool plus Tool, so rename the tool or the route's query", q.name, f.Name)}
+		}
+		seen[q.name] = true
+	}
+	return nil
+}
+
 // RenderSQL returns the sqlc queries file for f: one query per route or
 // tool that writes its SQL with .sql. It returns nil when none does.
 func RenderSQL(f ast.File) []byte {
@@ -89,6 +102,9 @@ func sqlPackage(name string, repo *sqlcgo.Repo) (*sqlcgo.Package, error) {
 // checkSQLRoutes reports routes and tools whose inline queries sqlc cannot
 // see or has not generated yet, at their .sql line.
 func checkSQLRoutes(name string, f ast.File, repo *sqlcgo.Repo) error {
+	if err := duplicateQuery(f); err != nil {
+		return err
+	}
 	var pkg *sqlcgo.Package
 	for _, sq := range sqlQueries(f) {
 		if pkg == nil {
@@ -120,7 +136,8 @@ func generateSQL(files []string, out io.Writer) error {
 			continue
 		}
 		f, err := ast.NewFile(filepath.Base(name), src)
-		if err != nil {
+		if err != nil || duplicateQuery(f) != nil {
+			// The Go pass reports it, at the line.
 			continue
 		}
 		sql := RenderSQL(f)

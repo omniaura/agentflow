@@ -7,19 +7,17 @@ package db
 
 import (
 	"context"
-
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const findNotesTool = `-- name: FindNotesTool :many
 SELECT id, body, pinned FROM notes
-WHERE owner_id = $1 AND body ILIKE '%' || $2 || '%'
+WHERE owner_id = $1 AND strpos(lower(body), lower($2)) > 0
 ORDER BY id
 `
 
 type FindNotesToolParams struct {
-	OwnerID string      `json:"ownerId"`
-	Text    pgtype.Text `json:"text"`
+	OwnerID string `json:"ownerId"`
+	Text    string `json:"text"`
 }
 
 type FindNotesToolRow struct {
@@ -93,6 +91,24 @@ type PinNoteToolParams struct {
 
 func (q *Queries) PinNoteTool(ctx context.Context, arg PinNoteToolParams) (int64, error) {
 	result, err := q.db.Exec(ctx, pinNoteTool, arg.NoteID, arg.OwnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const unpinNotesTool = `-- name: UnpinNotesTool :execrows
+UPDATE notes SET pinned = false
+WHERE id = ANY($1::bigint[]) AND owner_id = $2
+`
+
+type UnpinNotesToolParams struct {
+	NoteIds []int64 `json:"noteIds"`
+	OwnerID string  `json:"ownerId"`
+}
+
+func (q *Queries) UnpinNotesTool(ctx context.Context, arg UnpinNotesToolParams) (int64, error) {
+	result, err := q.db.Exec(ctx, unpinNotesTool, arg.NoteIds, arg.OwnerID)
 	if err != nil {
 		return 0, err
 	}

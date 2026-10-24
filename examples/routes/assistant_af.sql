@@ -7,8 +7,12 @@ ORDER BY pinned DESC, id;
 
 -- name: FindNotesTool :many
 SELECT id, body, pinned FROM notes
-WHERE owner_id = @owner_id AND body ILIKE '%' || @text || '%'
+WHERE owner_id = @owner_id AND strpos(lower(body), lower(@text)) > 0
 ORDER BY id;
 
 -- name: PinNoteTool :execrows
 UPDATE notes SET pinned = true WHERE id = @note_id AND owner_id = @owner_id;
+
+-- name: UnpinNotesTool :execrows
+UPDATE notes SET pinned = false
+WHERE id = ANY(@note_ids::bigint[]) AND owner_id = @owner_id;

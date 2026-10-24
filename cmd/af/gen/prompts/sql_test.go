@@ -53,6 +53,8 @@ func TestRenderChecksInlineSQL(t *testing.T) {
 		{"not generated yet", "api/api_af.sql", ".route GET /x/{id} GetY\n.sql :one\nSELECT 1\n", "sqlc has not generated query GetY from api_af.sql yet"},
 		{"stale kind", "api/api_af.sql", ".route GET /x/{id} GetX\n.sql :many\nSELECT 1\n", "sqlc generated GetX as :one, not :many"},
 		{"ok", "api", ".route GET /x/{id} GetX\n.public\n.sql :one\nSELECT 1\n", ""},
+		// A route query named like a tool's: reported at the second .sql.
+		{"duplicate", "api", ".route GET /x/{id} GetXTool\n.sql :one\nSELECT 1\n\n.tool get_x\nGets x.\n.sql :one\nSELECT 1\n", "query GetXTool is written twice in api.af"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root := writeModule(t, tt.queries)
@@ -69,7 +71,11 @@ func TestRenderChecksInlineSQL(t *testing.T) {
 				t.Fatalf("got %v, want %q", err, tt.msg)
 			}
 			// The error points at the .sql line.
-			if msgs := Diagnose(name, []byte(tt.src), err); !strings.Contains(msgs[0], "api.af:2:1:") {
+			line := "api.af:2:1:"
+			if tt.name == "duplicate" {
+				line = "api.af:7:1:"
+			}
+			if msgs := Diagnose(name, []byte(tt.src), err); !strings.Contains(msgs[0], line) {
 				t.Fatalf("diagnostic %q", msgs[0])
 			}
 		})

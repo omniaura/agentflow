@@ -62,12 +62,29 @@ var PinNoteTool = &aftool.Def[PinNoteArgs]{
 	}},
 }
 
+// UnpinNotesArgs are the arguments of the unpin_notes tool.
+type UnpinNotesArgs struct {
+	NoteIds []int `json:"note_ids"`
+}
+
+// UnpinNotesTool is the unpin_notes tool. Its Decode method checks and decodes the
+// arguments of a call into UnpinNotesArgs.
+var UnpinNotesTool = &aftool.Def[UnpinNotesArgs]{
+	Name:        "unpin_notes",
+	Description: `Unpins some of the caller's notes.`,
+	Schema:      []byte(`{"type":"object","properties":{"note_ids":{"type":"array","items":{"type":"integer"}}},"required":["note_ids"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "note_ids", Required: true, Shape: aftool.Shape{Kind: aftool.Array, Items: &aftool.Shape{Kind: aftool.Integer}}},
+	}},
+}
+
 // AssistantToolQueries are the sqlc queries the tools in assistant.af that are
 // written in SQL run. The generated *Queries satisfies it.
 type AssistantToolQueries interface {
 	ListNotesTool(ctx context.Context, arg string) ([]db.ListNotesToolRow, error)
 	FindNotesTool(ctx context.Context, arg db.FindNotesToolParams) ([]db.FindNotesToolRow, error)
 	PinNoteTool(ctx context.Context, arg db.PinNoteToolParams) (int64, error)
+	UnpinNotesTool(ctx context.Context, arg db.UnpinNotesToolParams) (int64, error)
 }
 
 // AssistantSQLTools runs the tools in assistant.af that are written in SQL. Embed
@@ -113,9 +130,7 @@ func (t *AssistantSQLTools) FindNotes(ctx context.Context, args FindNotesArgs) (
 	}
 	var arg db.FindNotesToolParams
 	arg.OwnerID = caller.OwnerID
-	if err := afhttp.Parse("text", args.Text, &arg.Text); err != nil {
-		return "", err
-	}
+	arg.Text = args.Text
 	rows, err := t.Queries.FindNotesTool(ctx, arg)
 	if err != nil {
 		return "", &aftool.Error{Msg: "internal error", Err: err}
@@ -149,6 +164,31 @@ func (t *AssistantSQLTools) PinNote(ctx context.Context, args PinNoteArgs) (stri
 	return fmt.Sprintf(`{"rows_affected":%d}`, n), nil
 }
 
+// UnpinNotes runs the unpin_notes tool: query UnpinNotesTool.
+func (t *AssistantSQLTools) UnpinNotes(ctx context.Context, args UnpinNotesArgs) (string, error) {
+	if t.Caller == nil {
+		return "", &aftool.Error{Msg: "internal error", Err: errors.New("AssistantSQLTools.Caller is not set")}
+	}
+	caller, err := t.Caller(ctx)
+	if err != nil {
+		return "", &aftool.Error{Msg: "unauthorized", Err: err}
+	}
+	var arg db.UnpinNotesToolParams
+	arg.NoteIds = make([]int64, len(args.NoteIds))
+	for i, v := range args.NoteIds {
+		arg.NoteIds[i] = int64(v)
+	}
+	arg.OwnerID = caller.OwnerID
+	n, err := t.Queries.UnpinNotesTool(ctx, arg)
+	if err != nil {
+		return "", &aftool.Error{Msg: "internal error", Err: err}
+	}
+	if n == 0 {
+		return "", &aftool.Error{Msg: "not found"}
+	}
+	return fmt.Sprintf(`{"rows_affected":%d}`, n), nil
+}
+
 // NotesTools runs the tools of the notes agent. Each method gets the call's
 // decoded arguments; its result or error goes back to the model.
 type NotesTools interface {
@@ -158,6 +198,8 @@ type NotesTools interface {
 	FindNotes(ctx context.Context, args FindNotesArgs) (string, error)
 	// PinNote: Pins one of the caller's notes.
 	PinNote(ctx context.Context, args PinNoteArgs) (string, error)
+	// UnpinNotes: Unpins some of the caller's notes.
+	UnpinNotes(ctx context.Context, args UnpinNotesArgs) (string, error)
 }
 
 // NotesAgent is the notes agent.
@@ -180,6 +222,7 @@ var NotesAgentTools = []afagent.ToolSpec{
 	{Name: ListNotesTool.Name, Description: ListNotesTool.Description, Schema: ListNotesTool.Schema},
 	{Name: FindNotesTool.Name, Description: FindNotesTool.Description, Schema: FindNotesTool.Schema},
 	{Name: PinNoteTool.Name, Description: PinNoteTool.Description, Schema: PinNoteTool.Schema},
+	{Name: UnpinNotesTool.Name, Description: UnpinNotesTool.Description, Schema: UnpinNotesTool.Schema},
 }
 
 // Run continues the conversation in messages until the model answers
@@ -221,6 +264,12 @@ func (a *NotesAgent) dispatch(ctx context.Context, call afagent.ToolCall) (strin
 			return "", err
 		}
 		return a.Tools.PinNote(ctx, args)
+	case UnpinNotesTool.Name:
+		args, err := UnpinNotesTool.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		return a.Tools.UnpinNotes(ctx, args)
 	}
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
 }

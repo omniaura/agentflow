@@ -7,11 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/omniaura/agentflow/examples/routes/db"
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -24,29 +21,17 @@ type callerKey struct{}
 // test runs them against Postgres, through the agent's HTTP endpoint, with
 // a scripted model.
 func TestNotesAssistant(t *testing.T) {
-	url := os.Getenv("AF_TEST_DATABASE_URL")
-	if url == "" {
+	pool := testPool(t)
+	if pool == nil {
 		t.Skip("set AF_TEST_DATABASE_URL to run the SQL tools against Postgres")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(pool.Close)
-	schema, err := os.ReadFile("db/schema.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS todos, notes; "+string(schema)); err != nil {
-		t.Fatal(err)
-	}
 	q := db.New(pool)
 	var milk, secret db.Note
 	for _, n := range []struct {
 		owner, body string
 		into        *db.Note
-	}{{"alice", "buy milk", &milk}, {"alice", "call bob", nil}, {"mallory", "secret plans", &secret}} {
+	}{{"alice", "buy milk", &milk}, {"alice", "call bob", nil}, {"alice", "50% off", nil}, {"mallory", "secret plans", &secret}} {
 		note, err := q.CreateNote(ctx, db.CreateNoteParams{OwnerID: n.owner, Body: n.body})
 		if err != nil {
 			t.Fatal(err)
@@ -63,6 +48,11 @@ func TestNotesAssistant(t *testing.T) {
 		{ToolCalls: []afagent.ToolCall{
 			{ID: "2", Name: "pin_note", Arguments: fmt.Sprintf(`{"note_id":%d}`, milk.ID)},
 			{ID: "3", Name: "pin_note", Arguments: fmt.Sprintf(`{"note_id":%d}`, secret.ID)},
+		}},
+		{ToolCalls: []afagent.ToolCall{
+			// % is text, not a wildcard: only "50% off" matches.
+			{ID: "4", Name: "find_notes", Arguments: `{"text":"0%"}`},
+			{ID: "5", Name: "unpin_notes", Arguments: fmt.Sprintf(`{"note_ids":[%d,%d]}`, milk.ID, secret.ID)},
 		}},
 		{Content: "Pinned \"buy milk\"."},
 	}
@@ -109,6 +99,12 @@ func TestNotesAssistant(t *testing.T) {
 		t.Errorf("pin_note schema = %s", PinNoteTool.Schema)
 	}
 
+	// The last turn saw the wildcard search and the unpin: only alice's
+	// note changed, and the id list was converted to bigint[].
+	last := reqs[3].Messages
+	if wild, unpinned := last[7], last[8]; !strings.Contains(wild.Content, "50% off") || strings.Contains(wild.Content, "milk") || unpinned.Content != `{"rows_affected":1}` {
+		t.Errorf("find 0%% = %q, unpin = %+v", wild.Content, unpinned)
+	}
 	msgs := reqs[2].Messages
 	found, pinned, denied := msgs[2], msgs[4], msgs[5]
 	var rows []db.FindNotesToolRow
@@ -125,7 +121,7 @@ func TestNotesAssistant(t *testing.T) {
 	for _, n := range []struct {
 		id   int64
 		want bool
-	}{{milk.ID, true}, {secret.ID, false}} {
+	}{{milk.ID, false}, {secret.ID, false}} {
 		var got bool
 		if err := pool.QueryRow(ctx, "SELECT pinned FROM notes WHERE id = $1", n.id).Scan(&got); err != nil || got != n.want {
 			t.Errorf("note %d pinned = %v (%v), want %v", n.id, got, err, n.want)
@@ -158,5 +154,8 @@ func (failingQueries) FindNotesTool(context.Context, db.FindNotesToolParams) ([]
 	return nil, errors.New("dial tcp: connection refused")
 }
 func (failingQueries) PinNoteTool(context.Context, db.PinNoteToolParams) (int64, error) {
+	return 0, errors.New("dial tcp: connection refused")
+}
+func (failingQueries) UnpinNotesTool(context.Context, db.UnpinNotesToolParams) (int64, error) {
 	return 0, errors.New("dial tcp: connection refused")
 }

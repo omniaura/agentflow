@@ -287,7 +287,7 @@ Finds the caller's notes that contain the text.
 
 .sql :many
 SELECT id, body, pinned FROM notes
-WHERE owner_id = @owner_id AND body ILIKE '%' || @text || '%'
+WHERE owner_id = @owner_id AND strpos(lower(body), lower(@text)) > 0
 ```
 
 `af gen` hands the query to sqlc as `FindNotesTool`, so a sqlc config must read the file's `_af.sql`. It then generates the tool from sqlc's output:

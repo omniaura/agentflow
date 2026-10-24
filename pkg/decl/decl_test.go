@@ -190,6 +190,9 @@ func TestParseSQLTool(t *testing.T) {
 		{".tool t\n.param owner_id\n.auth owner_id\nDoes t.\n.sql :one\nSELECT 1\n", "owner_id comes from the caller (.auth)"},
 		{".tool t\nDoes t.\n.sql :batchone\nSELECT 1\n", ".sql needs the query's sqlc command"},
 		{".tool t\nDoes t.\n.sql :one\n", "write the query on the lines after .sql"},
+		{".tool t\nDoes t.\n.sql :one\nSELECT 1\n.auth owner_id\n", ".auth must come before .sql"},
+		{".tool t\nDoes t.\n.sql :one\nSELECT @x\n.param x int\n", ".param must come before .sql"},
+		{".route GET /a A\n.sql :one\nSELECT 1\n.public\n", ".public must come before .sql"},
 	} {
 		if _, err := Parse([]byte(tt.src)); err == nil || !strings.Contains(err.Error(), tt.msg) {
 			t.Errorf("%q: got %v, want %q", tt.src, err, tt.msg)

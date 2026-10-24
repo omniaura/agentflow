@@ -274,10 +274,11 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".sql needs the query's sqlc command, one of %s; got %q", strings.Join(SQLKinds, ", "), kind)}
 			}
 			t.SQLKind, t.SQLOffset = kind, off
-			t.SQL = strings.TrimSpace(string(src[i:end]))
-			if t.SQL == "" {
-				return nil, &Error{Offset: off, Msg: "write the query on the lines after .sql"}
+			sql, err := sqlBody(src, i, end, ToolDirectives)
+			if err != nil {
+				return nil, err
 			}
+			t.SQL = sql
 			i = end
 		case !t.Output && hasDirective([]byte(l), ".auth"):
 			for _, name := range strings.FieldsFunc(strings.TrimPrefix(l, ".auth"), func(r rune) bool { return r == ' ' || r == '\t' || r == ',' }) {
@@ -598,4 +599,29 @@ func parseType(s string) (Type, error) {
 		return t, fmt.Errorf("unknown parameter type %q; want string, int, float, bool, enum(a,b), object, any, or [] of one", s)
 	}
 	return t, nil
+}
+
+// sqlBody returns the query that follows a .sql line: the rest of the
+// section, src[start:end]. A section directive in it was meant to come
+// before .sql, so it is an error rather than SQL.
+func sqlBody(src []byte, start, end int, directives []string) (string, error) {
+	for i := start; i < end; {
+		off := i
+		var l string
+		l, i = line(src, i, end)
+		for _, d := range directives {
+			switch {
+			case !hasDirective([]byte(l), d):
+			case d == ".sql":
+				return "", &Error{Offset: off, Msg: "a section has one query: only one .sql line"}
+			default:
+				return "", &Error{Offset: off, Msg: fmt.Sprintf("%s must come before .sql: the lines after .sql are the query", d)}
+			}
+		}
+	}
+	sql := strings.TrimSpace(string(src[start:end]))
+	if sql == "" {
+		return "", &Error{Offset: start, Msg: "write the query on the lines after .sql"}
+	}
+	return sql, nil
 }
