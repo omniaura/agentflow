@@ -135,6 +135,48 @@ func TestDefinitionGenerated(t *testing.T) {
 	}
 }
 
+func TestDefinitionSQLC(t *testing.T) {
+	path, err := filepath.Abs("../../examples/routes/todo_tools.af")
+	require.NoError(t, err)
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	doc := openAt(t, path, string(src))
+	for _, tt := range []struct {
+		at, file, line string
+	}{
+		// A file and a query: the query's line in the file.
+		{"SetTodoDone", "/examples/routes/db/queries.sql", "-- name: SetTodoDone :execrows"},
+		// A file alone: its only query.
+		{"db/search.sql", "/examples/routes/db/search.sql", "-- name: SearchTodos :many"},
+		// A query alone: the method sqlc generated, like a route's query.
+		{"ListTodos", "/examples/routes/db/queries.sql.go", "func (q *Queries) ListTodos("},
+	} {
+		loc := doc.Definition(at(t, doc, tt.at, 0))
+		if len(loc) != 1 || !strings.HasSuffix(loc[0].URI, tt.file) {
+			t.Fatalf("%s -> %+v", tt.at, loc)
+		}
+		b, _ := os.ReadFile(strings.TrimPrefix(loc[0].URI, "file://"))
+		if line := strings.Split(string(b), "\n")[loc[0].Range.Start.Line]; !strings.HasPrefix(line, tt.line) {
+			t.Errorf("%s: line %d is %q", tt.at, loc[0].Range.Start.Line, line)
+		}
+	}
+}
+
+func TestDefinitionSQLCNoMatch(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "q.sql"), []byte("-- name: A :one\nSELECT 1;\n\n-- name: B :one\nSELECT 2;\n"), 0o644))
+	src := ".tool pick\nPicks.\n.sqlc q.sql\n\n.tool missing\nMisses.\n.sqlc q.sql C\n"
+	doc := openAt(t, filepath.Join(dir, "x.af"), src)
+	// Several queries and none named after the tool, or a query the file
+	// lacks: the file, at the top.
+	for _, line := range []int{2, 6} {
+		loc := doc.Definition(Position{Line: line, Character: 7})
+		if len(loc) != 1 || !strings.HasSuffix(loc[0].URI, "/q.sql") || loc[0].Range.Start.Line != 0 {
+			t.Errorf("line %d -> %+v", line, loc)
+		}
+	}
+}
+
 func TestDefinitionRouteQuery(t *testing.T) {
 	path, err := filepath.Abs("../../examples/routes/todos.af")
 	require.NoError(t, err)

@@ -143,6 +143,13 @@ UPDATE notes SET pinned = true WHERE id = @note_id AND owner_id = @owner_id
   an agent's tools type, or pass it as the tools when every tool is SQL.
 - **Results:** rows come back to the model as JSON. No row is `not found`, and a database
   failure is `internal error`, with the cause kept for logs.
+- **A query already in a sqlc query file:** link it instead of copying it. Use
+  `.sqlc db/queries.sql SetTodoDone`, or `.sqlc db/search.sql` for the file's only query (or
+  the one named after the tool), or `.sqlc ListTodos` for any generated query. The path is
+  relative to the `.af` file. A sqlc config must read the file, and you run `sqlc generate`
+  after changing it. Use `.sql` or `.sqlc`, not both.
+- Nullable arguments (`sqlc.narg('done')`) become optional parameters, which stay NULL when
+  left out.
 
 ### Structured outputs
 

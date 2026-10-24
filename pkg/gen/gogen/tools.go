@@ -79,10 +79,19 @@ func writeEnumConsts(buf *bytes.Buffer, prefix, tool string, params []*decl.Para
 	}
 }
 
-// ToolQuery is the name of the sqlc query a tool written in SQL runs:
-// lookup_order runs LookupOrderTool. The suffix keeps it apart from a
-// route's query of the same name, as sqlc queries share one namespace.
-func ToolQuery(t *decl.Tool) string { return camel(t.Name) + "Tool" }
+// ToolQuery is the name of the sqlc query a tool runs: the query .sqlc
+// links, or for a query written after .sql, the tool's name in camel case
+// with a Tool suffix, so it never collides with a route's query.
+func ToolQuery(t *decl.Tool) string {
+	if t.SQLCQuery != "" {
+		return t.SQLCQuery
+	}
+	return camel(t.Name) + "Tool"
+}
+
+// Camel is the Go name generated for a tool, prompt or parameter name:
+// list_notes is ListNotes.
+func Camel(s string) string { return camel(s) }
 
 func camel(s string) string {
 	return string(bytcase.ToCamel([]byte(strings.ReplaceAll(s, "-", "_"))))

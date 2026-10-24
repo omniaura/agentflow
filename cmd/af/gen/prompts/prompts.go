@@ -168,21 +168,33 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 			return "", nil, err
 		}
 	}
-	if sqlTools := slices.ContainsFunc(ff.Tools, func(t *decl.Tool) bool { return t.SQL != "" }); len(ff.Routes) > 0 || sqlTools {
+	if sqlTools := slices.ContainsFunc(ff.Tools, (*decl.Tool).InSQL); len(ff.Routes) > 0 || sqlTools {
 		repo, err := sqlcgo.Find(filepath.Dir(name))
 		if err != nil {
 			off := 0
 			if len(ff.Routes) > 0 {
 				off = ff.Routes[0].QueryOffset
-			} else if q := sqlQueries(ff); len(q) > 0 {
-				off = q[0].offset
+			} else if i := slices.IndexFunc(ff.Tools, (*decl.Tool).InSQL); i >= 0 {
+				off = ff.Tools[i].SQLOffset
 			}
 			return "", nil, &gogen.RouteError{Offset: off, Err: err}
 		}
 		if err := checkSQLRoutes(name, ff, repo); err != nil {
 			return "", nil, err
 		}
-		opts.Queries = repo.Lookup
+		pinned := map[string]*sqlcgo.Package{}
+		if err := resolveSQLC(name, ff, repo, pinned); err != nil {
+			return "", nil, err
+		}
+		opts.Queries = func(query string) (*sqlcgo.Package, *sqlcgo.Query, error) {
+			// A .sqlc file's query comes from the package that reads the
+			// file, even if another package has the same name.
+			if p, ok := pinned[query]; ok {
+				_, short, _ := strings.Cut(query, ".")
+				return p, p.Queries[short], nil
+			}
+			return repo.Lookup(query)
+		}
 	}
 	var buf bytes.Buffer
 	if err := gogen.GenFileOptions(&buf, ff, packageDir(name), opts); err != nil {

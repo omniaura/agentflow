@@ -31,15 +31,23 @@ func bindSQLTools(f ast.File, opts Options) ([]*decl.Tool, []*sqlTool, error) {
 	tools := slices.Clone(f.Tools)
 	var bound []*sqlTool
 	for i, t := range tools {
-		if t.SQL == "" {
+		if !t.InSQL() {
 			continue
 		}
 		if opts.Queries == nil {
 			return nil, nil, &DeclError{Offset: t.SQLOffset, Err: fmt.Errorf("tools written in SQL need a sqlc config (sqlc.yaml) in the module")}
 		}
+		if t.SQL == "" && t.SQLCQuery == "" {
+			// af gen names the query of a .sqlc file before generating.
+			return nil, nil, &DeclError{Offset: t.SQLOffset, Err: fmt.Errorf(".sqlc %s: name the query to run", t.SQLCFile)}
+		}
 		pkg, q, err := opts.Queries(ToolQuery(t))
 		if err != nil {
 			return nil, nil, &DeclError{Offset: t.SQLOffset, Err: err}
+		}
+		if len(bound) > 0 && bound[0].pkg.ImportPath != pkg.ImportPath {
+			// One Queries value runs every tool in the file.
+			return nil, nil, &DeclError{Offset: t.SQLOffset, Err: fmt.Errorf("tool %s runs a query of sqlc package %s, but tool %s runs one of %s: the tools of a file share one package", t.Name, pkg.Name, bound[0].t.Name, bound[0].pkg.Name)}
 		}
 		clone := *t
 		clone.Params = slices.Clone(t.Params)
@@ -123,8 +131,23 @@ func inferParam(a sqlcgo.Field) (*decl.Param, error) {
 		// Strings, and database types that parse one, such as pgtype.UUID,
 		// time.Time and enums.
 		p.Type.Kind = decl.String
+		// A nullable argument, such as sqlc.narg('done'), may be left out:
+		// it stays NULL.
+		p.Optional = nullable(typ)
 	}
 	return p, nil
+}
+
+// nullable reports whether sqlc uses Go type typ only for values that may
+// be NULL: pgtype.Bool, not pgtype.UUID, which it uses for both. So are
+// pgtype.Date, pgtype.Timestamp and pgtype.Timestamptz: making them optional
+// would let the model leave out a NOT NULL argument.
+func nullable(typ string) bool {
+	switch typ {
+	case "pgtype.Bool", "pgtype.Text", "pgtype.Int2", "pgtype.Int4", "pgtype.Int8", "pgtype.Float4", "pgtype.Float8":
+		return true
+	}
+	return strings.HasPrefix(typ, "sql.Null")
 }
 
 // goType is the Go type of a tool parameter's field in its Args struct.
@@ -230,8 +253,14 @@ func genSQLTools(buf *bytes.Buffer, file string, tools []*sqlTool, imports map[s
 
 	fmt.Fprintf(buf, "// %sToolQueries are the sqlc queries the tools in %s.af that are\n// written in SQL run. The generated *Queries satisfies it.\n", name, file)
 	fmt.Fprintf(buf, "type %sToolQueries interface {\n", name)
+	declared := map[string]bool{}
 	for _, st := range tools {
 		q := st.q
+		if declared[q.Name] {
+			// Several tools may run one query.
+			continue
+		}
+		declared[q.Name] = true
 		buf.WriteString(q.Name + "(ctx context.Context")
 		if len(q.Args) > 0 {
 			if q.Params != "" {

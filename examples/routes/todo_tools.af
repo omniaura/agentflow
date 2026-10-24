@@ -1,0 +1,27 @@
+.title Todo Tools
+
+.tool get_todo
+.sqlc db/queries.sql GetTodo
+.auth owner_id
+
+Gets one of the caller's todos.
+
+.tool finish_todo
+.sqlc db/queries.sql SetTodoDone
+.auth owner_id
+
+Marks one of the caller's todos done or not done.
+
+.tool list_todos
+.sqlc ListTodos
+.auth owner_id
+.param done? "true" for done todos, "false" for open ones; leave it out for all.
+
+Lists the caller's todos.
+
+.tool search_todos
+.sqlc db/search.sql
+.auth owner_id
+.param text The words to look for in titles.
+
+Finds the caller's todos whose title contains the text.

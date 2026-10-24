@@ -99,6 +99,75 @@ func sqlPackage(name string, repo *sqlcgo.Repo) (*sqlcgo.Package, error) {
 	return nil, fmt.Errorf("no sqlc config reads %s: add it to the queries of %s", path, strings.Join(configs, " or "))
 }
 
+// resolveSQLC names the query each .sqlc file line links, checking that a
+// sqlc config reads the file and has generated the query, and pins it to
+// that package in pinned. A file's query is the one named on the line,
+// the file's only query, or the one named after the tool.
+func resolveSQLC(name string, f ast.File, repo *sqlcgo.Repo, pinned map[string]*sqlcgo.Package) error {
+	for _, t := range f.Tools {
+		if t.SQLCFile == "" {
+			continue
+		}
+		fail := func(format string, a ...any) error {
+			return &gogen.DeclError{Offset: t.SQLOffset, Err: fmt.Errorf(format, a...)}
+		}
+		path := t.SQLCFile
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(filepath.Dir(name), path)
+		}
+		src, err := os.ReadFile(path)
+		if err != nil {
+			return fail(".sqlc: %w", err)
+		}
+		decls := sqlcgo.QueryDecls(src)
+		if len(decls) == 0 {
+			return fail(".sqlc: %s declares no sqlc queries (-- name: ListNotes :many)", t.SQLCFile)
+		}
+		var names []string
+		for _, d := range decls {
+			names = append(names, d.Name)
+		}
+		var pkg *sqlcgo.Package
+		for _, p := range repo.Packages {
+			if p.ReadsQueryFile(path) {
+				pkg = p
+				break
+			}
+		}
+		if pkg == nil {
+			var configs []string
+			for _, p := range repo.Packages {
+				if !slices.Contains(configs, p.Config) {
+					configs = append(configs, p.Config)
+				}
+			}
+			return fail("no sqlc config reads %s: add it to the queries of %s", t.SQLCFile, strings.Join(configs, " or "))
+		}
+		query := t.SQLCQuery
+		switch {
+		case query != "":
+			if !slices.Contains(names, query) {
+				return fail(".sqlc: %s has no query %s; it has %s", t.SQLCFile, query, strings.Join(names, ", "))
+			}
+		case len(names) == 1:
+			query = names[0]
+		case slices.Contains(names, gogen.Camel(t.Name)):
+			query = gogen.Camel(t.Name)
+		default:
+			return fail(".sqlc: %s has several queries (%s): name one, as in .sqlc %s %s", t.SQLCFile, strings.Join(names, ", "), t.SQLCFile, names[0])
+		}
+		if _, ok := pkg.Queries[query]; !ok {
+			if pkg.LoadErr != nil {
+				return fail("%w", pkg.LoadErr)
+			}
+			return fail("sqlc has not generated query %s from %s yet: run sqlc generate, then af gen", query, t.SQLCFile)
+		}
+		t.SQLCQuery = pkg.Name + "." + query
+		pinned[t.SQLCQuery] = pkg
+	}
+	return nil
+}
+
 // checkSQLRoutes reports routes and tools whose inline queries sqlc cannot
 // see or has not generated yet, at their .sql line.
 func checkSQLRoutes(name string, f ast.File, repo *sqlcgo.Repo) error {

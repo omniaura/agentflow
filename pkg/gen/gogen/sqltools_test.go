@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/sqlcgo"
 )
@@ -120,5 +121,53 @@ func TestConvert(t *testing.T) {
 	}
 	if _, err := inferParam(field("[]pgtype.UUID")); err == nil {
 		t.Error("[]pgtype.UUID inferred")
+	}
+	// sqlc uses pgtype.Bool only for values that may be NULL, so the model
+	// may leave it out; pgtype.UUID is used for NOT NULL columns too.
+	for typ, optional := range map[string]bool{"pgtype.Bool": true, "pgtype.Int8": true, "sql.NullString": true, "pgtype.UUID": false, "string": false} {
+		if p, err := inferParam(field(typ)); err != nil || p.Optional != optional || p.Type.Kind != decl.String {
+			t.Errorf("%s: %+v, %v", typ, p, err)
+		}
+	}
+}
+
+// Tools that link queries with .sqlc run them like tools written in SQL.
+func TestSQLCTools(t *testing.T) {
+	code, err := genRoutesFile(t, ".title A\nHi.\n\n.tool get_todo\n.sqlc GetTodo\n.auth owner_id\nGets a todo.\n\n.tool peek_todo\n.sqlc db.GetTodo\n.auth owner_id\nPeeks at a todo.\n\n.tool list_todos\n.sqlc ListTodos\n.auth owner_id\nLists todos.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// Two tools share GetTodo: the interface declares it once.
+		"type ApiToolQueries interface {\n\tGetTodo(ctx context.Context, arg db.GetTodoParams) (db.Todo, error)\n\tListTodos(",
+		"func (t *ApiSQLTools) PeekTodo(ctx context.Context, args PeekTodoArgs) (string, error) {",
+		"row, err := t.Queries.GetTodo(ctx, arg)",
+		// sqlc.narg('done') is optional.
+		`ListTodosTool = &aftool.Def[ListTodosArgs]{`,
+		`"properties":{"done":{"type":"string"}},"additionalProperties":false}`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q\n%s", want, code)
+		}
+	}
+	// A .sqlc file that af gen hasn't resolved to a query is an error.
+	f, _ := ast.NewFile("api.af", []byte(".title A\nHi.\n\n.tool t\n.sqlc x.sql\nDoes t.\n"))
+	if err := GenFileOptions(&bytes.Buffer{}, f, "api", Options{Queries: func(string) (*sqlcgo.Package, *sqlcgo.Query, error) { return nil, nil, errors.New("unreachable") }}); err == nil || !strings.Contains(err.Error(), ".sqlc x.sql: name the query") {
+		t.Errorf("unresolved file: %v", err)
+	}
+}
+
+func TestSQLCToolsShareOnePackage(t *testing.T) {
+	pkgs := map[string]*sqlcgo.Package{
+		"a.Q": {Name: "a", ImportPath: "example.com/a", Queries: map[string]*sqlcgo.Query{"Q": {Name: "Q", Kind: sqlcgo.Exec}}},
+		"b.Q": {Name: "b", ImportPath: "example.com/b", Queries: map[string]*sqlcgo.Query{"Q": {Name: "Q", Kind: sqlcgo.Exec}}},
+	}
+	f, _ := ast.NewFile("api.af", []byte(".title A\nHi.\n\n.tool one\n.sqlc a.Q\nOne.\n\n.tool two\n.sqlc b.Q\nTwo.\n"))
+	err := GenFileOptions(&bytes.Buffer{}, f, "api", Options{Queries: func(name string) (*sqlcgo.Package, *sqlcgo.Query, error) {
+		p := pkgs[name]
+		return p, p.Queries["Q"], nil
+	}})
+	if err == nil || !strings.Contains(err.Error(), "tool two runs a query of sqlc package b, but tool one runs one of a") {
+		t.Errorf("got %v", err)
 	}
 }

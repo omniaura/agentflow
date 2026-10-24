@@ -213,6 +213,7 @@ func fileURI(path string) string {
 //     loop that binds it
 //   - a .title or .tool name: the Go type or variable generated for it
 //   - a .route query: the sqlc method that runs it
+//   - a .sqlc line: the query it links, in its .sql file
 func (d *Document) Definition(pos Position) []protocol.Location {
 	off := d.positionToOffset(pos)
 	if tok, ok := d.tokenAt(off, kind.VarName); ok {
@@ -222,12 +223,14 @@ func (d *Document) Definition(pos Position) []protocol.Location {
 		return d.goDefinition(`type ` + string(bytcase.ToCamel(tok.Get(d.Content))) + ` struct`)
 	}
 	if tok, ok := d.tokenAt(off, kind.Section); ok {
-		lineEnd := lineEnd(d.Content, tok.Start, tok.End)
-		if off > lineEnd {
-			return nil
-		}
 		sec, err := decl.ParseSection(d.Content, tok.Start, tok.End)
 		if err != nil {
+			return nil
+		}
+		if t, ok := sec.(*decl.Tool); ok && (t.SQLCFile != "" || t.SQLCQuery != "") && off >= t.SQLOffset && off <= lineEnd(d.Content, t.SQLOffset, tok.End) {
+			return d.sqlcDefinition(t)
+		}
+		if off > lineEnd(d.Content, tok.Start, tok.End) {
 			return nil
 		}
 		switch s := sec.(type) {
@@ -322,6 +325,38 @@ func (d *Document) queryDefinition(query string) []protocol.Location {
 	}
 	line := max(0, q.Line-1)
 	return []protocol.Location{{URI: fileURI(q.File), Range: Range{Start: Position{Line: line}, End: Position{Line: line}}.protocol()}}
+}
+
+// sqlcDefinition finds the query a tool's .sqlc line links: the query it
+// names, or the one af gen picks from its file. When none matches, it opens
+// the file at the top, to show the queries there; the diagnostic on the
+// line reports the problem.
+func (d *Document) sqlcDefinition(t *decl.Tool) []protocol.Location {
+	if t.SQLCFile == "" {
+		return d.queryDefinition(t.SQLCQuery)
+	}
+	p := d.path()
+	if p == "" {
+		return nil
+	}
+	file := t.SQLCFile
+	if !filepath.IsAbs(file) {
+		file = filepath.Join(filepath.Dir(p), file)
+	}
+	src, err := os.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	decls := sqlcgo.QueryDecls(src)
+	at := 0
+	for i, q := range decls {
+		if q.Name == t.SQLCQuery || t.SQLCQuery == "" && (len(decls) == 1 || q.Name == string(bytcase.ToCamel([]byte(strings.ReplaceAll(t.Name, "-", "_"))))) {
+			at = decls[i].Offset
+			break
+		}
+	}
+	line := bytes.Count(src[:at], []byte("\n"))
+	return []protocol.Location{{URI: fileURI(file), Range: Range{Start: Position{Line: line}, End: Position{Line: line}}.protocol()}}
 }
 
 var identRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -511,6 +546,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".maxbytes", "cap the tool's arguments")
 		add(".auth", "query arguments read from the caller, not the model")
 		add(".sql", "implement the tool with a sqlc query: .sql :one|:many|:exec|:execrows")
+		add(".sqlc", "run a query sqlc reads: .sqlc queries/notes.sql [ListNotes], or .sqlc ListNotes")
 	case ".agent":
 		add(".system", "the system prompt's title (default: the file's only prompt)")
 		add(".tools", "the tools it may call (default: every tool in the file)")

@@ -30,7 +30,7 @@ import (
 var SectionDirectives = []string{".tool", ".route", ".output", ".agent"}
 
 // ToolDirectives are the directives allowed inside a tool section.
-var ToolDirectives = []string{".param", ".maxbytes", ".auth", ".sql"}
+var ToolDirectives = []string{".param", ".maxbytes", ".auth", ".sql", ".sqlc"}
 
 // OutputDirectives are the directives allowed inside an output section.
 var OutputDirectives = []string{".field", ".maxbytes"}
@@ -82,9 +82,15 @@ type Tool struct {
 	Output bool
 	// SQL is the query that implements the tool, written after a .sql
 	// line, and SQLKind its sqlc command; both are empty for a tool you
-	// implement in Go. SQLOffset is the .sql line's byte offset.
+	// implement in Go.
 	SQL, SQLKind string
-	SQLOffset    int
+	// SQLCFile and SQLCQuery link a query sqlc already reads instead, from
+	// a .sqlc line: a .sql file, relative to the .af file, and the name of
+	// the query, either of which may be empty. af gen resolves a file to
+	// the query, qualified with its package: db.ListNotes.
+	SQLCFile, SQLCQuery string
+	// SQLOffset is the byte offset of the .sql or .sqlc line.
+	SQLOffset int
 	// Auth names the query arguments that come from the caller, not from
 	// the model.
 	Auth []string
@@ -267,7 +273,17 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".maxbytes needs a positive integer, got %q", v)}
 			}
 			t.MaxBytes = n
+		case !t.Output && hasDirective([]byte(l), ".sqlc"):
+			if t.SQLOffset != 0 {
+				return nil, &Error{Offset: off, Msg: "a tool runs one query: only one .sqlc line"}
+			}
+			if err := t.parseSQLC(strings.TrimSpace(strings.TrimPrefix(l, ".sqlc")), off); err != nil {
+				return nil, err
+			}
 		case !t.Output && hasDirective([]byte(l), ".sql"):
+			if t.SQLOffset != 0 {
+				return nil, &Error{Offset: off, Msg: "use .sql to write the query or .sqlc to link one, not both"}
+			}
 			// The rest of the section is the query.
 			kind := strings.TrimSpace(strings.TrimPrefix(l, ".sql"))
 			if !slices.Contains(SQLKinds, kind) {
@@ -293,8 +309,8 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 			desc = append(desc, l)
 		}
 	}
-	if len(t.Auth) > 0 && t.SQL == "" {
-		return nil, &Error{Offset: start, Msg: ".auth names arguments of the tool's query: add the query after a .sql line"}
+	if len(t.Auth) > 0 && !t.InSQL() {
+		return nil, &Error{Offset: start, Msg: ".auth names arguments of the tool's query: add the query after a .sql line, or link one with .sqlc"}
 	}
 	for _, name := range t.Auth {
 		for _, p := range t.Params {
@@ -313,6 +329,41 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 		}
 	}
 	return t, nil
+}
+
+// InSQL reports whether a query implements the tool: written after .sql
+// or linked with .sqlc.
+func (t *Tool) InSQL() bool { return t.SQL != "" || t.SQLCFile != "" || t.SQLCQuery != "" }
+
+// queryRefRE matches a sqlc query name, optionally qualified with its
+// package: ListNotes or db.ListNotes.
+var queryRefRE = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*\.)?[A-Za-z_][A-Za-z0-9_]*$`)
+
+// parseSQLC parses the arguments of a .sqlc line: a query name, a .sql
+// file, or a file and the name of one of its queries.
+func (t *Tool) parseSQLC(args string, off int) error {
+	usage := ".sqlc links a query sqlc reads: .sqlc queries/notes.sql, .sqlc ListNotes or .sqlc queries/notes.sql ListNotes"
+	f := strings.Fields(args)
+	switch {
+	case len(f) == 0 || len(f) > 2:
+		return &Error{Offset: off, Msg: usage}
+	case strings.HasSuffix(f[0], ".sql"):
+		t.SQLCFile = f[0]
+		if len(f) == 2 {
+			if !queryRefRE.MatchString(f[1]) || strings.Contains(f[1], ".") {
+				return &Error{Offset: off, Msg: fmt.Sprintf(".sqlc: %q is not a query name; name a query in %s", f[1], f[0])}
+			}
+			t.SQLCQuery = f[1]
+		}
+	case len(f) == 2:
+		return &Error{Offset: off, Msg: fmt.Sprintf(".sqlc: %q is not a .sql file; %s", f[0], usage)}
+	case !queryRefRE.MatchString(f[0]):
+		return &Error{Offset: off, Msg: fmt.Sprintf(".sqlc: %q is neither a query name nor a .sql file; %s", f[0], usage)}
+	default:
+		t.SQLCQuery = f[0]
+	}
+	t.SQLOffset = off
+	return nil
 }
 
 // addParam inserts p, whose Name is still its full path, into the tool.
@@ -619,6 +670,8 @@ func sqlBody(src []byte, start, end int, directives []string) (string, error) {
 				return "", &Error{Offset: off, Msg: fmt.Sprintf("malformed %s directive in the query", d)}
 			case d == ".sql":
 				return "", &Error{Offset: off, Msg: "a section has one query: only one .sql line"}
+			case d == ".sqlc":
+				return "", &Error{Offset: off, Msg: "use .sql to write the query or .sqlc to link one, not both"}
 			default:
 				return "", &Error{Offset: off, Msg: fmt.Sprintf("%s must come before .sql: the lines after .sql are the query", d)}
 			}

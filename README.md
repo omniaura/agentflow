@@ -291,7 +291,7 @@ WHERE owner_id = @owner_id AND strpos(lower(body), lower(@text)) > 0
 ```
 
 `af gen` hands the query to sqlc as `FindNotesTool`, so a sqlc config must read the file's `_af.sql`. It then generates the tool from sqlc's output:
-- **Parameters:** inferred from the query's arguments. Integers become `integer`, text stays `string`, and database types such as `pgtype.UUID` or `time.Time` are parsed from strings. `.param` is only needed for a description or a narrower type.
+- **Parameters:** inferred from the query's arguments. Integers become `integer`, text stays `string`, and database types such as `pgtype.UUID` or `time.Time` are parsed from strings. Nullable arguments such as `sqlc.narg('done')` are optional and stay NULL when left out. `.param` is only needed for a description or a narrower type.
 - **Caller arguments:** `.auth owner_id` takes the argument from the caller, so the model can't see or set it.
 - **Implementation:** a `<File>SQLTools` struct implements the tools:
 
@@ -303,6 +303,34 @@ tools := &AssistantSQLTools{
 }
 agent := &NotesAgent{Model: model, Tools: tools} // or embed it next to Go tools
 ```
+
+A query you already have in a sqlc query file needs no copy. Link it with `.sqlc`:
+
+```af
+.tool finish_todo
+.sqlc db/queries.sql SetTodoDone
+.auth owner_id
+
+Marks one of the caller's todos done or not done.
+
+.tool search_todos
+.sqlc db/search.sql
+.auth owner_id
+
+Finds the caller's todos whose title contains the text.
+
+.tool list_todos
+.sqlc ListTodos
+.auth owner_id
+
+Lists the caller's todos.
+```
+
+- `.sqlc file.sql Query` runs that query of the file. The path is relative to the `.af` file.
+- `.sqlc file.sql` runs the file's only query, or the one named after the tool (`search_todos` runs `SearchTodos`).
+- `.sqlc Query` runs a query sqlc generated from any of its files (`db.Query` names its package).
+
+The file stays yours: `af gen` checks that a sqlc config reads it and that `sqlc generate` has generated the query, but doesn't write it or run sqlc for it. Parameters, `.auth` and `<File>SQLTools` work as for `.sql`, and go to definition on a `.sqlc` line opens the query.
 
 Results are returned as follows:
 

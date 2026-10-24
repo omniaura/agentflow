@@ -82,6 +82,44 @@ func TestRenderChecksInlineSQL(t *testing.T) {
 	}
 }
 
+func TestRenderResolvesSQLCFiles(t *testing.T) {
+	one, two := "-- name: GetX :one\nSELECT @id::bigint;\n", "-- name: GetY :one\nSELECT 1;\n\n-- name: GetX :one\nSELECT @id::bigint;\n"
+	for _, tt := range []struct{ name, queries, file, src, msg string }{
+		{"only query", "q", one, ".tool load\n.sqlc ../q/x.sql\nLoads x.\n", ""},
+		{"block comment", "q", "/* name: GetX :one */\nSELECT @id::bigint;\n", ".tool load\n.sqlc ../q/x.sql\nLoads x.\n", ""},
+		{"named", "q/x.sql", two, ".tool load\n.sqlc ../q/x.sql GetX\nLoads x.\n", ""},
+		{"after the tool", "q", two, ".tool get_x\n.sqlc ../q/x.sql\nLoads x.\n", ""},
+		{"query name alone", "q", two, ".tool load\n.sqlc GetX\nLoads x.\n", ""},
+		{"several", "q", two, ".tool load\n.sqlc ../q/x.sql\nLoads x.\n", "../q/x.sql has several queries (GetY, GetX): name one, as in .sqlc ../q/x.sql GetY"},
+		{"not in the file", "q", one, ".tool load\n.sqlc ../q/x.sql GetZ\nLoads x.\n", "../q/x.sql has no query GetZ; it has GetX"},
+		{"not read by sqlc", "other.sql", one, ".tool load\n.sqlc ../q/x.sql\nLoads x.\n", "no sqlc config reads ../q/x.sql: add it to the queries of"},
+		{"not generated yet", "q", "-- name: GetZ :one\nSELECT 1;\n", ".tool load\n.sqlc ../q/x.sql\nLoads x.\n", "sqlc has not generated query GetZ from ../q/x.sql yet"},
+		{"no queries", "q", "SELECT 1;\n", ".tool load\n.sqlc ../q/x.sql\nLoads x.\n", "declares no sqlc queries"},
+		{"missing file", "q", one, ".tool load\n.sqlc ../q/nope.sql\nLoads x.\n", "no such file"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := writeModule(t, tt.queries)
+			os.MkdirAll(filepath.Join(root, "api"), 0o755)
+			os.MkdirAll(filepath.Join(root, "q"), 0o755)
+			os.WriteFile(filepath.Join(root, "q", "x.sql"), []byte(tt.file), 0o644)
+			name := filepath.Join(root, "api", "api.af")
+			_, code, err := Render(name, []byte(tt.src))
+			if tt.msg == "" {
+				if err != nil || !bytes.Contains(code, []byte("t.Queries.GetX(ctx, arg)")) {
+					t.Fatalf("got %v\n%s", err, code)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.msg) {
+				t.Fatalf("got %v, want %q", err, tt.msg)
+			}
+			if msgs := Diagnose(name, []byte(tt.src), err); !strings.Contains(msgs[0], "api.af:2:1:") {
+				t.Fatalf("diagnostic %q", msgs[0])
+			}
+		})
+	}
+}
+
 func TestGenerateSQLRunsSqlc(t *testing.T) {
 	root := writeModule(t, "api/api_af.sql")
 	name := filepath.Join(root, "api", "api.af")
