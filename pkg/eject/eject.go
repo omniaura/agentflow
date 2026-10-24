@@ -21,7 +21,9 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -121,12 +123,28 @@ func Imports(dir string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := map[string]string{}
-	for pkg, d := range cfg.Runtime {
-		m[runtime.ImportPrefix+pkg] = mod.path + "/" + path.Clean(filepath.ToSlash(d))
-	}
+	m := imports(mod.path, cfg.Runtime)
 	importsCache[mod.root] = m
 	return m, nil
+}
+
+// imports maps the import path of each ejected package in dirs, by name,
+// to its copy's in module modPath.
+func imports(modPath string, dirs map[string]string) map[string]string {
+	m := map[string]string{}
+	for pkg, d := range dirs {
+		m[runtime.ImportPrefix+pkg] = modPath + "/" + path.Clean(filepath.ToSlash(d))
+	}
+	return m
+}
+
+// rewriteImports points the imports of runtime packages in src at their
+// copies.
+func rewriteImports(src []byte, m map[string]string) []byte {
+	for from, to := range m {
+		src = bytes.ReplaceAll(src, []byte(strconv.Quote(from)), []byte(strconv.Quote(to)))
+	}
+	return src
 }
 
 // Result is what happened to one file.
@@ -176,26 +194,51 @@ func Eject(dir string, pkgs []string, opts Options) ([]Result, error) {
 	if opts.Files == nil {
 		opts.Files = runtime.Files
 	}
-	var results []Result
+	// Ejected packages import each other's copies. Copies made before a
+	// package they import was ejected are redone, so they switch over.
+	before := imports(mod.path, cfg.Runtime)
+	pkgs = slices.Clone(pkgs)
 	for _, pkg := range pkgs {
-		files, err := opts.Files(pkg)
-		if err != nil {
-			return results, fmt.Errorf("unknown runtime package %q (have %s)", pkg, strings.Join(runtime.Packages, ", "))
+		if _, err := opts.Files(pkg); err != nil {
+			return nil, fmt.Errorf("unknown runtime package %q (have %s)", pkg, strings.Join(append(slices.Clone(runtime.Packages), runtime.Adapters...), ", "))
 		}
 		rel, ok := cfg.Runtime[pkg]
 		if !ok {
 			rel = path.Join(filepath.ToSlash(opts.Dir), pkg)
 		}
 		if path.Base(rel) != pkg {
-			return results, fmt.Errorf("%s: the directory of package %s must be named %s", rel, pkg, pkg)
+			return nil, fmt.Errorf("%s: the directory of package %s must be named %s", rel, pkg, pkg)
 		}
-		pkgDir := filepath.Join(mod.root, filepath.FromSlash(rel))
-		rs, err := ejectPackage(pkgDir, pkg, files, opts)
+		cfg.Runtime[pkg] = rel
+	}
+	after := imports(mod.path, cfg.Runtime)
+	for pkg := range cfg.Runtime {
+		if slices.Contains(pkgs, pkg) {
+			continue
+		}
+		files, err := opts.Files(pkg)
+		if err != nil {
+			continue // Gone from this af version; leave the copy alone.
+		}
+		for _, src := range files {
+			if !bytes.Equal(rewriteImports(src, before), rewriteImports(src, after)) {
+				pkgs = append(pkgs, pkg)
+				break
+			}
+		}
+	}
+	var results []Result
+	for _, pkg := range pkgs {
+		files, err := opts.Files(pkg)
+		if err != nil {
+			return results, err
+		}
+		pkgDir := filepath.Join(mod.root, filepath.FromSlash(cfg.Runtime[pkg]))
+		rs, err := ejectPackage(pkgDir, pkg, files, opts, before, after)
 		results = append(results, rs...)
 		if err != nil {
 			return results, err
 		}
-		cfg.Runtime[pkg] = rel
 	}
 	if err := writeConfig(mod.root, cfg); err != nil {
 		return results, err
@@ -214,11 +257,14 @@ func header(pkg string) string {
 		"// %s%s\n\n", Module, pkg, vendored.Marker, vendored.Placeholder)
 }
 
-func render(pkg string, src []byte, version string) ([]byte, error) {
-	return vendored.Stamp(append([]byte(header(pkg)), src...), version)
+// render makes the ejected copy of src, with runtime imports remapped by m.
+func render(pkg string, src []byte, version string, m map[string]string) ([]byte, error) {
+	return vendored.Stamp(append([]byte(header(pkg)), rewriteImports(src, m)...), version)
 }
 
-func ejectPackage(dir, pkg string, files map[string][]byte, opts Options) ([]Result, error) {
+// ejectPackage ejects files into dir. Imports are remapped by after; an
+// edited copy was made with them remapped by before.
+func ejectPackage(dir, pkg string, files map[string][]byte, opts Options, before, after map[string]string) ([]Result, error) {
 	var results []Result
 	names := make([]string, 0, len(files))
 	for name := range files {
@@ -226,7 +272,7 @@ func ejectPackage(dir, pkg string, files map[string][]byte, opts Options) ([]Res
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		r, err := ejectFile(filepath.Join(dir, name), pkg, name, files[name], opts)
+		r, err := ejectFile(filepath.Join(dir, name), pkg, name, files[name], opts, before, after)
 		if err != nil {
 			return results, err
 		}
@@ -259,8 +305,8 @@ func ejectPackage(dir, pkg string, files map[string][]byte, opts Options) ([]Res
 	return results, nil
 }
 
-func ejectFile(p, pkg, name string, src []byte, opts Options) (Result, error) {
-	next, err := render(pkg, src, opts.Version)
+func ejectFile(p, pkg, name string, src []byte, opts Options, before, after map[string]string) (Result, error) {
+	next, err := render(pkg, src, opts.Version, after)
 	if err != nil {
 		return Result{}, err
 	}
@@ -278,22 +324,25 @@ func ejectFile(p, pkg, name string, src []byte, opts Options) (Result, error) {
 		return Result{Path: p, Action: "unchanged"}, nil
 	}
 	info, stamped := vendored.Read(cur)
+	change := "v" + info.Version + " -> v" + opts.Version
+	if info.Version == opts.Version {
+		change = "imports point at the ejected copies"
+	}
 	switch {
 	case stamped && !info.Edited:
-		return Result{Path: p, Action: "upgraded", Note: "v" + info.Version + " -> v" + opts.Version}, os.WriteFile(p, next, 0o644)
+		return Result{Path: p, Action: "upgraded", Note: change}, os.WriteFile(p, next, 0o644)
 	case opts.Force:
 		return Result{Path: p, Action: "overwritten"}, os.WriteFile(p, next, 0o644)
 	case !stamped:
 		return Result{Path: p, Action: "kept", Note: "not written by af eject; rerun with --force to replace it"}, nil
 	}
-	if info.Version == opts.Version {
-		// Edited, and already this version: nothing to upgrade.
-		return Result{Path: p, Action: "unchanged", Note: "edited"}, nil
+	baseSrc, err := src, error(nil)
+	if info.Version != opts.Version {
+		baseSrc, err = opts.Base(info.Version, pkg, name)
 	}
-	baseSrc, err := opts.Base(info.Version, pkg, name)
 	var base []byte
 	if err == nil {
-		base, err = render(pkg, baseSrc, info.Version)
+		base, err = render(pkg, baseSrc, info.Version, before)
 	}
 	if err != nil {
 		side := p + ".af-new"
@@ -301,6 +350,10 @@ func ejectFile(p, pkg, name string, src []byte, opts Options) (Result, error) {
 			return Result{}, werr
 		}
 		return Result{Path: p, Action: "kept", Note: fmt.Sprintf("edited, and the v%s original is unavailable (%v); the new version is in %s", info.Version, err, filepath.Base(side))}, nil
+	}
+	if bytes.Equal(base, next) {
+		// Edited, and nothing new to merge in.
+		return Result{Path: p, Action: "unchanged", Note: "edited"}, nil
 	}
 	merged, conflicts, err := merge3(cur, base, next, info.Version, opts.Version)
 	if err != nil {
@@ -312,7 +365,7 @@ func ejectFile(p, pkg, name string, src []byte, opts Options) (Result, error) {
 	if conflicts > 0 {
 		return Result{Path: p, Action: "conflict", Note: fmt.Sprintf("%d conflict(s) to resolve between your edits and v%s", conflicts, opts.Version)}, nil
 	}
-	return Result{Path: p, Action: "merged", Note: "your edits kept, v" + info.Version + " -> v" + opts.Version}, nil
+	return Result{Path: p, Action: "merged", Note: "your edits kept, " + change}, nil
 }
 
 // merge3 merges the changes from base to theirs into ours with git

@@ -208,12 +208,86 @@ func TestRealRuntimeFiles(t *testing.T) {
 	if err != nil || len(rs) != 0 {
 		t.Fatalf("no packages: %v %v", rs, err)
 	}
-	rs, err = Eject(root, []string{"aftool", "afhttp"}, Options{Version: "9.9.9"})
+	rs, err = Eject(root, []string{"aftool", "afhttp", "afagent", "afanthropic", "afopenai"}, Options{Version: "9.9.9"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := actions(rs)
-	if got["aftool.go"] != "created" || got["afhttp.go"] != "created" {
-		t.Fatalf("got %v", got)
+	for _, f := range []string{"aftool.go", "afhttp.go", "afagent.go", "afanthropic.go", "afopenai.go"} {
+		if got[f] != "created" {
+			t.Fatalf("got %v", got)
+		}
+	}
+	if !strings.Contains(read(t, filepath.Join(root, "internal/agentflow/afopenai/afopenai.go")), `"example.com/m/internal/agentflow/afagent"`) {
+		t.Error("afopenai does not import the ejected afagent")
+	}
+}
+
+// adapterOpts serves a core package and an adapter that imports it, at one
+// version.
+func adapterOpts() Options {
+	files := map[string]map[string]string{
+		"afagent":     {"agent.go": "package afagent\n\ntype Model interface{}\n"},
+		"afanthropic": {"claude.go": "package afanthropic\n\nimport \"github.com/omniaura/agentflow/runtime/afagent\"\n\nvar M afagent.Model\n\nfunc Edit() int { return 1 }\n"},
+	}
+	return Options{
+		Version: "1.0.0",
+		Files: func(pkg string) (map[string][]byte, error) {
+			out := map[string][]byte{}
+			for name, src := range files[pkg] {
+				out[name] = []byte(src)
+			}
+			if len(out) == 0 {
+				return nil, os.ErrNotExist
+			}
+			return out, nil
+		},
+		Base: func(v, pkg, file string) ([]byte, error) { return []byte(files[pkg][file]), nil },
+	}
+}
+
+func TestEjectRewritesRuntimeImports(t *testing.T) {
+	dir := newModule(t)
+	if _, err := Eject(dir, []string{"afagent", "afanthropic"}, adapterOpts()); err != nil {
+		t.Fatal(err)
+	}
+	got := read(t, filepath.Join(dir, "internal/agentflow/afanthropic/claude.go"))
+	if !strings.Contains(got, `import "example.com/m/internal/agentflow/afagent"`) {
+		t.Errorf("adapter still imports upstream afagent:\n%s", got)
+	}
+}
+
+func TestEjectRedoesCopiesThatImportANewlyEjectedPackage(t *testing.T) {
+	dir := newModule(t)
+	if _, err := Eject(dir, []string{"afanthropic"}, adapterOpts()); err != nil {
+		t.Fatal(err)
+	}
+	claude := filepath.Join(dir, "internal/agentflow/afanthropic/claude.go")
+	if !strings.Contains(read(t, claude), `"github.com/omniaura/agentflow/runtime/afagent"`) {
+		t.Fatal("without an ejected afagent, the adapter should import upstream")
+	}
+	edit(t, claude, "return 1", "return 2")
+
+	// Ejecting afagent later points the edited adapter at the copy and
+	// keeps the edit.
+	rs, err := Eject(dir, []string{"afagent"}, adapterOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := actions(rs); a["claude.go"] != "merged" || a["agent.go"] != "created" {
+		t.Fatalf("actions = %v", a)
+	}
+	got := read(t, claude)
+	if !strings.Contains(got, `import "example.com/m/internal/agentflow/afagent"`) || !strings.Contains(got, "return 2") {
+		t.Errorf("got:\n%s", got)
+	}
+
+	// Ejecting again changes nothing.
+	rs, err = Eject(dir, []string{"afagent", "afanthropic"}, adapterOpts())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := actions(rs); a["claude.go"] != "unchanged" || a["agent.go"] != "unchanged" {
+		t.Fatalf("actions = %v", a)
 	}
 }

@@ -35,6 +35,16 @@ type Message struct {
 	// failed call.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	IsError    bool   `json:"is_error,omitempty"`
+	// Native is the provider's own encoding of an assistant message. Its
+	// adapter sends it back as is, keeping what Message can't express,
+	// such as thinking blocks; other providers ignore it.
+	Native *Native `json:"native,omitempty"`
+}
+
+// Native is a message as a provider encodes it.
+type Native struct {
+	Provider string          `json:"provider"`
+	Data     json.RawMessage `json:"data"`
 }
 
 // ToolCall is a model's request to run a tool.
@@ -61,12 +71,16 @@ type Request struct {
 
 // Usage counts the tokens of model calls.
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	// InputTokens counts all input tokens, CachedInputTokens the ones
+	// read from the provider's prompt cache.
+	InputTokens       int `json:"input_tokens"`
+	CachedInputTokens int `json:"cached_input_tokens,omitempty"`
+	OutputTokens      int `json:"output_tokens"`
 }
 
 func (u *Usage) add(o Usage) {
 	u.InputTokens += o.InputTokens
+	u.CachedInputTokens += o.CachedInputTokens
 	u.OutputTokens += o.OutputTokens
 }
 
@@ -118,6 +132,15 @@ type Result struct {
 	Turns    int
 	Usage    Usage
 }
+
+// Model adapters wrap these errors for answers the loop can't use.
+var (
+	// ErrTruncated means the answer hit the output token limit or the
+	// context window, so its text or tool calls may be cut off.
+	ErrTruncated = errors.New("afagent: the model's answer was cut off")
+	// ErrRefused means the model declined to answer.
+	ErrRefused = errors.New("afagent: the model refused")
+)
 
 // ErrMaxTurns means the model kept calling tools for MaxTurns model calls.
 var ErrMaxTurns = errors.New("afagent: the agent did not finish within its turn limit")
