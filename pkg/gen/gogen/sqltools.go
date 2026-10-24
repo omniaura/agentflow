@@ -139,7 +139,9 @@ func inferParam(a sqlcgo.Field) (*decl.Param, error) {
 }
 
 // nullable reports whether sqlc uses Go type typ only for values that may
-// be NULL: pgtype.Bool, not pgtype.UUID, which it uses for both.
+// be NULL: pgtype.Bool, not pgtype.UUID, which it uses for both. So are
+// pgtype.Date, pgtype.Timestamp and pgtype.Timestamptz: making them optional
+// would let the model leave out a NOT NULL argument.
 func nullable(typ string) bool {
 	switch typ {
 	case "pgtype.Bool", "pgtype.Text", "pgtype.Int2", "pgtype.Int4", "pgtype.Int8", "pgtype.Float4", "pgtype.Float8":
