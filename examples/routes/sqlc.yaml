@@ -7,6 +7,7 @@ sql:
       - db/search.sql
       - notes_af.sql
       - assistant_af.sql
+      - note_copies_af.sql
     gen:
       go:
         package: db

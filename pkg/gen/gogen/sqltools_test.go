@@ -171,3 +171,24 @@ func TestSQLCToolsShareOnePackage(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+func TestSQLToolEmpty(t *testing.T) {
+	code, err := genRoutesFile(t, ".title A\nHi.\n\n.tool get_todo\n.sqlc GetTodo\n.auth owner_id\n.empty no todo has that id\nGets a todo.\n\n.tool finish_todo\n.sqlc SetTodoDone\n.auth owner_id\n.empty that todo is \"gone\"\nFinishes a todo.\n\n.tool delete_todo\n.sqlc DeleteTodo\n.auth owner_id\nDeletes a todo.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`return "", &aftool.Error{Msg: "no todo has that id", Err: err}`,
+		`return "", &aftool.Error{Msg: "that todo is \"gone\""}`,
+		// Without .empty: not found.
+		`return "", &aftool.Error{Msg: "not found"}`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	_, err = genRoutesFile(t, ".title A\nHi.\n\n.tool list_todos\n.sqlc ListTodos\n.auth owner_id\n.empty none\nLists.\n")
+	if err == nil || !strings.Contains(err.Error(), ".empty applies to a :one query") {
+		t.Errorf("got %v", err)
+	}
+}

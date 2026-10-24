@@ -69,6 +69,23 @@ Each category has a `.af` replacement:
    or status codes. Then run `go tool af check ./...`.
 7. **Commit each site separately**, so each change is easy to review and revert.
 
+### Handlers that read, check, then write
+
+Many handlers load a row, check something in Go and then write: who owns it, a limit
+(`len(existing) >= max`), or a state (`if share.Status != "pending"`). Fold the check into
+the write's SQL, and the handler becomes one `.route`:
+
+- **Ownership:** `UPDATE ... WHERE id = @id AND owner_id = @owner_id`, as `:execrows`.
+- **A limit:** `INSERT ... SELECT ... WHERE (SELECT count(*) FROM t WHERE owner_id = @owner_id) < 20 RETURNING *`, as `:one`.
+- **A state:** `UPDATE ... WHERE id = @id AND status = 'pending'`.
+
+Then add `.empty <status> <message>` with the status and message the old handler used.
+Ownership and state checks in an `UPDATE`/`DELETE` hold under concurrency; a `count(*)`
+limit can be overshot by concurrent inserts, as the old read-then-write could. Keep any
+lock or trigger the old code relied on. If
+it told several failures apart (404 vs 403 vs 409), say so in the one message, or keep the
+handler. Write a test for each failure.
+
 ### What not to migrate
 
 These stay hand-written:

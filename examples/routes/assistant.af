@@ -26,6 +26,7 @@ ORDER BY id
 
 .tool pin_note
 .auth owner_id
+.empty no note of yours has that id
 
 Pins one of the caller's notes.
 

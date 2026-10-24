@@ -115,7 +115,8 @@ func TestNotesAssistant(t *testing.T) {
 		t.Errorf("pin_note = %+v", pinned)
 	}
 	// Mallory's note is out of reach: the same answer as a missing note.
-	if !denied.IsError || denied.Content != "not found" {
+	// Its .empty says so in words the model can act on.
+	if !denied.IsError || denied.Content != "no note of yours has that id" {
 		t.Errorf("pinning another owner's note = %+v", denied)
 	}
 	for _, n := range []struct {

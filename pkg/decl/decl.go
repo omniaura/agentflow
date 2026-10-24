@@ -30,7 +30,7 @@ import (
 var SectionDirectives = []string{".tool", ".route", ".output", ".agent"}
 
 // ToolDirectives are the directives allowed inside a tool section.
-var ToolDirectives = []string{".param", ".maxbytes", ".auth", ".sql", ".sqlc"}
+var ToolDirectives = []string{".param", ".maxbytes", ".auth", ".sql", ".sqlc", ".empty"}
 
 // OutputDirectives are the directives allowed inside an output section.
 var OutputDirectives = []string{".field", ".maxbytes"}
@@ -94,6 +94,9 @@ type Tool struct {
 	// Auth names the query arguments that come from the caller, not from
 	// the model.
 	Auth []string
+	// Empty, from .empty, is what the model is told when the query finds
+	// no row or changes none, instead of "not found".
+	Empty *Empty
 	// Warnings flag likely mistakes that still parse, such as a misspelled
 	// type read as the start of a description.
 	Warnings []*Error
@@ -296,6 +299,15 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 			}
 			t.SQL = sql
 			i = end
+		case !t.Output && hasDirective([]byte(l), ".empty"):
+			if t.Empty != nil {
+				return nil, &Error{Offset: off, Msg: "only one .empty line"}
+			}
+			msg := strings.TrimSpace(strings.TrimPrefix(l, ".empty"))
+			if msg == "" {
+				return nil, &Error{Offset: off, Msg: ".empty needs the message the model gets when the query finds no row"}
+			}
+			t.Empty = &Empty{Msg: msg, Offset: off}
 		case !t.Output && hasDirective([]byte(l), ".auth"):
 			for _, name := range strings.FieldsFunc(strings.TrimPrefix(l, ".auth"), func(r rune) bool { return r == ' ' || r == '\t' || r == ',' }) {
 				if !identRE.MatchString(name) {
@@ -308,6 +320,9 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 		default:
 			desc = append(desc, l)
 		}
+	}
+	if t.Empty != nil && !t.InSQL() {
+		return nil, &Error{Offset: t.Empty.Offset, Msg: ".empty says what the tool's query finding no row means: add the query after a .sql line, or link one with .sqlc"}
 	}
 	if len(t.Auth) > 0 && !t.InSQL() {
 		return nil, &Error{Offset: start, Msg: ".auth names arguments of the tool's query: add the query after a .sql line, or link one with .sqlc"}
