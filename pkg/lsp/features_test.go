@@ -365,13 +365,29 @@ func TestRouteEmptyHoverAndCompletion(t *testing.T) {
 	}
 }
 
+func TestRouteMapHover(t *testing.T) {
+	path, err := filepath.Abs("../../examples/routes/cards.af")
+	require.NoError(t, err)
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	doc := openAt(t, path, string(src))
+	for query, want := range map[string]string{
+		"ListTodos": "Responds `{\"cards\": [todoCard(row) for each row]}`.",
+		"GetTodo":   "Responds `todoCard(row)`.",
+	} {
+		if hover := doc.SectionHover(at(t, doc, query, 0)); !strings.Contains(hover, want) {
+			t.Errorf("%s hover, want %q:\n%s", query, want, hover)
+		}
+	}
+}
+
 func TestRouteWrapHover(t *testing.T) {
 	path, err := filepath.Abs("../../examples/routes/notes.af")
 	require.NoError(t, err)
 	src, err := os.ReadFile(path)
 	require.NoError(t, err)
 	doc := openAt(t, path, string(src))
-	if hover := doc.SectionHover(at(t, doc, "ListNotes", 0)); !strings.Contains(hover, "Responds `{\"notes\": ...}`.") {
+	if hover := doc.SectionHover(at(t, doc, "ListNotes", 0)); !strings.Contains(hover, "Responds `{\"notes\": rows}`.") {
 		t.Errorf("hover:\n%s", hover)
 	}
 	if hover := doc.SectionHover(at(t, doc, "CreateNote", 0)); strings.Contains(hover, "Responds `{") {
@@ -418,8 +434,8 @@ func TestRouteCompletionsFollowQueryKind(t *testing.T) {
 	}{
 		// The kind from .sql, even below the cursor.
 		{"inline :execrows", ".route PUT /a/{id} SetX\n.\n.sql :execrows\nUPDATE t SET x = 1 WHERE id = @id\n", 1, []string{".empty", ".auth"}, []string{".wrap"}},
-		{"inline :many", ".route GET /a ListX\n.\n.sql :many\nSELECT 1\n", 1, []string{".wrap", ".cache"}, []string{".empty"}},
-		{"inline :exec", ".route POST /a TouchX\n.\n.sql :exec\nSELECT 1\n", 1, []string{".status"}, []string{".wrap", ".empty", ".cache"}},
+		{"inline :many", ".route GET /a ListX\n.\n.sql :many\nSELECT 1\n", 1, []string{".wrap", ".map", ".cache"}, []string{".empty"}},
+		{"inline :exec", ".route POST /a TouchX\n.\n.sql :exec\nSELECT 1\n", 1, []string{".status"}, []string{".wrap", ".map", ".empty", ".cache"}},
 		// The kind from sqlc's output: ListTodos is :many, GetTodo :one.
 		{"sqlc :many", ".route GET /todos ListTodos\n.\n", 1, []string{".wrap"}, []string{".empty"}},
 		{"sqlc :one", ".route GET /todos/{id} GetTodo\n.\n", 1, []string{".wrap", ".empty"}, nil},

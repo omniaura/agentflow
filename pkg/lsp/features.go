@@ -612,6 +612,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		}
 		if qk == "" || qk == sqlcgo.One || qk == sqlcgo.Many {
 			add(".wrap", "respond with the result in an object: .wrap todos for {\"todos\": [...]}")
+			add(".map", "turn each row into the response with a func of this package: .map todoCard")
 			add(".cache", "Cache-Control: .cache 5m, or a value such as .cache no-cache (default no-store when authenticated)")
 		}
 		add(".sql", "write the query here: .sql :one|:many|:exec|:execrows, then the SQL")
@@ -696,8 +697,23 @@ func (d *Document) SectionHover(pos Position) string {
 		if !s.Public {
 			b.WriteString("\nRequires authentication.\n")
 		}
-		if s.Wrap != "" && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many) {
-			fmt.Fprintf(&b, "\nResponds `{%q: ...}`.\n", s.Wrap)
+		if q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many {
+			v := "row"
+			if q.Kind == sqlcgo.Many {
+				v = "rows"
+			}
+			switch {
+			case s.Map != "" && q.Kind == sqlcgo.Many:
+				v = "[" + s.Map + "(row) for each row]"
+			case s.Map != "":
+				v = s.Map + "(row)"
+			}
+			if s.Wrap != "" {
+				v = fmt.Sprintf("{%q: %s}", s.Wrap, v)
+			}
+			if s.Map != "" || s.Wrap != "" {
+				fmt.Fprintf(&b, "\nResponds `%s`.\n", v)
+			}
 		}
 		if cc := s.CacheControl(); cc != "" && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many) {
 			fmt.Fprintf(&b, "\n`Cache-Control: %s`.\n", cc)

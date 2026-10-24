@@ -250,6 +250,10 @@ Creates a todo for the caller.
   description (which becomes the doc comment) are optional.
 - `.wrap notes` responds `{"notes": [...]}` instead of the bare array (`:one` and `:many`
   only). Use it when clients expect an object, or to leave room for more fields.
+- `.map todoCard` responds with what `func todoCard(row db.Todo) TodoCard` returns, for
+  each row of a `:many` result (inside `.wrap` when both are set). Use it when the response
+  isn't the row: renamed fields, computed URLs or statuses, hidden columns. Write it in a
+  `.go` file of the same package and test it as a plain function; the handler stays generated.
 - Authenticated `:one`/`:many` responses, errors included, get `Cache-Control: no-store`.
   `.cache 5m` lets caches keep a GET result (`private` plus `Vary: Authorization, Cookie`,
   or `public` on a `.public` route); any other value is sent as written (`.cache no-cache`).

@@ -215,3 +215,15 @@ func TestErrors(t *testing.T) {
 		t.Fatalf("unencodable value: %d %s", w.Code, w.Body)
 	}
 }
+
+func TestMap(t *testing.T) {
+	got := afhttp.Map([]int{1, 2}, func(n int) string { return fmt.Sprint(n * 10) })
+	if !reflect.DeepEqual(got, []string{"10", "20"}) {
+		t.Fatalf("got %v", got)
+	}
+	// No rows: [] in JSON, not null.
+	b, _ := json.Marshal(afhttp.Map([]int(nil), func(n int) int { return n }))
+	if string(b) != "[]" {
+		t.Fatalf("no rows = %s", b)
+	}
+}

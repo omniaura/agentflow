@@ -169,3 +169,23 @@ func TestParseRouteCache(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRouteMap(t *testing.T) {
+	f, err := Parse([]byte(".route GET /cards ListTodos\n.map todoCard\n.wrap cards\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := f.Routes[0]; r.Map != "todoCard" || r.MapOffset != len(".route GET /cards ListTodos\n") {
+		t.Fatalf("got %q at %d", r.Map, r.MapOffset)
+	}
+	for src, want := range map[string]string{
+		".route GET /a ListTodos\n.map\n":           "usage: .map fn",
+		".route GET /a ListTodos\n.map db.toCard\n": "usage: .map fn",
+		".route GET /a ListTodos\n.map to card\n":   "usage: .map fn",
+		".route GET /a ListTodos\n.map a\n.map b\n": "only one .map line",
+	} {
+		if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got %v, want %q", src, err, want)
+		}
+	}
+}

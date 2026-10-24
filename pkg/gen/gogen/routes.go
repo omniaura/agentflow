@@ -82,6 +82,9 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		if b.r.CacheOffset != 0 && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
 			return &RouteError{Offset: b.r.CacheOffset, Err: fmt.Errorf(".cache applies to a :one or :many result; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
 		}
+		if b.r.Map != "" && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
+			return &RouteError{Offset: b.r.MapOffset, Err: fmt.Errorf(".map turns a :one or :many result into the response; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
+		}
 		if b.r.Wrap != "" && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
 			return &RouteError{Offset: b.r.WrapOffset, Err: fmt.Errorf(".wrap puts a :one or :many result in an object; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
 		}
@@ -172,9 +175,15 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 	return nil
 }
 
-// wrap is the value a route responds with: v, or an object holding v
-// under the route's .wrap key.
+// wrap is the value a route responds with: v, passed through the route's
+// .map func, or an object holding that under the route's .wrap key.
 func (b *boundRoute) wrap(v string) string {
+	switch {
+	case b.r.Map != "" && b.q.Kind == sqlcgo.Many:
+		v = fmt.Sprintf("afhttp.Map(%s, %s)", v, b.r.Map)
+	case b.r.Map != "":
+		v = fmt.Sprintf("%s(%s)", b.r.Map, v)
+	}
 	if b.r.Wrap == "" {
 		return v
 	}
