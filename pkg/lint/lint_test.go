@@ -2,6 +2,7 @@ package lint
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/omniaura/agentflow/pkg/assert/require"
@@ -119,6 +120,30 @@ func TestLoopDiagnostics(t *testing.T) {
 				err = fmt.Errorf("missing %s %q in %#v", tt.code, tt.message, ds)
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestLintAgentReferences(t *testing.T) {
+	const ok = ".title A\nHi.\n\n.title B\nYo.\n\n.tool look\nLooks.\n\n.output o\n.field x\n\n.agent helper\n.system B\n.tools look\n"
+	if d := lintString(t, ok); len(d) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", d)
+	}
+	for _, tt := range []struct {
+		name, src, msg string
+		line           int
+	}{
+		{"unknown system", ".title A\nHi.\n\n.agent x\n.tools\n", "", 0},
+		{"unknown system title", ".title A\nHi.\n\n.agent x\n.maxturns 3\n.system Nope\n", `no prompt titled "Nope" in this file (have "A")`, 6},
+		{"ambiguous system", ".title A\nHi.\n\n.title B\nYo.\n\n.agent x\n", "the file has 2 prompts", 7},
+		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, find\n", "no tool find in this file (have look)", 8},
+		{"output is not a tool", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.tools o\n", "no tool o in this file (it declares none)", 8},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d := lintString(t, tt.src)
+			if len(d) != 1 || d[0].Code != "AF011" || !strings.Contains(d[0].Message, tt.msg) || (tt.line != 0 && d[0].Line != tt.line) {
+				t.Fatalf("want one AF011 %q on line %d, got %#v", tt.msg, tt.line, d)
+			}
 		})
 	}
 }

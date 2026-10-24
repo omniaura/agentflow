@@ -20,6 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/omniaura/agentflow/pkg/decl"
@@ -81,8 +83,13 @@ type linter struct {
 	types       map[string]string
 	titles      map[string]token.T
 	sections    map[string]bool
-	hasTitle    bool
-	hasContent  bool
+	// titleTexts, tools and agents are checked against each other once
+	// the whole file is read.
+	titleTexts []string
+	tools      []string
+	agents     []*decl.Agent
+	hasTitle   bool
+	hasContent bool
 }
 
 func (l *linter) check(tokens token.Slice) {
@@ -115,6 +122,52 @@ func (l *linter) check(tokens token.Slice) {
 	if !l.hasTitle && l.hasContent {
 		l.add(token.T{Start: 0, End: 0}, SeverityError, "AF001", "file has content but no .title section")
 	}
+	for _, a := range l.agents {
+		l.checkAgent(a)
+	}
+}
+
+// checkAgent reports an agent whose system prompt or tools are not in the
+// file.
+func (l *linter) checkAgent(a *decl.Agent) {
+	quoted := make([]string, len(l.titleTexts))
+	for i, t := range l.titleTexts {
+		quoted[i] = strconv.Quote(t)
+	}
+	switch {
+	case a.System != "" && !slices.Contains(l.titleTexts, a.System):
+		off := l.directiveOffset(a, ".system")
+		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: no prompt titled %q in this file (have %s)", a.Name, a.System, strings.Join(quoted, ", ")))
+	case a.System == "" && len(l.titleTexts) > 1:
+		l.add(token.T{Start: a.Start, End: a.Start}, SeverityError, "AF011", fmt.Sprintf("agent %s: the file has %d prompts; name the system prompt with .system <title>", a.Name, len(l.titleTexts)))
+	}
+	for _, name := range a.Tools {
+		if !slices.Contains(l.tools, name) {
+			off := l.directiveOffset(a, ".tools")
+			have := "it declares none"
+			if len(l.tools) > 0 {
+				have = "have " + strings.Join(l.tools, ", ")
+			}
+			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: no tool %s in this file (%s)", a.Name, name, have))
+		}
+	}
+}
+
+// directiveOffset returns the offset of a directive line in an agent
+// section, or the section's start.
+func (l *linter) directiveOffset(a *decl.Agent, directive string) int {
+	off := a.Start
+	for off < a.End {
+		end := bytes.IndexByte(l.src[off:a.End], '\n')
+		if end < 0 {
+			end = a.End - off
+		}
+		if line := l.src[off : off+end]; bytes.HasPrefix(line, []byte(directive)) && (len(line) == len(directive) || line[len(directive)] == ' ' || line[len(directive)] == '\t') {
+			return off
+		}
+		off += end + 1
+	}
+	return a.Start
 }
 
 // checkSection reports declaration errors in a section such as .tool or
@@ -142,11 +195,14 @@ func (l *linter) checkSection(tok token.T) {
 		key = fmt.Sprintf("tool %q", s.Name)
 		if s.Output {
 			key = fmt.Sprintf("output %q", s.Name)
+		} else {
+			l.tools = append(l.tools, s.Name)
 		}
 	case *decl.Route:
 		key = "route " + s.Method + " " + s.Path
 	case *decl.Agent:
 		key = fmt.Sprintf("agent %q", s.Name)
+		l.agents = append(l.agents, s)
 	}
 	if l.sections[key] {
 		l.add(tok, SeverityError, "AF011", key+" is declared twice")
@@ -167,6 +223,7 @@ func (l *linter) checkTitle(tokens token.Slice, start int) int {
 	}
 
 	title := strings.TrimSpace(string(tokens[i].Get(l.src)))
+	l.titleTexts = append(l.titleTexts, title)
 	generated := string(bytcase.ToCamel([]byte(title)))
 	if first, ok := l.titles[generated]; ok {
 		_ = first
