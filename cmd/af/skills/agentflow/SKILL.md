@@ -214,7 +214,8 @@ Answers customer questions about their orders.
   with `afthreadtest.Run`, and answer queued messages with `afthread.Run(ctx, store, owner,
   thread, agentFunc)`: it delivers mid-run messages and saves before every turn.
 - Long conversations: `runtime/afcompact`. Set `BeforeTurn: (&afcompact.Compactor{Budget: n,
-  Summarize: afcompact.Summarize(model)}).BeforeTurn`. It microcompacts old tool results, then folds
+  Summarize: afcompact.Summarize(model), SummarizeChunk: afcompact.SummarizeChunk(model)}).BeforeTurn`.
+  It microcompacts old tool results, condenses large ones in parallel chunks (Digest), then folds
   older rounds into a summary, only as far as needed. Don't hand-write context-budget loops.
 - A run's tools can depend on the caller: set the agent's `Allow func(ctx, tool) bool` (for
   example, a workspace's enabled tools). Declare every tool the agent may ever use in `.tools`
