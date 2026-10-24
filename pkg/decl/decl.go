@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -29,7 +30,7 @@ import (
 var SectionDirectives = []string{".tool", ".route", ".output", ".agent"}
 
 // ToolDirectives are the directives allowed inside a tool section.
-var ToolDirectives = []string{".param", ".maxbytes"}
+var ToolDirectives = []string{".param", ".maxbytes", ".auth", ".sql"}
 
 // OutputDirectives are the directives allowed inside an output section.
 var OutputDirectives = []string{".field", ".maxbytes"}
@@ -79,6 +80,14 @@ type Tool struct {
 	Start, End int
 	// Output marks an .output section.
 	Output bool
+	// SQL is the query that implements the tool, written after a .sql
+	// line, and SQLKind its sqlc command; both are empty for a tool you
+	// implement in Go. SQLOffset is the .sql line's byte offset.
+	SQL, SQLKind string
+	SQLOffset    int
+	// Auth names the query arguments that come from the caller, not from
+	// the model.
+	Auth []string
 	// Warnings flag likely mistakes that still parse, such as a misspelled
 	// type read as the start of a description.
 	Warnings []*Error
@@ -258,8 +267,39 @@ func ParseTool(src []byte, start, end int) (*Tool, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".maxbytes needs a positive integer, got %q", v)}
 			}
 			t.MaxBytes = n
+		case !t.Output && hasDirective([]byte(l), ".sql"):
+			// The rest of the section is the query.
+			kind := strings.TrimSpace(strings.TrimPrefix(l, ".sql"))
+			if !slices.Contains(SQLKinds, kind) {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf(".sql needs the query's sqlc command, one of %s; got %q", strings.Join(SQLKinds, ", "), kind)}
+			}
+			t.SQLKind, t.SQLOffset = kind, off
+			t.SQL = strings.TrimSpace(string(src[i:end]))
+			if t.SQL == "" {
+				return nil, &Error{Offset: off, Msg: "write the query on the lines after .sql"}
+			}
+			i = end
+		case !t.Output && hasDirective([]byte(l), ".auth"):
+			for _, name := range strings.FieldsFunc(strings.TrimPrefix(l, ".auth"), func(r rune) bool { return r == ' ' || r == '\t' || r == ',' }) {
+				if !identRE.MatchString(name) {
+					return nil, &Error{Offset: off, Msg: fmt.Sprintf(".auth name %q must be an identifier", name)}
+				}
+				if !slices.Contains(t.Auth, name) {
+					t.Auth = append(t.Auth, name)
+				}
+			}
 		default:
 			desc = append(desc, l)
+		}
+	}
+	if len(t.Auth) > 0 && t.SQL == "" {
+		return nil, &Error{Offset: start, Msg: ".auth names arguments of the tool's query: add the query after a .sql line"}
+	}
+	for _, name := range t.Auth {
+		for _, p := range t.Params {
+			if p.Name == name {
+				return nil, &Error{Offset: p.Offset, Msg: fmt.Sprintf("%s comes from the caller (.auth), so the model cannot set it", name)}
+			}
 		}
 	}
 	t.Description = strings.TrimRight(trimLeadingBlankLines(strings.Join(desc, "\n")), " \t\n")

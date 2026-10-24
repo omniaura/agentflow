@@ -174,3 +174,29 @@ func TestSectionBounds(t *testing.T) {
 		t.Fatalf("got %+v, %v", f.Tools, err)
 	}
 }
+
+func TestParseSQLTool(t *testing.T) {
+	src := ".tool pin_note\n.param note_id int Which note.\n.auth owner_id\nPins a note.\n.sql :execrows\nUPDATE notes SET pinned = true\nWHERE id = @note_id AND owner_id = @owner_id\n"
+	f, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := f.Tools[0]
+	if tool.SQLKind != ":execrows" || tool.SQL != "UPDATE notes SET pinned = true\nWHERE id = @note_id AND owner_id = @owner_id" || tool.Description != "Pins a note." || len(tool.Auth) != 1 || tool.Auth[0] != "owner_id" {
+		t.Fatalf("tool = %+v", tool)
+	}
+	for _, tt := range []struct{ src, msg string }{
+		{".tool t\n.auth owner_id\nDoes t.\n", ".auth names arguments of the tool's query"},
+		{".tool t\n.param owner_id\n.auth owner_id\nDoes t.\n.sql :one\nSELECT 1\n", "owner_id comes from the caller (.auth)"},
+		{".tool t\nDoes t.\n.sql :batchone\nSELECT 1\n", ".sql needs the query's sqlc command"},
+		{".tool t\nDoes t.\n.sql :one\n", "write the query on the lines after .sql"},
+	} {
+		if _, err := Parse([]byte(tt.src)); err == nil || !strings.Contains(err.Error(), tt.msg) {
+			t.Errorf("%q: got %v, want %q", tt.src, err, tt.msg)
+		}
+	}
+	// An .output has no query.
+	if f, err := Parse([]byte(".output o\n.field x\n.sql :one\n")); err == nil && f.Outputs[0].SQL != "" {
+		t.Error(".output accepted .sql")
+	}
+}

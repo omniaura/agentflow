@@ -509,6 +509,8 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 	case ".tool":
 		add(".param", "tool parameter: .param name [type] [description]")
 		add(".maxbytes", "cap the tool's arguments")
+		add(".auth", "query arguments read from the caller, not the model")
+		add(".sql", "implement the tool with a sqlc query: .sql :one|:many|:exec|:execrows")
 	case ".agent":
 		add(".system", "the system prompt's title (default: the file's only prompt)")
 		add(".tools", "the tools it may call (default: every tool in the file)")

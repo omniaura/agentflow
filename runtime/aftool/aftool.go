@@ -376,3 +376,13 @@ func (o *Output[T]) Anthropic() json.RawMessage {
 	b.WriteString(`}`)
 	return b.Bytes()
 }
+
+// Error is a tool failure whose message is safe to show the model, and so
+// the user, while its cause stays available to logs through errors.Unwrap.
+type Error struct {
+	Msg string
+	Err error
+}
+
+func (e *Error) Error() string { return e.Msg }
+func (e *Error) Unwrap() error { return e.Err }
