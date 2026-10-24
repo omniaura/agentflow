@@ -190,3 +190,19 @@ func TestGenRoutesCache(t *testing.T) {
 		t.Errorf("cache on :execrows: %v", err)
 	}
 }
+
+func TestHasNoStore(t *testing.T) {
+	for cc, want := range map[string]bool{
+		"no-store":                         true,
+		"private, No-Store":                true,
+		"private,no-store ":                true,
+		"no-cache":                         false,
+		"private, max-age=300, x-no-store": false,
+		`private, x="no-store"`:            false,
+		"":                                 false,
+	} {
+		if got := hasNoStore(cc); got != want {
+			t.Errorf("hasNoStore(%q) = %v, want %v", cc, got, want)
+		}
+	}
+}

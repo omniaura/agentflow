@@ -291,8 +291,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 	fmt.Fprintf(buf, "func (rt *%sRoutes) %s(w http.ResponseWriter, r *http.Request) {\n", routes, b.handler)
 	cc := r.CacheControl()
 	withBody := q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many
-	// Cache-Control directives are case-insensitive.
-	noStore := withBody && strings.Contains(strings.ToLower(cc), "no-store")
+	noStore := withBody && hasNoStore(cc)
 	if noStore {
 		// On every response, errors too: none of them may be kept.
 		fmt.Fprintf(buf, "w.Header().Set(\"Cache-Control\", %q)\n", cc)
@@ -414,6 +413,18 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		fmt.Fprintf(buf, "w.WriteHeader(%s)\n", status("http.StatusNoContent"))
 	}
 	buf.WriteString("}\n\n")
+}
+
+// hasNoStore reports whether Cache-Control value cc has the no-store
+// directive. Directive names are case-insensitive.
+func hasNoStore(cc string) bool {
+	for _, d := range strings.Split(cc, ",") {
+		name, _, _ := strings.Cut(d, "=")
+		if strings.EqualFold(strings.TrimSpace(name), "no-store") {
+			return true
+		}
+	}
+	return false
 }
 
 var statusNames = map[int]string{
