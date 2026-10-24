@@ -69,7 +69,7 @@ type SupportTools interface {
 type SupportAgent struct {
 	Model afagent.Model
 	Tools SupportTools
-	// MaxTurns bounds the model calls of a run; 0 means 6.
+	// MaxTurns bounds the model calls of a run; 0 or less means 6.
 	MaxTurns int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
@@ -88,7 +88,7 @@ var SupportAgentTools = []afagent.ToolSpec{
 // without calling a tool, and returns the answer and the conversation.
 func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afagent.Message) (afagent.Result, error) {
 	maxTurns := a.MaxTurns
-	if maxTurns == 0 {
+	if maxTurns <= 0 {
 		maxTurns = 6
 	}
 	loop := afagent.Loop{

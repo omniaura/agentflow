@@ -71,9 +71,9 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 		}
 		buf.WriteString("// MaxTurns bounds the model calls of a run")
 		if a.MaxTurns > 0 {
-			fmt.Fprintf(buf, "; 0 means %d.\n", a.MaxTurns)
+			fmt.Fprintf(buf, "; 0 or less means %d.\n", a.MaxTurns)
 		} else {
-			buf.WriteString("; 0 means afagent.DefaultMaxTurns.\n")
+			buf.WriteString("; 0 or less means afagent.DefaultMaxTurns.\n")
 		}
 		buf.WriteString("MaxTurns int\n")
 		buf.WriteString("// Concurrency is how many tool calls of a turn run at once.\nConcurrency int\n")
@@ -98,7 +98,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 		fmt.Fprintf(buf, "func (a *%sAgent) Run(%s) (afagent.Result, error) {\n", name, params)
 		buf.WriteString("maxTurns := a.MaxTurns\n")
 		if a.MaxTurns > 0 {
-			fmt.Fprintf(buf, "if maxTurns == 0 {\nmaxTurns = %d\n}\n", a.MaxTurns)
+			fmt.Fprintf(buf, "if maxTurns <= 0 {\nmaxTurns = %d\n}\n", a.MaxTurns)
 		}
 		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %sAgentTools,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nOnEvent: a.OnEvent,\n", systemExpr, name)
 		if len(tools) > 0 {
