@@ -150,3 +150,48 @@ func TestFindErrors(t *testing.T) {
 		t.Fatalf("Lookup = %v", err)
 	}
 }
+
+func TestQueryWrites(t *testing.T) {
+	for _, tt := range []struct {
+		kind Kind
+		sql  string
+		want bool
+	}{
+		{One, "-- name: GetUser :one\nSELECT * FROM users WHERE id = $1", false},
+		{Many, "-- name: ListUsers :many\n/* all */ select id, updated_at, deleted FROM users", false},
+		{One, "-- name: BanUser :one\nUPDATE users SET banned = true RETURNING id", true},
+		{One, "-- name: CreateUser :one\n-- a comment\n  insert INTO users DEFAULT VALUES RETURNING id", true},
+		{Many, "-- name: Purge :many\nDELETE FROM users RETURNING id", true},
+		{One, "-- name: Move :one\nWITH moved AS (DELETE FROM a RETURNING *) INSERT INTO b SELECT * FROM moved RETURNING id", true},
+		{One, "-- name: Recent :one\nWITH r AS (SELECT * FROM users ORDER BY id DESC LIMIT 1) SELECT id FROM r", false},
+		// Locking rows is not writing them.
+		{One, "-- name: Lock :one\nWITH r AS (SELECT id FROM users WHERE id = $1 FOR UPDATE) SELECT id FROM r", false},
+		{One, "-- name: LockNoKey :one\nWITH r AS (SELECT id FROM users FOR NO KEY UPDATE) SELECT id FROM r", false},
+		{Exec, "-- name: Touch :exec\nSELECT touch($1)", true},
+		// Any whitespace ends a keyword.
+		{One, "-- name: Ban :one\nUPDATE\nusers SET banned = true RETURNING id", true},
+		{One, "-- name: Move :one\nWITH\tm AS (\nDELETE FROM a RETURNING *) SELECT id FROM m", true},
+		// Words in strings, quoted identifiers and comments are not keywords.
+		{One, "-- name: Label :one\nWITH x AS (SELECT 'update' AS label, '(delete' AS d) SELECT label FROM x", false},
+		{One, "-- name: Quoted :one\nWITH x AS (SELECT \"(insert\" FROM t) SELECT 1 FROM x", false},
+		{One, "-- name: Commented :one\nWITH x AS (/* (delete */ SELECT 1) SELECT 1 FROM x", false},
+		{One, "-- name: Escaped :one\nWITH x AS (SELECT 'it''s (update' AS s) SELECT s FROM x", false},
+		{One, "-- name: Dollar :one\nWITH x AS (SELECT $$) DELETE$$) SELECT 1 FROM x", false},
+		{One, "-- name: Tagged :one\nWITH x AS (SELECT $t$ $$ ) DELETE $t$) SELECT 1 FROM x", false},
+		// $1 parameters are not dollar quotes.
+		{One, "-- name: Param :one\nWITH x AS (SELECT $1::int AS v)\nUPDATE t SET v = $2 FROM x RETURNING id", true},
+		// An unquoted column that is a keyword elsewhere.
+		{One, "-- name: Col :one\nWITH x AS (SELECT update FROM t) SELECT 1 FROM x", false},
+		// The statement after the CTEs.
+		{One, "-- name: Upsert :one\nWITH s AS (SELECT 1 AS v)\nINSERT INTO t SELECT v FROM s RETURNING id", true},
+		// Batch reads return rows; their SQL decides.
+		{":batchone", "-- name: B :batchone\nSELECT 1", false},
+		{":batchmany", "-- name: C :batchmany\nINSERT INTO t DEFAULT VALUES RETURNING id", true},
+		{":batchexec", "-- name: D :batchexec\nSELECT 1", true},
+		{ExecRows, "-- name: Count :execrows\nSELECT 1", true},
+	} {
+		if got := (&Query{Kind: tt.kind, SQL: tt.sql}).Writes(); got != tt.want {
+			t.Errorf("%q: got %v", tt.sql, got)
+		}
+	}
+}

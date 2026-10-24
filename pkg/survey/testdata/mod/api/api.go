@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"example.com/mod/audit"
 	"example.com/mod/db"
 	"github.com/openai/openai-go"
 )
@@ -24,6 +25,117 @@ func (s *Server) GetUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Twice(w http.ResponseWriter, r *http.Request) {
 	s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
 	s.q.GetUser(r.Context(), db.GetUserParams{ID: 2})
+}
+
+// Ban reads, checks, then writes: one .route with .empty.
+func (s *Server) Ban(w http.ResponseWriter, r *http.Request) {
+	n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	if err != nil || n == 0 {
+		http.Error(w, "not yours", 403)
+		return
+	}
+	s.q.BanUser(r.Context(), n)
+}
+
+// CreateThenRead writes first: not a check.
+func (s *Server) CreateThenRead(w http.ResponseWriter, r *http.Request) {
+	s.q.CreateUser(r.Context())
+	s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+}
+
+// Either reads or writes, never both: not a check.
+func (s *Server) Either(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	} else {
+		s.q.BanUser(r.Context(), 1)
+	}
+}
+
+// EitherCase reads or writes by case: not a check either.
+func (s *Server) EitherCase(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/a":
+		s.q.GetUser(r.Context(), db.GetUserParams{ID: 2})
+	default:
+		s.q.BanUser(r.Context(), 2)
+	}
+}
+
+// Audited reads db.GetUser, then writes audit.GetUser: the Params type
+// says which package each call is.
+func (s *Server) Audited(w http.ResponseWriter, r *http.Request) {
+	var a *audit.Queries
+	if _, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1}); err != nil {
+		return
+	}
+	a.GetUser(r.Context(), audit.GetUserParams{ID: 1})
+}
+
+// Unchecked writes whatever the read returned: no check to move into SQL.
+func (s *Server) Unchecked(w http.ResponseWriter, r *http.Request) {
+	n, _ := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	s.q.BanUser(r.Context(), n)
+}
+
+// Logged tests the read, but writes either way: not a check.
+func (s *Server) Logged(w http.ResponseWriter, r *http.Request) {
+	n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	if err != nil {
+		println(err.Error())
+	}
+	s.q.BanUser(r.Context(), n)
+}
+
+// Guarded writes inside the check: a check.
+func (s *Server) Guarded(w http.ResponseWriter, r *http.Request) {
+	if n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1}); err == nil && n > 0 {
+		s.q.BanUser(r.Context(), n)
+	}
+}
+
+// InnerBreak's break only leaves the loop; the write runs anyway: not a
+// check.
+func (s *Server) InnerBreak(w http.ResponseWriter, r *http.Request) {
+	for range 3 {
+		n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+		if err != nil || n == 0 {
+			break
+		}
+	}
+	s.q.BanUser(r.Context(), 1)
+}
+
+// EachUser's continue skips the write in the same loop: a check.
+func (s *Server) EachUser(w http.ResponseWriter, r *http.Request) {
+	for range 3 {
+		n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+		if err != nil || n == 0 {
+			continue
+		}
+		s.q.BanUser(r.Context(), n)
+	}
+}
+
+// Fallthrough runs the read's case into the write's: a check.
+func (s *Server) Fallthrough(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "POST":
+		n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+		if err != nil || n == 0 {
+			return
+		}
+		fallthrough
+	case "PUT":
+		s.q.BanUser(r.Context(), 1)
+	}
+}
+
+// Transfer needs its transaction: not one statement.
+func (s *Server) Transfer(w http.ResponseWriter, r *http.Request) {
+	q := s.q.WithTx(nil)
+	q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	q.CreateUser(r.Context())
 }
 
 var lookup = openai.FunctionDefinitionParam{

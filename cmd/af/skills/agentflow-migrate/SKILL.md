@@ -46,6 +46,7 @@ Each category has a `.af` replacement:
 | tool-calling loops | a loop that calls a model, runs its tool calls and sends results back | `.agent` (+ `.returns`) |
 | prompt strings | long string constants with prompt text | `.title` prompts |
 | single-query handlers | decode request, call one sqlc query, write JSON | `.route` (+ `.sql`) |
+| read-check-write handlers | call a sqlc read, check its result in Go, call a sqlc write | one `.route` + `.sql` holding the check, `.empty` for its failure (see below) |
 
 ### 2. Migrate one site at a time
 

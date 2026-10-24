@@ -1,7 +1,8 @@
 // Package survey estimates how much of a Go module could be defined in .af
 // files: hand-written LLM tool schemas, structured-output schemas, HTTP
-// handlers that only serve one sqlc query, and long prompt strings, next to
-// the code agentflow and sqlc already generate.
+// handlers that serve one sqlc query or read, check and write with two,
+// and long prompt strings, next to the code agentflow and sqlc already
+// generate.
 //
 // It reads source syntactically and uses heuristics, so its numbers are an
 // estimate to steer migration, not a measurement.
@@ -33,6 +34,10 @@ const (
 	Tools   Category = "tool schemas"
 	Outputs Category = "structured outputs"
 	Routes  Category = "single-query handlers"
+	// Checks are handlers that run a sqlc read, check its result in Go,
+	// then run a sqlc write: one .route whose SQL holds the check, with
+	// .empty naming its failure.
+	Checks  Category = "read-check-write handlers"
 	Prompts Category = "prompt strings"
 	Agents  Category = "tool-calling loops"
 
@@ -43,7 +48,7 @@ const (
 )
 
 // Candidates are the categories agentflow could take over.
-var Candidates = []Category{Tools, Outputs, Routes, Prompts, Agents}
+var Candidates = []Category{Tools, Outputs, Routes, Checks, Prompts, Agents}
 
 // Site is one counted piece of code.
 type Site struct {
@@ -118,8 +123,8 @@ func lineCount(b []byte) int {
 	return n
 }
 
-// sqlcQueries returns the names of the sqlc queries in the module, by the
-// import path of their package.
+// sqlcQueries returns the sqlc queries in the module, by the import path
+// of their package, then by name: true for a query that writes.
 func sqlcQueries(root string) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	repo, err := sqlcgo.Find(root)
@@ -128,8 +133,8 @@ func sqlcQueries(root string) map[string]map[string]bool {
 	}
 	for _, p := range repo.Packages {
 		names := map[string]bool{}
-		for name := range p.Queries {
-			names[name] = true
+		for name, q := range p.Queries {
+			names[name] = q.Writes()
 		}
 		out[p.ImportPath] = names
 	}
@@ -209,8 +214,14 @@ func (s *scanner) add(c Category, n ast.Node, name string) {
 func (s *scanner) scan(f *ast.File) {
 	for _, d := range f.Decls {
 		if fn, ok := d.(*ast.FuncDecl); ok && isHandler(fn.Type) && fn.Body != nil {
-			if q := s.singleQuery(fn.Body); q != "" {
-				s.add(Routes, fn, fn.Name.Name+" → "+q)
+			calls, tx := s.queryCalls(fn.Body)
+			start, end := s.fset.Position(fn.Body.Lbrace), s.fset.Position(fn.Body.Rbrace)
+			short := end.Line-start.Line <= 60
+			switch {
+			case len(calls) == 1 && short:
+				s.add(Routes, fn, fn.Name.Name+" → "+calls[0].name)
+			case len(calls) == 2 && short && !tx && !calls[0].write && calls[1].write && !exclusive(calls[0], calls[1]) && checked(fn.Body, calls[0], calls[1]):
+				s.add(Checks, fn, fn.Name.Name+" → "+calls[0].name+", "+calls[1].name)
 			}
 		}
 	}
@@ -358,11 +369,23 @@ func isHandler(ft *ast.FuncType) bool {
 	return ok && rs.Sel.Name == "Request"
 }
 
-// singleQuery returns the sqlc query a handler body calls, when it calls
-// exactly one and is short enough to be glue: decode, query, respond.
-func (s *scanner) singleQuery(body *ast.BlockStmt) string {
-	var calls []string
+type queryCall struct {
+	name  string
+	write bool
+	// path holds the call's enclosing nodes, outermost first.
+	path []ast.Node
+}
+
+// queryCalls returns the sqlc queries a handler body calls, in order, and
+// whether it opens a transaction.
+func (s *scanner) queryCalls(body *ast.BlockStmt) (calls []queryCall, tx bool) {
+	var stack []ast.Node
 	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		stack = append(stack, n)
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
@@ -371,45 +394,197 @@ func (s *scanner) singleQuery(body *ast.BlockStmt) string {
 		if !ok {
 			return true
 		}
-		if s.isQuery(sel.Sel.Name, call) {
-			calls = append(calls, sel.Sel.Name)
+		switch name := sel.Sel.Name; name {
+		case "Begin", "BeginTx", "WithTx":
+			tx = true
+		default:
+			if write, ok := s.query(name, call); ok {
+				calls = append(calls, queryCall{name, write, slices.Clone(stack)})
+			}
 		}
 		return true
 	})
-	if len(calls) != 1 {
-		return ""
-	}
-	start, end := s.fset.Position(body.Lbrace), s.fset.Position(body.Rbrace)
-	if end.Line-start.Line > 60 {
-		return "" // Too much else going on to be a plain route.
-	}
-	return calls[0]
+	return calls, tx
 }
 
-// isQuery reports whether a call to a method named name is a sqlc query:
-// the name is a query and an argument is the package's Params type, or the
-// file is in or imports the sqlc package and the name is unambiguous.
-func (s *scanner) isQuery(name string, call *ast.CallExpr) bool {
-	if s.localQueries[name] {
-		return true
+// exclusive reports whether no run of the handler makes both calls: they
+// sit in different branches of one if, switch or select.
+func exclusive(a, b queryCall) bool {
+	i := 0
+	for i < len(a.path) && i < len(b.path) && a.path[i] == b.path[i] {
+		i++
 	}
+	if i == 0 || i == len(a.path) || i == len(b.path) {
+		return false
+	}
+	switch lca := a.path[i-1].(type) {
+	case *ast.IfStmt:
+		// One in the body and one in the else; not the condition.
+		in := func(n ast.Node) bool { return n == lca.Body || n == lca.Else }
+		return in(a.path[i]) && in(b.path[i])
+	case *ast.BlockStmt:
+		// Different cases of a switch or select, unless a fallthrough
+		// runs from one into the next.
+		if i < 2 {
+			return false
+		}
+		switch a.path[i-2].(type) {
+		case *ast.SwitchStmt:
+			x, y := -1, -1
+			for j, st := range lca.List {
+				switch st {
+				case a.path[i]:
+					x = j
+				case b.path[i]:
+					y = j
+				}
+			}
+			if x < 0 || y < 0 {
+				return false
+			}
+			for _, st := range lca.List[min(x, y):max(x, y)] {
+				if body := st.(*ast.CaseClause).Body; len(body) > 0 {
+					if br, ok := body[len(body)-1].(*ast.BranchStmt); ok && br.Tok == token.FALLTHROUGH {
+						return false
+					}
+				}
+			}
+			return true
+		case *ast.TypeSwitchStmt, *ast.SelectStmt:
+			return true
+		}
+	}
+	return false
+}
+
+// gates reports whether if statement ifs, at path in the handler, keeps
+// the write from running when its body runs: the body ends by returning,
+// panicking, or breaking out of (or continuing) a loop or switch that
+// holds the write. Labeled branches and goto are not followed.
+func gates(ifs *ast.IfStmt, path []ast.Node, write queryCall) bool {
+	b := ifs.Body.List
+	if len(b) == 0 {
+		return false
+	}
+	switch st := b[len(b)-1].(type) {
+	case *ast.ReturnStmt:
+		return true
+	case *ast.ExprStmt:
+		if call, ok := st.X.(*ast.CallExpr); ok {
+			if id, ok := call.Fun.(*ast.Ident); ok {
+				return id.Name == "panic"
+			}
+		}
+		return false
+	case *ast.BranchStmt:
+		if st.Label != nil || (st.Tok != token.BREAK && st.Tok != token.CONTINUE) {
+			return false
+		}
+		// The innermost statement the branch leaves.
+		for _, n := range slices.Backward(path) {
+			switch n.(type) {
+			case *ast.ForStmt, *ast.RangeStmt:
+			case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+				if st.Tok == token.CONTINUE {
+					continue
+				}
+			default:
+				continue
+			}
+			return slices.Contains(write.path, n)
+		}
+	}
+	return false
+}
+
+// checked reports whether an if between a read and a write tests what
+// the read returned and gates the write, so the write depends on a check
+// that SQL can hold: the write is inside the if, or the if keeps it from
+// running.
+func checked(body *ast.BlockStmt, read, write queryCall) bool {
+	call := read.path[len(read.path)-1]
+	var names []string
+	for _, n := range slices.Backward(read.path) {
+		if as, ok := n.(*ast.AssignStmt); ok {
+			for _, l := range as.Lhs {
+				if id, ok := l.(*ast.Ident); ok && id.Name != "_" {
+					names = append(names, id.Name)
+				}
+			}
+			break
+		}
+	}
+	if len(names) == 0 {
+		return false
+	}
+	at := write.path[len(write.path)-1].Pos()
+	found := false
+	var stack []ast.Node
+	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		stack = append(stack, n)
+		ifs, ok := n.(*ast.IfStmt)
+		if !ok || found || ifs.Cond.Pos() < call.End() || ifs.Cond.Pos() > at {
+			return true
+		}
+		tests := false
+		ast.Inspect(ifs.Cond, func(c ast.Node) bool {
+			if id, ok := c.(*ast.Ident); ok && slices.Contains(names, id.Name) {
+				tests = true
+			}
+			return !tests
+		})
+		found = tests && (slices.Contains(write.path, ast.Node(ifs)) || gates(ifs, stack[:len(stack)-1], write))
+		return true
+	})
+	return found
+}
+
+// isQuery reports whether a call to a method named name is a sqlc query.
+func (s *scanner) isQuery(name string, call *ast.CallExpr) bool {
+	_, ok := s.query(name, call)
+	return ok
+}
+
+// query reports whether a call to a method named name is a sqlc query,
+// and whether that query writes: the name is a query and an argument is
+// its package's Params type, or the file is in or imports the sqlc
+// package and the name is unambiguous.
+func (s *scanner) query(name string, call *ast.CallExpr) (write, ok bool) {
+	if w, ok := s.localQueries[name]; ok {
+		return w, true
+	}
+	// A Params argument names the package.
 	for pkg, names := range s.sqlcNames {
-		if !names[name] {
+		w, ok := names[name]
+		if !ok {
 			continue
 		}
 		for _, a := range call.Args {
 			if lit, ok := a.(*ast.CompositeLit); ok {
 				if sel, ok := lit.Type.(*ast.SelectorExpr); ok {
 					if x, ok := sel.X.(*ast.Ident); ok && x.Name == pkg {
-						return true
+						return w, true
 					}
 				}
 			}
 		}
-		// Single-argument queries take no Params struct.
-		return len(call.Args) <= 2
 	}
-	return false
+	// Otherwise the name has to be unambiguous. Single-argument queries
+	// take no Params struct.
+	if len(call.Args) > 2 {
+		return false, false
+	}
+	found := 0
+	for _, names := range s.sqlcNames {
+		if w, ok := names[name]; ok {
+			write, found = w, found+1
+		}
+	}
+	return write, found == 1
 }
 
 var (

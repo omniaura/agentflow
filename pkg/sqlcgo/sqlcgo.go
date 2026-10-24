@@ -75,6 +75,65 @@ type Query struct {
 	// File and Line locate the query's method in sqlc's output.
 	File string
 	Line int
+	// SQL is the query's text, as sqlc's output holds it.
+	SQL string
+}
+
+var (
+	// sqlSkipRE matches the parts of SQL that hold no keywords: comments,
+	// string literals and quoted identifiers.
+	sqlSkipRE = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/|'(?:[^']|'')*'|"(?:[^"]|"")*"`)
+	// sqlCTEWriteRE matches a data-modifying statement in a WITH query: a
+	// CTE body, or the statement after the CTEs.
+	sqlCTEWriteRE = regexp.MustCompile(`(?i)[()]\s*(insert|update|delete|merge)\b`)
+)
+
+// dollarTagRE matches the delimiter of a PostgreSQL dollar-quoted string:
+// $$ or $tag$.
+var dollarTagRE = regexp.MustCompile(`\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$`)
+
+// skipDollarQuotes blanks dollar-quoted strings, each up to the same
+// delimiter that opened it.
+func skipDollarQuotes(sql string) string {
+	var b strings.Builder
+	for {
+		loc := dollarTagRE.FindStringIndex(sql)
+		if loc == nil {
+			b.WriteString(sql)
+			return b.String()
+		}
+		tag := sql[loc[0]:loc[1]]
+		end := strings.Index(sql[loc[1]:], tag)
+		b.WriteString(sql[:loc[0]])
+		b.WriteByte(' ')
+		if end < 0 {
+			return b.String()
+		}
+		sql = sql[loc[1]+end+len(tag):]
+	}
+}
+
+// Writes reports whether q changes rows: an :exec-style query, or one
+// that returns rows from SQL that is, or whose WITH clause holds, an
+// INSERT, UPDATE, DELETE or MERGE.
+func (q *Query) Writes() bool {
+	switch q.Kind {
+	case One, Many, ":batchone", ":batchmany":
+	default:
+		return true
+	}
+	sql := sqlSkipRE.ReplaceAllString(skipDollarQuotes(q.SQL), " ")
+	fields := strings.Fields(sql)
+	if len(fields) == 0 {
+		return false
+	}
+	switch strings.ToUpper(fields[0]) {
+	case "INSERT", "UPDATE", "DELETE", "MERGE":
+		return true
+	case "WITH":
+		return sqlCTEWriteRE.MatchString(sql)
+	}
+	return false
 }
 
 // Package is one sqlc-generated Go package.
@@ -323,6 +382,7 @@ func LoadPackage(dir string) (*Package, error) {
 	}
 	p := &Package{Dir: dir, ImportPath: importPath, Queries: map[string]*Query{}}
 	kinds := map[string]Kind{}
+	sqls := map[string]string{}
 	structs := map[string]*ast.StructType{}
 	type method struct {
 		decl *ast.FuncDecl
@@ -358,6 +418,7 @@ func LoadPackage(dir string) (*Package, error) {
 							if lit, ok := v.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 								if m := nameRE.FindStringSubmatch(lit.Value); m != nil {
 									kinds[m[1]] = Kind(m[2])
+									sqls[m[1]], _ = strconv.Unquote(lit.Value)
 								}
 							}
 						}
@@ -381,7 +442,7 @@ func LoadPackage(dir string) (*Package, error) {
 			continue
 		}
 		pos := fset.Position(m.decl.Name.Pos())
-		query := &Query{Name: name, Kind: kind, File: pos.Filename, Line: pos.Line}
+		query := &Query{Name: name, Kind: kind, File: pos.Filename, Line: pos.Line, SQL: sqls[name]}
 		params := m.decl.Type.Params.List[1:]
 		switch {
 		case len(params) == 0:

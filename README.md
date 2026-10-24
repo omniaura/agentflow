@@ -844,12 +844,13 @@ It stops at the first failing step. If ejected files have merge conflicts, resol
 
 ## Surveying a Codebase
 
-`af survey [dir]` estimates how much of a Go module agentflow could define. It finds hand-written LLM tool schemas (`.tool`), structured-output schemas (`.output`), HTTP handlers that only serve one sqlc query (`.route`), long prompt strings (`.title`) and hand-written tool-calling loops (`.agent`): loops that call a model, read its tool calls and send results back. It reports them next to the code agentflow and sqlc already generate:
+`af survey [dir]` estimates how much of a Go module agentflow could define. It finds hand-written LLM tool schemas (`.tool`), structured-output schemas (`.output`), HTTP handlers that only serve one sqlc query (`.route`), handlers that run a sqlc read, check it in Go, then run a sqlc write (`.route` + `.empty`, with the check moved into the SQL), long prompt strings (`.title`) and hand-written tool-calling loops (`.agent`): loops that call a model, read its tool calls and send results back. It reports them next to the code agentflow and sqlc already generate:
 
-    candidates for .af                   sites    lines of hand-written
-      tool schemas (.tool)                 122     1966 0.4%
-      single-query handlers (.route)       205     6587 1.3%
-      tool-calling loops (.agent)            9     2666 0.5%
+    candidates for .af                               sites    lines of hand-written
+      tool schemas (.tool)                             122     1966 0.4%
+      single-query handlers (.route)                   205     6587 1.3%
+      read-check-write handlers (.route + .empty)       18      850 0.2%
+      tool-calling loops (.agent)                        9     2666 0.5%
       ...
 
 `--top N` lists the largest sites of each kind, so you know where to start, and `--json` prints the full report. The survey reads source syntactically with heuristics, so treat its numbers as an estimate to steer migration, not a measurement.
