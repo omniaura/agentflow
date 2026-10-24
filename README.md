@@ -540,6 +540,24 @@ Answers customer questions about their orders.
 | `.returns name` | The `.output` its final answer must be. `Run` then returns it decoded. |
 | `.serve POST /path` | Also serve the agent over HTTP (`POST` or `PUT`). |
 
+**Subagents.** `.tools` may also name another agent, which then runs as a subagent:
+
+```af
+.agent concierge
+.tools lookup_order, tracker
+
+Answers any customer question, handing parcel tracking to the tracker agent.
+```
+
+The model sees `tracker` as a tool that takes one `task` string, described by the tracker's own description. Write that description for the model that will decide when to call it. The generated `ConciergeAgent` gets a `Tracker func(ctx, task) (string, error)` field, and every agent has `AsTool`, which returns such a func: it runs the agent with the task as the user's message and returns its answer. For a `.returns` agent, that answer is its decoded output as JSON.
+
+```go
+tracker := &TrackerAgent{Model: model, Tools: &courier{}}
+concierge := &ConciergeAgent{Model: model, Tools: &shop{}, Tracker: tracker.AsTool(&Support{})}
+```
+
+The subagent has its own model, tools, turn limit and events, and sees only the task, so the calling model must put everything it needs in it. An agent can't list itself, agents can't call each other in a cycle, and a subagent needs a description. At run time, `AsTool` refuses to nest subagents deeper than `afagent.MaxDepth` (8), which also covers custom wiring the static check can't see.
+
 Tools can live in their own files. The generated code of every `.af` file in a directory shares one Go package, so `.tools` may name a tool declared in another file of the directory. Its schema and decoder are generated there, and the agent calls it by name. `af lint` and the language server resolve those names too: go to definition jumps to the other file, and completion after `.tools` lists every tool of the package. A tool may be declared once per package.
 
 You implement the tools as methods and bring a model:

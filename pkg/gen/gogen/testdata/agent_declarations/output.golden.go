@@ -4,6 +4,7 @@ package agentdeclarations
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -192,6 +193,33 @@ func (a *SupportAgent) dispatch(ctx context.Context, call afagent.ToolCall) (str
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
 }
 
+// SupportAgentTool describes the support agent as a tool another agent may
+// call with a task: name it in that agent's .tools.
+var SupportAgentTool = &aftool.Def[aftool.Task]{
+	Name:        "support",
+	Description: `Answers customer questions about their orders.`,
+	Schema:      []byte(`{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "task", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AsTool runs the agent as another agent's tool: each call runs it
+// with the task as the user's message, and returns its answer.
+func (a *SupportAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
+	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
+		if err != nil {
+			return "", err
+		}
+		return res.Final, nil
+	}
+}
+
 // TriagerTools runs the tools of the triager agent. Each method gets the call's
 // decoded arguments; its result or error goes back to the model.
 type TriagerTools interface {
@@ -304,6 +332,35 @@ func (a *TriagerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (str
 		return a.Tools.LookupOrder(ctx, args)
 	}
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
+}
+
+// TriagerAgentTool describes the triager agent as a tool another agent may
+// call with a task: name it in that agent's .tools.
+var TriagerAgentTool = &aftool.Def[aftool.Task]{
+	Name:        "triager",
+	Description: `Sorts customer messages, looking orders up when it helps.`,
+	Schema:      []byte(`{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "task", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AsTool runs the agent as another agent's tool: each call runs it
+// with the task as the user's message, and returns its answer, the
+// decoded output as JSON.
+func (a *TriagerAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
+	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
+		if err != nil {
+			return "", err
+		}
+		b, err := json.Marshal(res.Output)
+		return string(b), err
+	}
 }
 
 // TriagerAgentRequest is the body of POST /triage.

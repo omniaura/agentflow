@@ -306,6 +306,33 @@ func (a *NotesAgent) dispatch(ctx context.Context, call afagent.ToolCall) (strin
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
 }
 
+// NotesAgentTool describes the notes agent as a tool another agent may
+// call with a task: name it in that agent's .tools.
+var NotesAgentTool = &aftool.Def[aftool.Task]{
+	Name:        "notes",
+	Description: `Answers questions about the caller's notes and pins them.`,
+	Schema:      []byte(`{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "task", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AsTool runs the agent as another agent's tool: each call runs it
+// with the task as the user's message, and returns its answer.
+func (a *NotesAgent) AsTool(system *NotesAssistant) func(ctx context.Context, task string) (string, error) {
+	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
+		if err != nil {
+			return "", err
+		}
+		return res.Final, nil
+	}
+}
+
 // NotesAgentRequest is the body of POST /assistant.
 type NotesAgentRequest struct {
 	// Message is the user's new message.

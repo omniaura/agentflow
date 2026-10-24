@@ -302,12 +302,19 @@ func (d *Document) agentToolDefinition(a *decl.Agent, sec token.T, off int) []pr
 			locs = append(locs, protocol.Location{URI: d.URI, Range: Range{Start: pos, End: pos}.protocol()})
 		}
 	}
+	// .tools may name another agent, run as a subagent.
+	for _, sub := range f.Agents {
+		if sub.Name == name {
+			pos := offsetToPosition(d.Content, sub.Start)
+			locs = append(locs, protocol.Location{URI: d.URI, Range: Range{Start: pos, End: pos}.protocol()})
+		}
+	}
 	if p := d.path(); p != "" {
 		for _, sib := range ast.SiblingToolsRead(p, d.readSibling) {
-			if sib.Tool.Name != name {
+			if sib.Name() != name {
 				continue
 			}
-			pos := offsetToPosition(sib.Src, sib.Tool.Start)
+			pos := offsetToPosition(sib.Src, sib.Start())
 			locs = append(locs, protocol.Location{URI: fileURI(sib.Path), Range: Range{Start: pos, End: pos}.protocol()})
 		}
 	}
@@ -625,27 +632,40 @@ var toolsListRE = regexp.MustCompile(`^\.tools[ \t]+([\w-]+[ \t]*,[ \t]*)*[\w-]*
 // toolNameCompletions offers the tools an agent's .tools may name: the
 // file's own and those of the other .af files of its directory, less the
 // ones already listed.
-func (d *Document) toolNameCompletions(beforeCursor []byte) []CompletionItem {
+func (d *Document) toolNameCompletions(off int, beforeCursor []byte) []CompletionItem {
 	listed := map[string]bool{}
 	for _, n := range strings.Split(strings.TrimPrefix(string(beforeCursor), ".tools"), ",") {
 		listed[strings.TrimSpace(n)] = true
 	}
 	var items []CompletionItem
-	add := func(t *decl.Tool, detail string) {
-		if listed[t.Name] {
+	add := func(name, description, detail string) {
+		if listed[name] {
 			return
 		}
-		listed[t.Name] = true
-		items = append(items, CompletionItem{Label: t.Name, Kind: protocol.CompletionItemKindFunction, Detail: detail, Documentation: strings.TrimSpace(t.Description)})
+		listed[name] = true
+		items = append(items, CompletionItem{Label: name, Kind: protocol.CompletionItemKindFunction, Detail: detail, Documentation: strings.TrimSpace(description)})
 	}
 	if f, err := decl.Parse(d.Content); err == nil {
 		for _, t := range f.Tools {
-			add(t, "tool in this file")
+			add(t.Name, t.Description, "tool in this file")
+		}
+		// Other agents run as subagents; an agent can't call itself.
+		for _, a := range f.Agents {
+			if off < a.Start || off > a.End {
+				add(a.Name, a.Description, "agent in this file")
+			}
 		}
 	}
 	if p := d.path(); p != "" {
 		for _, sib := range ast.SiblingToolsRead(p, d.readSibling) {
-			add(sib.Tool, "tool in "+filepath.Base(sib.Path))
+			kind := "tool"
+			description := ""
+			if sib.Agent != nil {
+				kind, description = "agent", sib.Agent.Description
+			} else {
+				description = sib.Tool.Description
+			}
+			add(sib.Name(), description, kind+" in "+filepath.Base(sib.Path))
 		}
 	}
 	return items
@@ -665,7 +685,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		return items
 	}
 	if sec := d.sectionDirectiveAt(d.positionToOffset(pos)); sec == ".agent" && toolsListRE.Match(beforeCursor) {
-		return d.toolNameCompletions(beforeCursor)
+		return d.toolNameCompletions(d.positionToOffset(pos), beforeCursor)
 	}
 	trimmed := bytes.TrimSpace(beforeCursor)
 	if len(beforeCursor) != len(trimmed) || (len(trimmed) > 0 && trimmed[0] != '.') || bytes.ContainsAny(trimmed, " \t") {

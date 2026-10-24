@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -192,6 +193,33 @@ func (a *SupportAgent) dispatch(ctx context.Context, call afagent.ToolCall) (str
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
 }
 
+// SupportAgentTool describes the support agent as a tool another agent may
+// call with a task: name it in that agent's .tools.
+var SupportAgentTool = &aftool.Def[aftool.Task]{
+	Name:        "support",
+	Description: `Answers customer questions about their orders.`,
+	Schema:      []byte(`{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "task", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AsTool runs the agent as another agent's tool: each call runs it
+// with the task as the user's message, and returns its answer.
+func (a *SupportAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
+	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
+		if err != nil {
+			return "", err
+		}
+		return res.Final, nil
+	}
+}
+
 // TriagerTools runs the tools of the triager agent. Each method gets the call's
 // decoded arguments; its result or error goes back to the model.
 type TriagerTools interface {
@@ -304,6 +332,35 @@ func (a *TriagerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (str
 		return a.Tools.LookupOrder(ctx, args)
 	}
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
+}
+
+// TriagerAgentTool describes the triager agent as a tool another agent may
+// call with a task: name it in that agent's .tools.
+var TriagerAgentTool = &aftool.Def[aftool.Task]{
+	Name:        "triager",
+	Description: `Sorts customer messages, looking orders up when it helps.`,
+	Schema:      []byte(`{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "task", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AsTool runs the agent as another agent's tool: each call runs it
+// with the task as the user's message, and returns its answer, the
+// decoded output as JSON.
+func (a *TriagerAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
+	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
+		if err != nil {
+			return "", err
+		}
+		b, err := json.Marshal(res.Output)
+		return string(b), err
+	}
 }
 
 // TriagerAgentRequest is the body of POST /triage.
@@ -509,6 +566,165 @@ func (a *TrackerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (str
 		return a.Tools.TrackShipment(ctx, args)
 	}
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
+}
+
+// TrackerAgentTool describes the tracker agent as a tool another agent may
+// call with a task: name it in that agent's .tools.
+var TrackerAgentTool = &aftool.Def[aftool.Task]{
+	Name: "tracker",
+	Description: `Tells customers where their parcel is. track_shipment is declared in
+shipping.af: an agent may use the tools of any .af file in its package.`,
+	Schema: []byte(`{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "task", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AsTool runs the agent as another agent's tool: each call runs it
+// with the task as the user's message, and returns its answer.
+func (a *TrackerAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
+	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
+		if err != nil {
+			return "", err
+		}
+		return res.Final, nil
+	}
+}
+
+// ConciergeTools runs the tools of the concierge agent. Each method gets the call's
+// decoded arguments; its result or error goes back to the model.
+type ConciergeTools interface {
+	// LookupOrder: Load one order by ID. Returns its status and total.
+	LookupOrder(ctx context.Context, args LookupOrderArgs) (string, error)
+}
+
+// ConciergeAgent is the concierge agent.
+//
+// Answers any customer question, handing parcel tracking to the tracker
+// agent, which runs as a subagent with its own tools.
+type ConciergeAgent struct {
+	Model afagent.Model
+	Tools ConciergeTools
+	// Tracker runs the tracker agent on a task the model writes, and returns its
+	// answer. Set it to (&TrackerAgent{...}).AsTool(...), or to any func.
+	Tracker func(ctx context.Context, task string) (string, error)
+	// MaxTurns bounds the model calls of a run; 0 or less means 4.
+	MaxTurns int
+	// MaxToolCalls bounds the tool calls of a run; once they have run, the
+	// model answers without tools. 0 or less means no bound.
+	MaxToolCalls int
+	// Concurrency is how many tool calls of a turn run at once.
+	Concurrency int
+	// Allow, when set, picks the tools of a run, such as the ones a
+	// workspace enabled: only tools it allows are offered to the model,
+	// and a call to another is refused. Nil allows every tool.
+	Allow func(ctx context.Context, tool string) bool
+	// OnEvent, when set, sees each model response and tool call. With
+	// Concurrency above 1 it is called concurrently.
+	OnEvent func(afagent.Event)
+}
+
+// ConciergeAgentTools describes the tools of the concierge agent to the model.
+var ConciergeAgentTools = []afagent.ToolSpec{
+	{Name: LookupOrderTool.Name, Description: LookupOrderTool.Description, Schema: LookupOrderTool.Schema},
+	{Name: TrackerAgentTool.Name, Description: TrackerAgentTool.Description, Schema: TrackerAgentTool.Schema},
+}
+
+// Run continues the conversation in messages until the model answers
+// without calling a tool, and returns the answer and the conversation.
+func (a *ConciergeAgent) Run(ctx context.Context, system *Support, messages ...afagent.Message) (afagent.Result, error) {
+	maxTurns := a.MaxTurns
+	if maxTurns <= 0 {
+		maxTurns = 4
+	}
+	maxToolCalls := a.MaxToolCalls
+	tools := a.tools(ctx)
+	loop := afagent.Loop{
+		Model:        a.Model,
+		System:       system.String(),
+		Tools:        tools,
+		MaxTurns:     maxTurns,
+		Concurrency:  a.Concurrency,
+		OnEvent:      a.OnEvent,
+		MaxToolCalls: maxToolCalls,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
+		AnswerOnLastTurn: true,
+	}
+	return loop.Run(ctx, messages)
+}
+
+// tools are the tools offered in a run: those Allow allows.
+func (a *ConciergeAgent) tools(ctx context.Context) []afagent.ToolSpec {
+	if a.Allow == nil {
+		return ConciergeAgentTools
+	}
+	var out []afagent.ToolSpec
+	for _, t := range ConciergeAgentTools {
+		if a.Allow(ctx, t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func (a *ConciergeAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
+	switch call.Name {
+	case LookupOrderTool.Name:
+		args, err := LookupOrderTool.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		return a.Tools.LookupOrder(ctx, args)
+	case TrackerAgentTool.Name:
+		args, err := TrackerAgentTool.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		if a.Tracker == nil {
+			return "", errors.New("the tracker agent is not set up")
+		}
+		return a.Tracker(ctx, args.Task)
+	}
+	return "", fmt.Errorf("there is no tool named %q", call.Name)
+}
+
+// ConciergeAgentTool describes the concierge agent as a tool another agent may
+// call with a task: name it in that agent's .tools.
+var ConciergeAgentTool = &aftool.Def[aftool.Task]{
+	Name: "concierge",
+	Description: `Answers any customer question, handing parcel tracking to the tracker
+agent, which runs as a subagent with its own tools.`,
+	Schema: []byte(`{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "task", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AsTool runs the agent as another agent's tool: each call runs it
+// with the task as the user's message, and returns its answer.
+func (a *ConciergeAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
+	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
+		if err != nil {
+			return "", err
+		}
+		return res.Final, nil
+	}
 }
 
 type Support struct {

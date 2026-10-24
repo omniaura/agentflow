@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -67,5 +68,69 @@ func TestTrackerMaxCalls(t *testing.T) {
 	model, _ = script(t, track, track, track, afagent.Message{Content: "ok"})
 	if res, err := (&TrackerAgent{Model: model, Tools: &courier{}, MaxToolCalls: 10}).Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "hi"}); err != nil || res.ToolCalls != 6 {
 		t.Fatalf("MaxToolCalls 10: %v, %d calls", err, res.ToolCalls)
+	}
+}
+
+// The concierge hands tracking to the tracker agent, which runs as a
+// subagent: its own model, tools and turns, seeing only the task.
+func TestConciergeDelegatesToTracker(t *testing.T) {
+	trackerModel, trackerSeen := script(t,
+		afagent.Message{ToolCalls: []afagent.ToolCall{call("t1", "track_shipment", `{"order_id":"A-1"}`)}},
+		afagent.Message{Content: "A-1 arrives Tuesday."},
+	)
+	tracker := &TrackerAgent{Model: trackerModel, Tools: &courier{}}
+	conciergeModel, conciergeSeen := script(t,
+		afagent.Message{ToolCalls: []afagent.ToolCall{call("c1", "tracker", `{"task":"Where is order A-1?"}`)}},
+		afagent.Message{Content: "Your parcel arrives Tuesday."},
+	)
+	concierge := &ConciergeAgent{Model: conciergeModel, Tools: &shop{}, Tracker: tracker.AsTool(&Support{})}
+	res, err := concierge.Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "where's my stuff?"})
+	if err != nil || res.Final != "Your parcel arrives Tuesday." {
+		t.Fatalf("got %v: %+v", err, res)
+	}
+	// The concierge sees the tracker as a tool described by its .agent text.
+	var offered []string
+	for _, spec := range (*conciergeSeen)[0].Tools {
+		offered = append(offered, spec.Name)
+	}
+	if strings.Join(offered, ",") != "lookup_order,tracker" || !strings.Contains(TrackerAgentTool.Description, "where their parcel is") {
+		t.Errorf("offered %v, description %q", offered, TrackerAgentTool.Description)
+	}
+	// The tracker got only the task, and its answer came back as the result.
+	if first := (*trackerSeen)[0].Messages; len(first) != 1 || first[0].Content != "Where is order A-1?" {
+		t.Errorf("tracker's messages = %+v", first)
+	}
+	if got := res.Messages[2]; got.IsError || got.Content != "A-1 arrives Tuesday." {
+		t.Errorf("tracker result = %+v", got)
+	}
+}
+
+func TestConciergeSubagentErrors(t *testing.T) {
+	ask := afagent.Message{ToolCalls: []afagent.ToolCall{call("c1", "tracker", `{"task":"Where is A-1?"}`)}}
+	for name, c := range map[string]struct {
+		tracker func(context.Context, string) (string, error)
+		args    string
+		want    string
+	}{
+		"unset":       {nil, `{"task":"x"}`, "the tracker agent is not set up"},
+		"failed":      {func(context.Context, string) (string, error) { return "", errors.New("model down") }, `{"task":"x"}`, "model down"},
+		"no task":     {func(context.Context, string) (string, error) { return "ok", nil }, `{}`, "task"},
+		"extra field": {func(context.Context, string) (string, error) { return "ok", nil }, `{"task":"x","agent":"y"}`, "agent"},
+	} {
+		ask.ToolCalls[0].Arguments = c.args
+		model, _ := script(t, ask, afagent.Message{Content: "sorry"})
+		res, err := (&ConciergeAgent{Model: model, Tools: &shop{}, Tracker: c.tracker}).Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "hi"})
+		if err != nil || !res.Messages[2].IsError || !strings.Contains(res.Messages[2].Content, c.want) {
+			t.Errorf("%s: %v, %+v", name, err, res.Messages[2])
+		}
+	}
+}
+
+// An agent with .returns, called as a tool, returns its output as JSON.
+func TestTriagerAsTool(t *testing.T) {
+	model, _ := script(t, afagent.Message{Content: `{"category":"order","order_id":null,"urgent":false}`})
+	got, err := (&TriagerAgent{Model: model, Tools: &shop{}}).AsTool(&Support{})(context.Background(), "my order is late")
+	if err != nil || got != `{"category":"order","urgent":false}` {
+		t.Fatalf("got %q, %v", got, err)
 	}
 }

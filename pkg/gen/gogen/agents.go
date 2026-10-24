@@ -45,10 +45,19 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		imports[AfagentImport] = true
 		name := camel(a.Name)
 
-		if len(tools) > 0 {
+		var methods, subs []toolRef
+		for _, r := range tools {
+			if r.sub != nil {
+				subs = append(subs, r)
+			} else {
+				methods = append(methods, r)
+			}
+		}
+		if len(methods) > 0 {
 			fmt.Fprintf(buf, "// %sTools runs the tools of the %s agent. Each method gets the call's\n// decoded arguments; its result or error goes back to the model.\n", name, a.Name)
 			fmt.Fprintf(buf, "type %sTools interface {\n", name)
-			for _, t := range tools {
+			for _, r := range methods {
+				t := r.tool
 				tn := camel(t.Name)
 				if desc := firstLine(t.Description); desc != "" {
 					fmt.Fprintf(buf, "// %s: %s\n", tn, desc)
@@ -69,8 +78,12 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		}
 		fmt.Fprintf(buf, "type %sAgent struct {\n", name)
 		buf.WriteString("Model afagent.Model\n")
-		if len(tools) > 0 {
+		if len(methods) > 0 {
 			fmt.Fprintf(buf, "Tools %sTools\n", name)
+		}
+		for _, r := range subs {
+			sn := camel(r.sub.Name)
+			fmt.Fprintf(buf, "// %s runs the %s agent on a task the model writes, and returns its\n// answer. Set it to (&%sAgent{...}).AsTool(...), or to any func.\n%s func(ctx context.Context, task string) (string, error)\n", sn, r.sub.Name, sn, sn)
 		}
 		buf.WriteString("// MaxTurns bounds the model calls of a run")
 		if a.MaxTurns > 0 {
@@ -100,9 +113,9 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 
 		fmt.Fprintf(buf, "// %sAgentTools describes the tools of the %s agent to the model.\n", name, a.Name)
 		fmt.Fprintf(buf, "var %sAgentTools = []afagent.ToolSpec{\n", name)
-		for _, t := range tools {
-			tn := camel(t.Name)
-			fmt.Fprintf(buf, "{Name: %sTool.Name, Description: %sTool.Description, Schema: %sTool.Schema},\n", tn, tn, tn)
+		for _, r := range tools {
+			d := r.def()
+			fmt.Fprintf(buf, "{Name: %s.Name, Description: %s.Description, Schema: %s.Schema},\n", d, d, d)
 		}
 		buf.WriteString("}\n\n")
 
@@ -162,17 +175,55 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			fmt.Fprintf(buf, "// tools are the tools offered in a run: those Allow allows.\nfunc (a *%sAgent) tools(ctx context.Context) []afagent.ToolSpec {\nif a.Allow == nil {\nreturn %sAgentTools\n}\nvar out []afagent.ToolSpec\nfor _, t := range %sAgentTools {\nif a.Allow(ctx, t.Name) {\nout = append(out, t)\n}\n}\nreturn out\n}\n\n", name, name, name)
 			fmt.Fprintf(buf, "func (a *%sAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {\n", name)
 			buf.WriteString("switch call.Name {\n")
-			for _, t := range tools {
-				tn := camel(t.Name)
-				fmt.Fprintf(buf, "case %sTool.Name:\nargs, err := %sTool.Decode(call.Arguments)\nif err != nil {\nreturn \"\", err\n}\nreturn a.Tools.%s(ctx, args)\n", tn, tn, tn)
+			for _, r := range tools {
+				d := r.def()
+				fmt.Fprintf(buf, "case %s.Name:\nargs, err := %s.Decode(call.Arguments)\nif err != nil {\nreturn \"\", err\n}\n", d, d)
+				if r.sub == nil {
+					fmt.Fprintf(buf, "return a.Tools.%s(ctx, args)\n", camel(r.tool.Name))
+					continue
+				}
+				sn := camel(r.sub.Name)
+				imports["errors"] = true
+				fmt.Fprintf(buf, "if a.%s == nil {\nreturn \"\", errors.New(\"the %s agent is not set up\")\n}\nreturn a.%s(ctx, args.Task)\n", sn, r.sub.Name, sn)
 			}
 			buf.WriteString("}\nreturn \"\", fmt.Errorf(\"there is no tool named %q\", call.Name)\n}\n\n")
 		}
+		genAgentAsTool(buf, a, name, system, returns, imports)
 		if a.ServePath != "" {
 			genAgentServer(buf, a, name, system, returns, imports)
 		}
 	}
 	return nil
+}
+
+// agentTaskSchema is the JSON Schema of an agent called as a tool.
+const agentTaskSchema = `{"type":"object","properties":{"task":{"type":"string","description":"The task, with everything the agent needs to do it: it sees nothing else of this conversation."}},"required":["task"],"additionalProperties":false}`
+
+// genAgentAsTool writes <Name>AgentTool, which describes the agent as a
+// tool another agent's .tools may name, and AsTool, which runs it so.
+func genAgentAsTool(buf *bytes.Buffer, a *decl.Agent, name, system string, returns *decl.Tool, imports map[string]bool) {
+	imports[AftoolImport] = true
+	fmt.Fprintf(buf, "// %sAgentTool describes the %s agent as a tool another agent may\n// call with a task: name it in that agent's .tools.\n", name, a.Name)
+	fmt.Fprintf(buf, "var %sAgentTool = &aftool.Def[aftool.Task]{\nName: %q,\nDescription: %s,\nSchema: []byte(`%s`),\nShape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{\n{Name: \"task\", Required: true, Shape: aftool.Shape{Kind: aftool.String}},\n}},\n}\n\n", name, a.Name, goString(strings.TrimSpace(a.Description)), agentTaskSchema)
+	param, arg := "", ""
+	if system != "" {
+		param, arg = "system *"+system, "system, "
+	}
+	answer := "res.Final, nil"
+	if returns != nil {
+		imports["encoding/json"] = true
+		answer = "string(b), err"
+	}
+	fmt.Fprintf(buf, "// AsTool runs the agent as another agent's tool: each call runs it\n// with the task as the user's message, and returns its answer")
+	if returns != nil {
+		buf.WriteString(", the\n// decoded output as JSON")
+	}
+	buf.WriteString(".\n")
+	fmt.Fprintf(buf, "func (a *%sAgent) AsTool(%s) func(ctx context.Context, task string) (string, error) {\nreturn func(ctx context.Context, task string) (string, error) {\nctx, err := afagent.Nest(ctx)\nif err != nil {\nreturn \"\", err\n}\nres, err := a.Run(ctx, %safagent.Message{Role: afagent.User, Content: task})\nif err != nil {\nreturn \"\", err\n}\n", name, param, arg)
+	if returns != nil {
+		buf.WriteString("b, err := json.Marshal(res.Output)\n")
+	}
+	fmt.Fprintf(buf, "return %s\n}\n}\n\n", answer)
 }
 
 func firstLine(s string) string {
@@ -226,19 +277,48 @@ func agentReturns(f ast.File, a *decl.Agent) (*decl.Tool, error) {
 	return nil, fmt.Errorf("agent %s: no output %s in this file (%s)", a.Name, a.Returns, list)
 }
 
-func agentTools(f ast.File, a *decl.Agent, siblings []ast.SiblingTool) ([]*decl.Tool, error) {
+func agentTools(f ast.File, a *decl.Agent, siblings []ast.SiblingTool) ([]toolRef, error) {
 	if a.Tools == nil {
-		return f.Tools, nil
-	}
-	var out []*decl.Tool
-	for _, name := range a.Tools {
-		t, err := ast.FindTool(f.Tools, siblings, name)
-		if err != nil {
-			return nil, fmt.Errorf("agent %s: %w", a.Name, err)
+		refs := make([]toolRef, len(f.Tools))
+		for i, t := range f.Tools {
+			refs[i] = toolRef{tool: t}
 		}
-		out = append(out, t)
+		return refs, nil
+	}
+	var out []toolRef
+	for _, name := range a.Tools {
+		t, sub, err := ast.FindTool(f.Tools, f.Agents, siblings, name)
+		switch {
+		case err != nil:
+			return nil, fmt.Errorf("agent %s: %w", a.Name, err)
+		case sub != nil && sub.Name == a.Name:
+			return nil, fmt.Errorf("agent %s lists itself in .tools", a.Name)
+		case sub != nil && strings.TrimSpace(sub.Description) == "":
+			return nil, fmt.Errorf("agent %s: agent %s needs a description to be called as a tool: the model reads it to know when to call it", a.Name, sub.Name)
+		case sub != nil:
+			if cycle := ast.SubagentCycle(a.Name, ast.PackageAgents(f.Agents, siblings)); cycle != nil {
+				return nil, fmt.Errorf("agents call each other in a cycle (%s), which could delegate without end", strings.Join(cycle, " → "))
+			}
+		}
+		out = append(out, toolRef{tool: t, sub: sub})
 	}
 	return out, nil
+}
+
+// toolRef is a tool an agent may call: a .tool, or another agent run as
+// a subagent.
+type toolRef struct {
+	tool *decl.Tool
+	sub  *decl.Agent
+}
+
+// def is the Go name of the tool's definition: XTool, or XAgentTool for a
+// subagent.
+func (r toolRef) def() string {
+	if r.sub != nil {
+		return camel(r.sub.Name) + "AgentTool"
+	}
+	return camel(r.tool.Name) + "Tool"
 }
 
 // genAgentServer writes <Name>AgentServer, which serves an agent with

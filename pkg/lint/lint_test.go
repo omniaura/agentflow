@@ -138,10 +138,12 @@ func TestLintAgentReferences(t *testing.T) {
 		{"unknown system", ".title A\nHi.\n\n.agent x\n.tools\n", "", 0},
 		{"unknown system title", ".title A\nHi.\n\n.agent x\n.maxturns 3\n.system Nope\n", `no prompt titled "Nope" in this file (have "A")`, 6},
 		{"ambiguous system", ".title A\nHi.\n\n.title B\nYo.\n\n.agent x\n", "the file has 2 prompts", 7},
-		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, find\n", "no tool find in this file or the other .af files of its directory (have look)", 8},
+		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, find\n", "no tool or agent find in this file or the other .af files of its directory (have look, x)", 8},
 		{"unknown output", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.returns look\n", "no output look in this file (it declares none)", 8},
 		{"route served twice", ".title A\nHi.\n\n.agent x\n.serve POST /chat\n\n.agent y\n.serve POST /chat\n", "route POST /chat is declared twice", 8},
-		{"output is not a tool", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.tools o\n", "no tool o in this file or the other .af files of its directory (they declare none)", 8},
+		{"itself", ".title A\nHi.\n\n.agent x\n.tools x\n\nDoes x.\n", "agent x lists itself in .tools", 5},
+		{"subagent without a description", ".title A\nHi.\n\n.agent x\n.tools y\n\n.agent y\n", "agent y needs a description to be called as a tool", 5},
+		{"output is not a tool", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.tools o\n", "no tool or agent o in this file or the other .af files of its directory (have x)", 8},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			d := lintString(t, tt.src)
@@ -163,7 +165,38 @@ func TestLintAgentToolsOfOtherFiles(t *testing.T) {
 	// A tool declared twice in the package is reported where it's used.
 	dup := src + "\n.tool track\nAgain.\n"
 	d, err := Lint(name, []byte(dup))
-	if err != nil || len(d) != 1 || d[0].Code != "AF011" || d[0].Line != 8 || !strings.Contains(d[0].Message, "tool track is declared in this file and shipping.af") {
+	if err != nil || len(d) != 1 || d[0].Code != "AF011" || d[0].Line != 8 || !strings.Contains(d[0].Message, "track is declared in this file and shipping.af") {
 		t.Fatalf("duplicate: %v %#v", err, d)
+	}
+}
+
+// Each agent on a cycle is reported at its .tools line.
+func TestLintSubagentCycle(t *testing.T) {
+	d := lintString(t, ".title A\nHi.\n\n.agent x\n.tools y\n\nDoes x.\n\n.agent y\n.tools z\n\nDoes y.\n\n.agent z\n.tools x\n\nDoes z.\n")
+	var got []string
+	for _, x := range d {
+		got = append(got, fmt.Sprintf("%d %s", x.Line, x.Message))
+	}
+	want := []string{
+		"5 agents call each other in a cycle (x → y → z → x), which could delegate without end",
+		"10 agents call each other in a cycle (y → z → x → y), which could delegate without end",
+		"15 agents call each other in a cycle (z → x → y → z), which could delegate without end",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// A cycle doesn't hide the agent's other bad names, and is reported once.
+func TestLintSubagentCycleKeepsChecking(t *testing.T) {
+	d := lintString(t, ".title A\nHi.\n\n.agent x\n.tools y, z, nope\n\nDoes x.\n\n.agent y\n.tools x\n\nDoes y.\n\n.agent z\n\nDoes z.\n")
+	var got []string
+	for _, x := range d {
+		if x.Line == 5 {
+			got = append(got, x.Message)
+		}
+	}
+	if len(got) != 2 || !strings.Contains(got[0], "cycle (x → y → x)") || !strings.Contains(got[1], "no tool or agent nope") {
+		t.Fatalf("got %q", got)
 	}
 }

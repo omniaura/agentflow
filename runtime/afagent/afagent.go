@@ -233,6 +233,26 @@ var (
 // answer, or tool calls the model made anyway, end the loop with it.
 var ErrMaxTurns = errors.New("afagent: the agent did not finish within its turn limit")
 
+// MaxDepth is how deep subagents may nest: an agent calling an agent
+// calling an agent, and so on.
+const MaxDepth = 8
+
+// ErrMaxDepth means subagents nested deeper than MaxDepth, as agents that
+// delegate to each other would.
+var ErrMaxDepth = errors.New("afagent: subagents nest too deep")
+
+type depthKey struct{}
+
+// Nest returns ctx one subagent deeper, or ErrMaxDepth past MaxDepth. An
+// agent run as another agent's tool calls it first.
+func Nest(ctx context.Context) (context.Context, error) {
+	d, _ := ctx.Value(depthKey{}).(int)
+	if d >= MaxDepth {
+		return ctx, fmt.Errorf("%w: %d levels", ErrMaxDepth, d)
+	}
+	return context.WithValue(ctx, depthKey{}, d+1), nil
+}
+
 // ErrMaxToolCalls means the model kept calling tools after MaxToolCalls
 // were run, when the tools were withheld.
 var ErrMaxToolCalls = errors.New("afagent: the agent called tools beyond its tool-call limit")

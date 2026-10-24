@@ -74,6 +74,12 @@ type Shape struct {
 	Fields []Field
 }
 
+// Task is the argument of an agent called as another agent's tool: the
+// task, which becomes the subagent's message.
+type Task struct {
+	Task string `json:"task"`
+}
+
 // Def is the definition of one tool whose arguments decode into Args.
 type Def[Args any] struct {
 	Name        string

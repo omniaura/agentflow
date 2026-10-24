@@ -202,6 +202,10 @@ Answers customer questions about their orders.
   an unfinished run matters. Don't hand-write a separate "now give your final answer" call.
 - `.maxcalls n` bounds the tool calls of a run (a hand-written loop's `calls < 6` check):
   calls past it are refused and the model answers without tools (`res.OutOfToolCalls`).
+- Subagents: `.tools` may name another `.agent` (in this file or a sibling). The model calls
+  it with a `task` string; set the generated field (`Tracker`) to `(&TrackerAgent{...}).AsTool(system)`.
+  The subagent sees only the task, so its description should say what to put in one. Don't
+  hand-write a "spawn_sub_agent" tool and its dispatch.
 - A run's tools can depend on the caller: set the agent's `Allow func(ctx, tool) bool` (for
   example, a workspace's enabled tools). Declare every tool the agent may ever use in `.tools`
   and let `Allow` narrow it per run; the dispatcher refuses tools it didn't offer.
