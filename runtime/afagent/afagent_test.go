@@ -265,6 +265,47 @@ func TestLoopAnswerOnLastTurn(t *testing.T) {
 	}
 }
 
+func TestLoopMaxToolCalls(t *testing.T) {
+	ran := 0
+	dispatch := func(context.Context, ToolCall) (string, error) { ran++; return "ok", nil }
+	tools := []ToolSpec{{Name: "x"}}
+	// Turn 1 asks for 2 calls, turn 2 for 3: the budget of 4 runs 2+2 and
+	// refuses the fifth; turn 3 withholds the tools and the model answers.
+	model, reqs := script(t, calls("x", "x"), calls("x", "x", "x"), Message{Content: "done"})
+	l := Loop{Model: model, MaxTurns: 10, Tools: tools, Dispatch: dispatch, MaxToolCalls: 4}
+	res, err := l.Run(context.Background(), nil)
+	if err != nil || res.Final != "done" || !res.OutOfToolCalls || res.OutOfTurns || res.ToolCalls != 4 || ran != 4 {
+		t.Fatalf("got %v, %+v, ran %d", err, res, ran)
+	}
+	if (*reqs)[1].NoToolCalls || !(*reqs)[2].NoToolCalls {
+		t.Fatalf("NoToolCalls = %v, %v", (*reqs)[1].NoToolCalls, (*reqs)[2].NoToolCalls)
+	}
+	// Every call of turn 2 has a result, in order; the third, the fifth
+	// of the run, says why it wasn't run.
+	turn2 := (*reqs)[2].Messages[4:]
+	if len(turn2) != 3 || turn2[1].IsError || !turn2[2].IsError || !strings.Contains(turn2[2].Content, "limit of 4 tool calls") {
+		t.Fatalf("turn 2 results = %+v", turn2)
+	}
+	// A model that calls tools anyway after the budget ends the run.
+	model, _ = script(t, calls("x"), calls("x"))
+	l = Loop{Model: model, Tools: tools, Dispatch: dispatch, MaxToolCalls: 1}
+	if res, err := l.Run(context.Background(), nil); !errors.Is(err, ErrMaxToolCalls) || res.ToolCalls != 1 {
+		t.Fatalf("calls after the budget: %v, %+v", err, res)
+	}
+	// Spent on the last turn: both limits report.
+	model, _ = script(t, calls("x"), Message{Content: "a"})
+	l = Loop{Model: model, MaxTurns: 2, Tools: tools, Dispatch: dispatch, MaxToolCalls: 1, AnswerOnLastTurn: true}
+	if res, err := l.Run(context.Background(), nil); err != nil || !res.OutOfToolCalls || !res.OutOfTurns {
+		t.Fatalf("both limits: %v, %+v", err, res)
+	}
+	// An answer within the budget isn't out of tool calls.
+	model, _ = script(t, calls("x"), Message{Content: "a"})
+	l = Loop{Model: model, Tools: tools, Dispatch: dispatch, MaxToolCalls: 5}
+	if res, err := l.Run(context.Background(), nil); err != nil || res.OutOfToolCalls || res.ToolCalls != 1 {
+		t.Fatalf("within the budget: %v, %+v", err, res)
+	}
+}
+
 func TestLoopStreamsText(t *testing.T) {
 	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
 		if req.OnText == nil {

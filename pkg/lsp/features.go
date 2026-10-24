@@ -688,6 +688,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".system", "the system prompt's title (default: the file's only prompt)")
 		add(".tools", "the tools it may call, from any .af file of the directory (default: every tool in this file)")
 		add(".maxturns", "bound the model calls of a run")
+		add(".maxcalls", "bound the tool calls of a run; then the model answers without tools")
 		add(".returns", "the .output its final answer must be (default: text)")
 		add(".serve", "serve it over HTTP: .serve POST /path")
 	case ".output":

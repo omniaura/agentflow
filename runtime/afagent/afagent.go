@@ -212,6 +212,10 @@ type Result struct {
 	// withheld by AnswerOnLastTurn: the model may have stopped short of
 	// what it meant to do.
 	OutOfTurns bool
+	// ToolCalls counts the tool calls run, and OutOfToolCalls means the
+	// answer came with tools withheld because MaxToolCalls were run.
+	ToolCalls      int
+	OutOfToolCalls bool
 }
 
 // Model adapters wrap these errors for answers the loop can't use.
@@ -228,6 +232,10 @@ var (
 // error also wraps Check's. With AnswerOnLastTurn, only a rejected last
 // answer, or tool calls the model made anyway, end the loop with it.
 var ErrMaxTurns = errors.New("afagent: the agent did not finish within its turn limit")
+
+// ErrMaxToolCalls means the model kept calling tools after MaxToolCalls
+// were run, when the tools were withheld.
+var ErrMaxToolCalls = errors.New("afagent: the agent called tools beyond its tool-call limit")
 
 // DefaultMaxTurns bounds a loop whose MaxTurns is 0.
 const DefaultMaxTurns = 10
@@ -248,6 +256,11 @@ type Loop struct {
 	Check func(answer string) error
 	// MaxTurns bounds the model calls; 0 means DefaultMaxTurns.
 	MaxTurns int
+	// MaxToolCalls, when above 0, bounds the tool calls of a run. Calls a
+	// turn makes beyond it are refused, and later turns withhold the
+	// tools, so the model answers with what it has; Result.OutOfToolCalls
+	// reports such an answer.
+	MaxToolCalls int
 	// AnswerOnLastTurn withholds the tools on the last turn, so the model
 	// answers with what it has instead of the loop ending in ErrMaxTurns.
 	// Result.OutOfTurns reports such an answer.
@@ -275,7 +288,9 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		}
 		res.Turns++
 		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
-		req.NoToolCalls = l.AnswerOnLastTurn && len(l.Tools) > 0 && res.Turns == maxTurns
+		spent := l.MaxToolCalls > 0 && res.ToolCalls >= l.MaxToolCalls
+		last := l.AnswerOnLastTurn && res.Turns == maxTurns
+		req.NoToolCalls = len(l.Tools) > 0 && (spent || last)
 		// held is the turn's text while Check may still reject it. The
 		// mutex keeps a Model that breaks OnText's contract from racing.
 		var (
@@ -330,15 +345,30 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 				continue
 			}
 			res.Final = resp.Message.Content
-			res.OutOfTurns = req.NoToolCalls
+			// Both limits may hold on the last turn; each reports itself.
+			res.OutOfToolCalls = req.NoToolCalls && spent
+			res.OutOfTurns = req.NoToolCalls && last
 			return res, nil
+		}
+		if req.NoToolCalls && spent {
+			return res, fmt.Errorf("%w: the model called tools after running %d", ErrMaxToolCalls, res.ToolCalls)
 		}
 		if req.NoToolCalls {
 			// The model called tools it was told it couldn't; running them
 			// would leave their results unanswered.
 			return res, fmt.Errorf("%w: the model called tools on its last turn, when it was to answer", ErrMaxTurns)
 		}
-		res.Messages = append(res.Messages, l.runTools(ctx, res.Turns, resp.Message.ToolCalls)...)
+		calls := resp.Message.ToolCalls
+		allowed := len(calls)
+		if l.MaxToolCalls > 0 {
+			allowed = min(allowed, l.MaxToolCalls-res.ToolCalls)
+		}
+		res.Messages = append(res.Messages, l.runTools(ctx, res.Turns, calls[:allowed])...)
+		res.ToolCalls += allowed
+		for _, call := range calls[allowed:] {
+			// Every call gets a result, as providers expect.
+			res.Messages = append(res.Messages, Message{Role: Tool, ToolCallID: call.ID, Content: fmt.Sprintf("not run: the limit of %d tool calls is reached; answer with what you have", l.MaxToolCalls), IsError: true})
+		}
 	}
 	return res, ErrMaxTurns
 }

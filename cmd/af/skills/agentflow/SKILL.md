@@ -200,6 +200,8 @@ Answers customer questions about their orders.
 - On the last of `.maxturns` turns the model may not call tools, so a run ends with an
   answer rather than `afagent.ErrMaxTurns`. `res.OutOfTurns` reports it; check it where
   an unfinished run matters. Don't hand-write a separate "now give your final answer" call.
+- `.maxcalls n` bounds the tool calls of a run (a hand-written loop's `calls < 6` check):
+  calls past it are refused and the model answers without tools (`res.OutOfToolCalls`).
 - A run's tools can depend on the caller: set the agent's `Allow func(ctx, tool) bool` (for
   example, a workspace's enabled tools). Declare every tool the agent may ever use in `.tools`
   and let `Allow` narrow it per run; the dispatcher refuses tools it didn't offer.
