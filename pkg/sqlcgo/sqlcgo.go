@@ -80,26 +80,33 @@ type Query struct {
 }
 
 var (
-	sqlCommentRE = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/`)
-	sqlWordRE    = regexp.MustCompile(`(?i)\b(insert|update|delete|merge)\b`)
-	sqlLockRE    = regexp.MustCompile(`(?i)\bfor\s+(no\s+key\s+)?update\b`)
+	// sqlSkipRE matches the parts of SQL that hold no keywords: comments,
+	// string literals and quoted identifiers.
+	sqlSkipRE = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/|'(?:[^']|'')*'|"(?:[^"]|"")*"`)
+	// sqlCTEWriteRE matches a data-modifying statement in a WITH query: a
+	// CTE body, or the statement after the CTEs.
+	sqlCTEWriteRE = regexp.MustCompile(`(?i)[()]\s*(insert|update|delete|merge)\b`)
 )
 
-// Writes reports whether q changes rows: an :exec or :execrows query, or
-// SQL that is, or whose WITH clause holds, an INSERT, UPDATE, DELETE or
-// MERGE.
+// Writes reports whether q changes rows: an :exec-style query, or one
+// that returns rows from SQL that is, or whose WITH clause holds, an
+// INSERT, UPDATE, DELETE or MERGE.
 func (q *Query) Writes() bool {
-	if q.Kind != One && q.Kind != Many {
+	switch q.Kind {
+	case One, Many, ":batchone", ":batchmany":
+	default:
 		return true
 	}
-	sql := strings.TrimSpace(sqlCommentRE.ReplaceAllString(q.SQL, " "))
-	first, _, _ := strings.Cut(sql, " ")
-	switch strings.ToUpper(strings.TrimSpace(first)) {
+	sql := sqlSkipRE.ReplaceAllString(q.SQL, " ")
+	fields := strings.Fields(sql)
+	if len(fields) == 0 {
+		return false
+	}
+	switch strings.ToUpper(fields[0]) {
 	case "INSERT", "UPDATE", "DELETE", "MERGE":
 		return true
 	case "WITH":
-		// A data-modifying CTE; FOR UPDATE only locks rows.
-		return sqlWordRE.MatchString(sqlLockRE.ReplaceAllString(sql, " "))
+		return sqlCTEWriteRE.MatchString(sql)
 	}
 	return false
 }

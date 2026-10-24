@@ -66,8 +66,30 @@ func (s *Server) EitherCase(w http.ResponseWriter, r *http.Request) {
 // says which package each call is.
 func (s *Server) Audited(w http.ResponseWriter, r *http.Request) {
 	var a *audit.Queries
-	s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	if _, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1}); err != nil {
+		return
+	}
 	a.GetUser(r.Context(), audit.GetUserParams{ID: 1})
+}
+
+// Unchecked writes whatever the read returned: no check to move into SQL.
+func (s *Server) Unchecked(w http.ResponseWriter, r *http.Request) {
+	n, _ := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	s.q.BanUser(r.Context(), n)
+}
+
+// Fallthrough runs the read's case into the write's: a check.
+func (s *Server) Fallthrough(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "POST":
+		n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+		if err != nil || n == 0 {
+			return
+		}
+		fallthrough
+	case "PUT":
+		s.q.BanUser(r.Context(), 1)
+	}
 }
 
 // Transfer needs its transaction: not one statement.

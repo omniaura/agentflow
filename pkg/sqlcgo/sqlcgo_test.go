@@ -168,6 +168,22 @@ func TestQueryWrites(t *testing.T) {
 		{One, "-- name: Lock :one\nWITH r AS (SELECT id FROM users WHERE id = $1 FOR UPDATE) SELECT id FROM r", false},
 		{One, "-- name: LockNoKey :one\nWITH r AS (SELECT id FROM users FOR NO KEY UPDATE) SELECT id FROM r", false},
 		{Exec, "-- name: Touch :exec\nSELECT touch($1)", true},
+		// Any whitespace ends a keyword.
+		{One, "-- name: Ban :one\nUPDATE\nusers SET banned = true RETURNING id", true},
+		{One, "-- name: Move :one\nWITH\tm AS (\nDELETE FROM a RETURNING *) SELECT id FROM m", true},
+		// Words in strings, quoted identifiers and comments are not keywords.
+		{One, "-- name: Label :one\nWITH x AS (SELECT 'update' AS label, '(delete' AS d) SELECT label FROM x", false},
+		{One, "-- name: Quoted :one\nWITH x AS (SELECT \"(insert\" FROM t) SELECT 1 FROM x", false},
+		{One, "-- name: Commented :one\nWITH x AS (/* (delete */ SELECT 1) SELECT 1 FROM x", false},
+		{One, "-- name: Escaped :one\nWITH x AS (SELECT 'it''s (update' AS s) SELECT s FROM x", false},
+		// An unquoted column that is a keyword elsewhere.
+		{One, "-- name: Col :one\nWITH x AS (SELECT update FROM t) SELECT 1 FROM x", false},
+		// The statement after the CTEs.
+		{One, "-- name: Upsert :one\nWITH s AS (SELECT 1 AS v)\nINSERT INTO t SELECT v FROM s RETURNING id", true},
+		// Batch reads return rows; their SQL decides.
+		{":batchone", "-- name: B :batchone\nSELECT 1", false},
+		{":batchmany", "-- name: C :batchmany\nINSERT INTO t DEFAULT VALUES RETURNING id", true},
+		{":batchexec", "-- name: D :batchexec\nSELECT 1", true},
 		{ExecRows, "-- name: Count :execrows\nSELECT 1", true},
 	} {
 		if got := (&Query{Kind: tt.kind, SQL: tt.sql}).Writes(); got != tt.want {

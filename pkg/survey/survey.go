@@ -220,7 +220,7 @@ func (s *scanner) scan(f *ast.File) {
 			switch {
 			case len(calls) == 1 && short:
 				s.add(Routes, fn, fn.Name.Name+" → "+calls[0].name)
-			case len(calls) == 2 && short && !tx && !calls[0].write && calls[1].write && !exclusive(calls[0], calls[1]):
+			case len(calls) == 2 && short && !tx && !calls[0].write && calls[1].write && !exclusive(calls[0], calls[1]) && checked(fn.Body, calls[0], calls[1]):
 				s.add(Checks, fn, fn.Name.Name+" → "+calls[0].name+", "+calls[1].name)
 			}
 		}
@@ -423,16 +423,74 @@ func exclusive(a, b queryCall) bool {
 		in := func(n ast.Node) bool { return n == lca.Body || n == lca.Else }
 		return in(a.path[i]) && in(b.path[i])
 	case *ast.BlockStmt:
-		// Different cases of a switch or select.
+		// Different cases of a switch or select, unless a fallthrough
+		// runs from one into the next.
 		if i < 2 {
 			return false
 		}
 		switch a.path[i-2].(type) {
-		case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+		case *ast.SwitchStmt:
+			x, y := -1, -1
+			for j, st := range lca.List {
+				switch st {
+				case a.path[i]:
+					x = j
+				case b.path[i]:
+					y = j
+				}
+			}
+			if x < 0 || y < 0 {
+				return false
+			}
+			for _, st := range lca.List[min(x, y):max(x, y)] {
+				if body := st.(*ast.CaseClause).Body; len(body) > 0 {
+					if br, ok := body[len(body)-1].(*ast.BranchStmt); ok && br.Tok == token.FALLTHROUGH {
+						return false
+					}
+				}
+			}
+			return true
+		case *ast.TypeSwitchStmt, *ast.SelectStmt:
 			return true
 		}
 	}
 	return false
+}
+
+// checked reports whether an if between a read and a write tests what
+// the read returned, so the write depends on a check that SQL can hold.
+func checked(body *ast.BlockStmt, read, write queryCall) bool {
+	call := read.path[len(read.path)-1]
+	var names []string
+	for _, n := range slices.Backward(read.path) {
+		if as, ok := n.(*ast.AssignStmt); ok {
+			for _, l := range as.Lhs {
+				if id, ok := l.(*ast.Ident); ok && id.Name != "_" {
+					names = append(names, id.Name)
+				}
+			}
+			break
+		}
+	}
+	if len(names) == 0 {
+		return false
+	}
+	at := write.path[len(write.path)-1].Pos()
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		ifs, ok := n.(*ast.IfStmt)
+		if !ok || found || ifs.Cond.Pos() < call.End() || ifs.Cond.Pos() > at {
+			return !found
+		}
+		ast.Inspect(ifs.Cond, func(c ast.Node) bool {
+			if id, ok := c.(*ast.Ident); ok && slices.Contains(names, id.Name) {
+				found = true
+			}
+			return !found
+		})
+		return !found
+	})
+	return found
 }
 
 // isQuery reports whether a call to a method named name is a sqlc query.

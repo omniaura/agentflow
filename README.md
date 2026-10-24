@@ -849,7 +849,7 @@ It stops at the first failing step. If ejected files have merge conflicts, resol
     candidates for .af                               sites    lines of hand-written
       tool schemas (.tool)                             122     1966 0.4%
       single-query handlers (.route)                   205     6587 1.3%
-      read-check-write handlers (.route + .empty)       19      892 0.2%
+      read-check-write handlers (.route + .empty)       18      850 0.2%
       tool-calling loops (.agent)                        9     2666 0.5%
       ...
 
