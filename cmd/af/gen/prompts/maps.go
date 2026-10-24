@@ -37,6 +37,10 @@ func checkMapFuncs(name string, f afast.File) error {
 		return err
 	}
 	declared := map[string]bool{}
+	// Vars are judged after the scan, once every local type is known.
+	type varDecl struct{ typ, v ast.Expr }
+	vars := map[string]varDecl{}
+	types := map[string]ast.Expr{}
 	fset := gotoken.NewFileSet()
 	for _, p := range paths {
 		if strings.HasSuffix(p, "_test.go") || p == OutputPath(name) {
@@ -63,21 +67,30 @@ func checkMapFuncs(name string, f afast.File) error {
 					declared[d.Name.Name] = mapper(d.Type)
 				}
 			case *ast.GenDecl:
-				if d.Tok != gotoken.VAR {
-					continue
-				}
 				for _, s := range d.Specs {
-					vs := s.(*ast.ValueSpec)
-					for i, n := range vs.Names {
-						var v ast.Expr
-						if i < len(vs.Values) {
-							v = vs.Values[i]
+					switch s := s.(type) {
+					case *ast.TypeSpec:
+						if s.TypeParams == nil {
+							types[s.Name.Name] = s.Type
 						}
-						declared[n.Name] = mapperVar(vs.Type, v)
+					case *ast.ValueSpec:
+						if d.Tok != gotoken.VAR {
+							continue
+						}
+						for i, n := range s.Names {
+							var v ast.Expr
+							if i < len(s.Values) {
+								v = s.Values[i]
+							}
+							vars[n.Name] = varDecl{s.Type, v}
+						}
 					}
 				}
 			}
 		}
+	}
+	for n, d := range vars {
+		declared[n] = mapperVar(d.typ, d.v, types)
 	}
 	for _, i := range want {
 		r := f.Routes[i]
@@ -92,10 +105,19 @@ func checkMapFuncs(name string, f afast.File) error {
 }
 
 // mapperVar reports whether a var of type typ, or holding value v when
-// typ is nil, may be a .map func. Only what is plainly not one is
-// rejected: a var of a named type, such as type Mapper func(Row) T, or one
-// holding another func, compiles, and the compiler checks the rest.
-func mapperVar(typ, v ast.Expr) bool {
+// typ is nil, may be a .map func. Named types resolve through types, the
+// package's own. Only what is plainly not one is rejected: a var of an
+// imported type, or one holding another func, may compile, and the
+// compiler checks the rest.
+func mapperVar(typ, v ast.Expr, types map[string]ast.Expr) bool {
+	for range 10 {
+		// Follow type A B chains, but not around a cycle.
+		id, ok := typ.(*ast.Ident)
+		if !ok || types[id.Name] == nil {
+			break
+		}
+		typ = types[id.Name]
+	}
 	switch t := typ.(type) {
 	case *ast.FuncType:
 		return mapper(t)

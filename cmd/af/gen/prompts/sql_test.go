@@ -214,6 +214,12 @@ func TestRenderChecksMapFuncs(t *testing.T) {
 		{"var of another func", "var xCard = other\n\nfunc other(n int64) string { return \"\" }", ""},
 		{"var of a named func type", "type mapper func(int64) string\n\nvar xCard mapper = func(n int64) string { return \"\" }", ""},
 		{"var of a literal", "var xCard = 3", "xCard must be a func"},
+		// Local named types resolve, through chains, wherever they're declared.
+		{"var of a named int", "var xCard mapper\n\ntype mapper int", "xCard must be a func"},
+		{"var of a named struct", "type mapper struct{}\n\nvar xCard mapper", "xCard must be a func"},
+		{"var of a type chain", "type m1 m2\n\ntype m2 func(int64) string\n\nvar xCard m1", ""},
+		{"var of a named two-result func", "type mapper func(int64) (string, error)\n\nvar xCard mapper", "xCard must be a func"},
+		{"var of a type cycle", "type a b\n\ntype b a\n\nvar xCard a", ""},
 		{"var of a map", "var xCard map[int64]string", "xCard must be a func"},
 		{"no result", "func xCard(n int64) {}", "xCard must be a func"},
 		{"two params", "func xCard(a, b int64) string { return \"\" }", "xCard must be a func"},
