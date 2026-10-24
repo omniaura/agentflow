@@ -611,7 +611,9 @@ func sqlBody(src []byte, start, end int, directives []string) (string, error) {
 		l, i = line(src, i, end)
 		for _, d := range directives {
 			switch {
-			case !strings.HasPrefix(l, d):
+			case !strings.HasPrefix(l, d), len(l) > len(d) && isIdentByte(l[len(d)]):
+				// Not this directive: SQL such as the .authentic of a
+				// qualified name split across lines.
 			case !hasDirective([]byte(l), d):
 				// Such as .auth, or .sql:many: no SQL starts like this.
 				return "", &Error{Offset: off, Msg: fmt.Sprintf("malformed %s directive in the query", d)}
@@ -627,4 +629,8 @@ func sqlBody(src []byte, start, end int, directives []string) (string, error) {
 		return "", &Error{Offset: start, Msg: "write the query on the lines after .sql"}
 	}
 	return sql, nil
+}
+
+func isIdentByte(c byte) bool {
+	return c == '_' || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 }

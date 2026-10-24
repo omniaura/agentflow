@@ -200,6 +200,11 @@ func TestParseSQLTool(t *testing.T) {
 			t.Errorf("%q: got %v, want %q", tt.src, err, tt.msg)
 		}
 	}
+	// A qualified name split across lines is SQL, not a directive.
+	f, err = Parse([]byte(".tool t\nDoes t.\n.sql :many\nSELECT t\n.authentic\nFROM things t\n"))
+	if err != nil || !strings.Contains(f.Tools[0].SQL, ".authentic") {
+		t.Errorf("continuation line: %v", err)
+	}
 	// An .output has no query.
 	if f, err := Parse([]byte(".output o\n.field x\n.sql :one\n")); err == nil && f.Outputs[0].SQL != "" {
 		t.Error(".output accepted .sql")
