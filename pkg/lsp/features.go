@@ -527,7 +527,8 @@ func (d *Document) queryAt(off int) (qk sqlcgo.Kind, inSQL bool) {
 			fields := strings.Fields(string(d.Content[i:end]))
 			if len(fields) > 0 && fields[0] == ".sql" {
 				inSQL = inSQL || off > end
-				if len(fields) > 1 {
+				// A kind .sql takes; a typo leaves it unknown.
+				if len(fields) > 1 && slices.Contains(decl.SQLKinds, fields[1]) {
 					qk = sqlcgo.Kind(fields[1])
 				}
 			}

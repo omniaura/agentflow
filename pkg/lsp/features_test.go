@@ -403,6 +403,8 @@ func TestRouteCompletionsFollowQueryKind(t *testing.T) {
 		// The kind from sqlc's output: ListTodos is :many, GetTodo :one.
 		{"sqlc :many", ".route GET /todos ListTodos\n.\n", 1, []string{".wrap"}, []string{".empty"}},
 		{"sqlc :one", ".route GET /todos/{id} GetTodo\n.\n", 1, []string{".wrap", ".empty"}, nil},
+		// A kind .sql doesn't take is unknown, not a filter.
+		{"typo kind", ".route GET /a ListX\n.\n.sql :mnay\nSELECT 1\n", 1, []string{".wrap", ".empty"}, nil},
 		// An unknown query offers both.
 		{"unknown", ".route GET /x Nope\n.\n", 1, []string{".wrap", ".empty"}, nil},
 		// Below .sql is SQL: no route directives.
