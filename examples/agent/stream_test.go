@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
+	"github.com/omniaura/go-kit/errs"
 )
 
 type sseEvent struct{ name, data string }
@@ -139,7 +140,9 @@ func TestServeStreamsErrors(t *testing.T) {
 	for e := range readEvents(t, postStream(t, srv.URL, `{"message":"x"}`)) {
 		got = append(got, e)
 	}
-	if len(got) != 1 || got[0].name != "error" || got[0].data != `{"error":"the model could not answer"}` {
+	var pub errs.Public
+	if len(got) != 1 || got[0].name != "error" || json.Unmarshal([]byte(got[0].data), &pub) != nil ||
+		pub.Code != "model_failed" || pub.Message != "the model could not answer" || pub.Status != 502 || pub.Ref == "" || strings.Contains(got[0].data, "secret") {
 		t.Errorf("events = %+v", got)
 	}
 	// A bad request fails before the stream starts: a plain 400.

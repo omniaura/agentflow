@@ -74,13 +74,13 @@ func TestServeTriageErrors(t *testing.T) {
 		message string
 	}{
 		{"unauthenticated", &TriagerAgentServer{Prepare: func(r *http.Request) (*Support, []afagent.Message, error) {
-			return nil, nil, afhttp.Unauthorized(errors.New("no token"))
+			return nil, nil, afhttp.Unauthorized(r.Context(), errors.New("no token"))
 		}}, `{"message":"x"}`, http.StatusUnauthorized, ""},
-		{"no message", &TriagerAgentServer{Prepare: ok}, `{}`, http.StatusBadRequest, "message is required"},
+		{"no message", &TriagerAgentServer{Prepare: ok}, `{}`, http.StatusBadRequest, `"fields":{"message":"is required"}`},
 		{"unknown field", &TriagerAgentServer{Prepare: ok}, `{"message":"x","messages":[]}`, http.StatusBadRequest, ""},
 		{"too big", &TriagerAgentServer{Prepare: ok, MaxBytes: 8}, `{"message":"a long message"}`, http.StatusRequestEntityTooLarge, ""},
-		{"model refused", &TriagerAgentServer{Prepare: ok, Agent: &TriagerAgent{Model: failing, Tools: &shop{}}}, `{"message":"x"}`, http.StatusBadGateway, "the model could not answer"},
-		{"model down", &TriagerAgentServer{Prepare: ok, Agent: &TriagerAgent{Model: broken, Tools: &shop{}}}, `{"message":"x"}`, http.StatusInternalServerError, "internal error"},
+		{"model refused", &TriagerAgentServer{Prepare: ok, Agent: &TriagerAgent{Model: failing, Tools: &shop{}}}, `{"message":"x"}`, http.StatusBadGateway, `"code":"model_failed"`},
+		{"model down", &TriagerAgentServer{Prepare: ok, Agent: &TriagerAgent{Model: broken, Tools: &shop{}}}, `{"message":"x"}`, http.StatusInternalServerError, `"code":"internal_error"`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			w := serveTriage(t, tt.srv, tt.body)

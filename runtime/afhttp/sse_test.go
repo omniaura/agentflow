@@ -1,13 +1,15 @@
 package afhttp
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/omniaura/go-kit/errs"
 )
 
 func TestWantsEventStream(t *testing.T) {
@@ -44,8 +46,9 @@ func TestEventStream(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	s.SendError(&Error{Status: http.StatusBadGateway, Msg: "the model could not answer", Err: errors.New("secret cause")})
-	s.SendError(errors.New("secret internal"))
+	ctx := errs.WithRef(context.Background(), "r1")
+	s.SendError(ctx, ErrModelFailed.New(ctx).AddError(errors.New("secret cause")))
+	s.SendError(ctx, errors.New("secret internal"))
 
 	if w.Code != 200 || w.Header().Get("Content-Type") != "text/event-stream" || !w.Flushed {
 		t.Fatalf("code %d, headers %v, flushed %v", w.Code, w.Header(), w.Flushed)
@@ -62,7 +65,8 @@ func TestEventStream(t *testing.T) {
 			t.Errorf("malformed event %q", e)
 		}
 	}
-	if events[20] != `event: error`+"\n"+`data: {"error":"the model could not answer"}` || events[21] != `event: error`+"\n"+`data: {"error":"internal error"}` {
+	if events[20] != `event: error`+"\n"+`data: {"message":"the model could not answer","code":"model_failed","ref":"r1","action":"retry","status":502,"retryable":true}` ||
+		events[21] != `event: error`+"\n"+`data: {"message":"unknown error","code":"internal_error","ref":"r1","status":500}` {
 		t.Errorf("errors: %q %q", events[20], events[21])
 	}
 	if strings.Contains(body, "secret") {

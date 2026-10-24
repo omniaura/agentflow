@@ -253,6 +253,11 @@ Creates a todo for the caller.
 - Responses: `:one` returns 200 with JSON, or 404 when there is no row. `:many` returns a
   JSON array. `:exec` and `:execrows` return 204, and `:execrows` returns 404 when no row
   changed.
+- Errors are go-kit `errs` errors (`{"message","code","ref","status","fields"}`): bad input
+  is `afhttp.ErrInvalidRequest` with a field per input, a unique violation is
+  `afhttp.ErrConflict` (409), and other query failures are `errs.Unknown` (500). Return
+  your own `errs.NewFactory` errors from `Auth` or `Prepare` for other statuses; don't
+  write error JSON by hand.
 
 ## Ejected runtime
 

@@ -1,9 +1,10 @@
 module github.com/omniaura/agentflow
 
-go 1.26.0
+go 1.27
 
 require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
+	github.com/omniaura/go-kit/errs v0.0.0-20261024021028-d0a008fba30c
 	github.com/openai/openai-go/v3 v3.86.0
 	github.com/peyton-spencer/caseconv v0.2.0
 	github.com/spf13/cobra v1.10.2
@@ -28,6 +29,7 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/invopop/jsonschema v0.14.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
+	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
@@ -35,6 +37,8 @@ require (
 	github.com/petermattis/goid v0.0.0-20240813172612-4fcff4a6cae7 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/rs/xid v1.6.0 // indirect
+	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
 	github.com/sasha-s/go-deadlock v0.3.5 // indirect
 	github.com/segmentio/ksuid v1.0.4 // indirect

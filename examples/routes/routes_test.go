@@ -142,7 +142,7 @@ func TestTodoRoutes(t *testing.T) {
 		return got
 	}
 
-	expect("POST", "/todos", "", `{"title":"x"}`, 401, `{"error":"unauthorized"}`)
+	expect("POST", "/todos", "", `{"title":"x"}`, 401, `"code":"unauthorized"`)
 	created := expect("POST", "/todos", "ann", `{"title":"Write docs","meta":{"tags":["a"]}}`, 201, `"title":"Write docs"`)
 	var todo db.Todo
 	if err := json.Unmarshal([]byte(created), &todo); err != nil || todo.OwnerID != "ann" || string(todo.Meta) != `{"tags":["a"]}` && string(todo.Meta) != `{"tags": ["a"]}` {
@@ -151,12 +151,16 @@ func TestTodoRoutes(t *testing.T) {
 	// The owner comes from the caller, never the body.
 	expect("POST", "/todos", "ann", `{"title":"x","ownerId":"bob"}`, 400, `unknown field \"ownerId\"`)
 	expect("POST", "/todos", "ann", `{"title":"x"} {}`, 400, "unexpected data")
-	expect("POST", "/todos", "ann", ``, 400, "request body is empty")
+	expect("POST", "/todos", "ann", ``, 400, `"fields":{"body":"is empty; send a JSON object"}`)
 	expect("POST", "/todos", "bob", `{"title":"Bob's"}`, 201, `"ownerId":"bob"`)
+	// A unique violation is a 409; the client never sees the SQL error.
+	if got := expect("POST", "/todos", "bob", `{"title":"Bob's"}`, 409, `"code":"already_exists"`); strings.Contains(got, "duplicate") {
+		t.Fatalf("the cause reached the client: %s", got)
+	}
 
 	expect("GET", "/todos/1", "ann", "", 200, `"title":"Write docs"`)
-	expect("GET", "/todos/1", "bob", "", 404, `{"error":"not found"}`)
-	expect("GET", "/todos/abc", "ann", "", 400, `invalid id \"abc\"`)
+	expect("GET", "/todos/1", "bob", "", 404, `"message":"not found","code":"not_found"`)
+	expect("GET", "/todos/abc", "ann", "", 400, `"fields":{"id":"invalid value \"abc\""}`)
 
 	expect("PUT", "/todos/1/done", "ann", `{"done":true}`, 204, "")
 	expect("PUT", "/todos/1/done", "bob", `{"done":true}`, 404, "")
@@ -164,7 +168,7 @@ func TestTodoRoutes(t *testing.T) {
 	if _, got := do("GET", "/todos?done=false", "ann", ""); got != "[]" {
 		t.Fatalf("done=false lists %s, want []", got)
 	}
-	expect("GET", "/todos?done=maybe", "ann", "", 400, `invalid done`)
+	expect("GET", "/todos?done=maybe", "ann", "", 400, `"fields":{"done":"invalid value \"maybe\""}`)
 
 	expect("GET", "/stats/count", "", "", 200, "2")
 	expect("GET", "/todos/2/title", "", "", 200, `"Bob's"`)

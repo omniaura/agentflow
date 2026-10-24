@@ -119,7 +119,7 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 	fmt.Fprintf(buf, "Queries %sQueries\n", name)
 	if authed {
 		buf.WriteString("// Auth authenticates the caller of every route that is not .public.\n")
-		buf.WriteString("// An error fails the request with 401, or with the status of an\n// *afhttp.Error. Declare Caller in this package; .auth names read its\n// fields.\n")
+		buf.WriteString("// An error fails the request with afhttp.ErrUnauthorized, or as it\n// is when it is an *errs.Error. Declare Caller in this package; .auth\n// names read its fields.\n")
 		buf.WriteString("Auth func(r *http.Request) (Caller, error)\n")
 	}
 	buf.WriteString("// OnError writes a failed request's error; nil means afhttp.WriteError.\n")
@@ -243,14 +243,14 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 	usesCaller := slices.Contains(b.sources, "auth")
 	if !r.Public {
 		// An unset Auth fails closed rather than panicking.
-		buf.WriteString("if rt.Auth == nil {\nrt.fail(w, r, afhttp.Internal(errors.New(\"afhttp: Auth is not set\")))\nreturn\n}\n")
+		buf.WriteString("if rt.Auth == nil {\nrt.fail(w, r, errors.New(\"afhttp: Auth is not set\"))\nreturn\n}\n")
 		imports["errors"] = true
 		if usesCaller {
 			buf.WriteString("caller, err := rt.Auth(r)\n")
 		} else {
 			buf.WriteString("_, err := rt.Auth(r)\n")
 		}
-		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.Unauthorized(err))\nreturn\n}\n")
+		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.Unauthorized(r.Context(), err))\nreturn\n}\n")
 	}
 
 	// field returns the Go expression of argument i.
@@ -328,21 +328,21 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		imports[path] = true
 		imports["errors"] = true
 		fmt.Fprintf(buf, "row, err := %s\n", call)
-		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, afhttp.NotFound(err))\nreturn\n}\n", expr)
-		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.Internal(err))\nreturn\n}\n")
+		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))\nreturn\n}\n", expr)
+		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		fmt.Fprintf(buf, "afhttp.WriteJSON(w, %s, row)\n", status("http.StatusOK"))
 	case sqlcgo.Many:
 		fmt.Fprintf(buf, "rows, err := %s\n", call)
-		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.Internal(err))\nreturn\n}\n")
+		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		fmt.Fprintf(buf, "if rows == nil {\nrows = []%s{}\n}\n", q.Result.Expr)
 		fmt.Fprintf(buf, "afhttp.WriteJSON(w, %s, rows)\n", status("http.StatusOK"))
 	case sqlcgo.ExecRows:
 		fmt.Fprintf(buf, "n, err := %s\n", call)
-		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.Internal(err))\nreturn\n}\n")
-		buf.WriteString("if n == 0 {\nrt.fail(w, r, afhttp.NotFound(nil))\nreturn\n}\n")
+		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
+		buf.WriteString("if n == 0 {\nrt.fail(w, r, afhttp.ErrNotFound.New(r.Context()))\nreturn\n}\n")
 		fmt.Fprintf(buf, "w.WriteHeader(%s)\n", status("http.StatusNoContent"))
 	default:
-		fmt.Fprintf(buf, "if err := %s; err != nil {\nrt.fail(w, r, afhttp.Internal(err))\nreturn\n}\n", call)
+		fmt.Fprintf(buf, "if err := %s; err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n", call)
 		fmt.Fprintf(buf, "w.WriteHeader(%s)\n", status("http.StatusNoContent"))
 	}
 	buf.WriteString("}\n\n")

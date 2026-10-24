@@ -26,9 +26,9 @@ type NotesQueries interface {
 type NotesRoutes struct {
 	Queries NotesQueries
 	// Auth authenticates the caller of every route that is not .public.
-	// An error fails the request with 401, or with the status of an
-	// *afhttp.Error. Declare Caller in this package; .auth names read its
-	// fields.
+	// An error fails the request with afhttp.ErrUnauthorized, or as it
+	// is when it is an *errs.Error. Declare Caller in this package; .auth
+	// names read its fields.
 	Auth func(r *http.Request) (Caller, error)
 	// OnError writes a failed request's error; nil means afhttp.WriteError.
 	OnError func(w http.ResponseWriter, r *http.Request, err error)
@@ -55,12 +55,12 @@ func (rt *NotesRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
 // Creates a note for the caller.
 func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg db.CreateNoteParams
@@ -75,11 +75,11 @@ func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 	arg.Body = body.Body
 	row, err := rt.Queries.CreateNote(r.Context(), arg)
 	if errors.Is(err, pgx.ErrNoRows) {
-		rt.fail(w, r, afhttp.NotFound(err))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))
 		return
 	}
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
 	afhttp.WriteJSON(w, http.StatusCreated, row)
@@ -90,19 +90,19 @@ func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 // Lists the caller's notes, pinned first.
 func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg string
 	arg = caller.OwnerID
 	rows, err := rt.Queries.ListNotes(r.Context(), arg)
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
 	if rows == nil {
@@ -116,12 +116,12 @@ func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
 // Replaces a note's body. The server sets updated_at.
 func (rt *NotesRoutes) UpdateNote(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg db.UpdateNoteParams
@@ -140,11 +140,11 @@ func (rt *NotesRoutes) UpdateNote(w http.ResponseWriter, r *http.Request) {
 	arg.Body = body.Body
 	n, err := rt.Queries.UpdateNote(r.Context(), arg)
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
 	if n == 0 {
-		rt.fail(w, r, afhttp.NotFound(nil))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -153,12 +153,12 @@ func (rt *NotesRoutes) UpdateNote(w http.ResponseWriter, r *http.Request) {
 // PinNote serves PUT /notes/{id}/pin with the PinNote query.
 func (rt *NotesRoutes) PinNote(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg db.PinNoteParams
@@ -169,11 +169,11 @@ func (rt *NotesRoutes) PinNote(w http.ResponseWriter, r *http.Request) {
 	arg.OwnerID = caller.OwnerID
 	n, err := rt.Queries.PinNote(r.Context(), arg)
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
 	if n == 0 {
-		rt.fail(w, r, afhttp.NotFound(nil))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
