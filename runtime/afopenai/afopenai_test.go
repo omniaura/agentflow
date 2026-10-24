@@ -263,4 +263,18 @@ func TestNoToolCalls(t *testing.T) {
 	if _, set := f.bodies[1]["tool_choice"]; set {
 		t.Errorf("tool_choice set on a normal turn: %v", f.bodies[1]["tool_choice"])
 	}
+
+	// A forced structured answer keeps its format alongside the tools: the
+	// conversation may hold tool calls, which some providers behind
+	// OpenAI-compatible gateways reject when no tools are defined.
+	f = &fakeOpenAI{answers: []string{completion("stop", `{"role":"assistant","content":"{}","refusal":null}`)}}
+	_, err := newModel(t, f).Complete(context.Background(), afagent.Request{
+		Messages:    []afagent.Message{{Role: afagent.User, Content: "hi"}},
+		Tools:       tools,
+		NoToolCalls: true,
+		Output:      &afagent.OutputSpec{Name: "v", Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
+	})
+	if err != nil || f.bodies[0]["tool_choice"] != "none" || len(f.bodies[0]["tools"].([]any)) != 1 || f.bodies[0]["response_format"].(map[string]any)["type"] != "json_schema" {
+		t.Errorf("forced structured answer: %v, body %v", err, f.bodies[0])
+	}
 }
