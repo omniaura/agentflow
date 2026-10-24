@@ -172,6 +172,53 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 		}
 	})
 
+	t.Run("runs", func(t *testing.T) {
+		s := newStore()
+		runs, ok := s.(afthread.Runs)
+		if !ok {
+			t.Skip("the store doesn't record runs")
+		}
+		th := create(t, s, "ann")
+		r, err := runs.StartRun(ctx, "ann", th.ID)
+		if err != nil || r.ID == "" || r.Status != afthread.Running || r.Thread != th.ID {
+			t.Fatalf("StartRun = %+v, %v", r, err)
+		}
+		for _, kind := range []string{"tool_called", "tool_returned", "compacted"} {
+			if _, err := runs.AddEvent(ctx, "ann", r.ID, afthread.RunEvent{Kind: kind, Data: []byte(`{"turn":1}`)}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		all, err := runs.Events(ctx, "ann", r.ID, 0)
+		if err != nil || len(all) != 3 || all[0].Seq >= all[1].Seq || all[2].Kind != "compacted" || string(all[0].Data) != `{"turn":1}` {
+			t.Fatalf("Events = %+v, %v", all, err)
+		}
+		// Resume after a seen event, as a client following the run would.
+		if rest, _ := runs.Events(ctx, "ann", r.ID, all[1].Seq); len(rest) != 1 || rest[0].Kind != "compacted" {
+			t.Fatalf("Events after %d = %+v", all[1].Seq, rest)
+		}
+		end := afthread.RunEnd{Turns: 3, ToolCalls: 2, Usage: afagent.Usage{InputTokens: 100, OutputTokens: 20}, Error: "model down"}
+		if err := runs.EndRun(ctx, "ann", r.ID, end); err != nil {
+			t.Fatal(err)
+		}
+		got, err := runs.GetRun(ctx, "ann", r.ID)
+		if err != nil || got.Status != afthread.RunFailed || got.Turns != 3 || got.Usage.InputTokens != 100 || got.Error != "model down" || got.Ended.IsZero() {
+			t.Fatalf("GetRun = %+v, %v", got, err)
+		}
+		// Another owner sees nothing.
+		if _, err := runs.GetRun(ctx, "bob", r.ID); !errors.Is(err, afthread.ErrNotFound) {
+			t.Errorf("GetRun by another owner: %v", err)
+		}
+		if _, err := runs.AddEvent(ctx, "bob", r.ID, afthread.RunEvent{Kind: "x"}); !errors.Is(err, afthread.ErrNotFound) {
+			t.Errorf("AddEvent by another owner: %v", err)
+		}
+		if _, err := runs.Events(ctx, "bob", r.ID, 0); !errors.Is(err, afthread.ErrNotFound) {
+			t.Errorf("Events by another owner: %v", err)
+		}
+		if _, err := runs.StartRun(ctx, "bob", th.ID); !errors.Is(err, afthread.ErrNotFound) {
+			t.Errorf("StartRun on another owner's thread: %v", err)
+		}
+	})
+
 	t.Run("concurrent claims", func(t *testing.T) {
 		s := newStore()
 		th := create(t, s, "ann")

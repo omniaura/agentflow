@@ -138,6 +138,9 @@ type BeforeTurn = func(ctx context.Context, turn int, msgs []afagent.Message) ([
 // or failed with the run's error. It returns the run, or a zero Result and
 // nil when nothing was queued.
 //
+// When the Store implements Runs, Run records the run and how it ended,
+// and Recorder and Record add events to it from the ctx agent gets.
+//
 // Run one worker per thread at a time: claims are safe to race, but the
 // transcript is written by whoever runs.
 func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.Result, error) {
@@ -145,9 +148,30 @@ func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.R
 	if err != nil || len(claimed) == 0 {
 		return afagent.Result{}, err
 	}
+	// With a Store that records runs, the run and its events go to the
+	// database too.
+	var run *recorder
+	if runs, ok := s.(Runs); ok {
+		rec, err := runs.StartRun(ctx, owner, id)
+		if err != nil {
+			return afagent.Result{}, errors.Join(err, finish(ctx, s, owner, id, claimed, err))
+		}
+		run = &recorder{runs: runs, owner: owner, run: rec.ID}
+		ctx = context.WithValue(ctx, recorderKey{}, run)
+	}
+	// done finishes the claimed messages, then records how the run ended,
+	// finishing's failure included, on every path out.
+	done := func(res afagent.Result, failure error) (afagent.Result, error) {
+		failure = errors.Join(failure, finish(ctx, s, owner, id, claimed, failure))
+		if run == nil {
+			return res, failure
+		}
+		end := RunEnd{Turns: res.Turns, ToolCalls: res.ToolCalls, Usage: res.Usage, Error: errString(failure)}
+		return res, errors.Join(failure, run.runs.EndRun(context.WithoutCancel(ctx), owner, run.run, end))
+	}
 	saved, err := s.Transcript(ctx, owner, id)
 	if err != nil {
-		return afagent.Result{}, errors.Join(err, finish(ctx, s, owner, id, claimed, err))
+		return done(afagent.Result{}, err)
 	}
 	// save writes msgs, the conversation the model sees, to the thread.
 	save := func(ctx context.Context, msgs []afagent.Message) error {
@@ -187,8 +211,7 @@ func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.R
 	if len(res.Messages) > 0 {
 		saveErr = save(context.WithoutCancel(ctx), res.Messages)
 	}
-	failure := errors.Join(runErr, saveErr)
-	return res, errors.Join(failure, finish(ctx, s, owner, id, claimed, failure))
+	return done(res, errors.Join(runErr, saveErr))
 }
 
 func finish(ctx context.Context, s Store, owner, id string, claimed []Incoming, failure error) error {

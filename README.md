@@ -715,6 +715,17 @@ res, err := afthread.Run(ctx, store, userID, threadID, func(ctx context.Context,
 ```
 
 It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time. A worker that crashes mid-run leaves its messages started: call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run, to queue them again.
+**Runs and their events.** A store that also implements `afthread.Runs` records each run in the database, like a jobs table with an events table. `Run` starts a run record, and ends it with its outcome, turns, tool calls and token usage. Inside the agent func, `afthread.Recorder(ctx)` is an `OnEvent` that records model responses (with usage), tool calls, tool results and rejected answers. Streamed text is left out, since the answer lands in the transcript. `afthread.Record(ctx, kind, data)` records anything else, such as a compactor's stages:
+
+```go
+agent.OnEvent = afthread.Recorder(ctx)
+compactor.OnCompact = func(stage string, before, after int) {
+	afthread.Record(ctx, "compacted", map[string]any{"stage": stage, "before": before, "after": after})
+}
+```
+
+`Events(ctx, owner, run, after)` returns the events after a sequence number, so a client can follow a run, and an operator can see where a crashed one stopped. `afthreadtest.Run` checks a store's `Runs` when it implements it.
+
 ### Compaction
 
 `runtime/afcompact` keeps an agent's conversation within its model's context window, with stages that run cheapest first:

@@ -17,6 +17,13 @@ type Memory struct {
 	mu      sync.Mutex
 	threads map[string]*memThread
 	next    int
+	runs    map[string]*memRun
+	nextRun int
+}
+
+type memRun struct {
+	r      RunRecord
+	events []RunEvent
 }
 
 type memThread struct {
@@ -169,6 +176,82 @@ func (m *Memory) Reclaim(ctx context.Context, owner, id string, before time.Time
 		}
 	}
 	return n, nil
+}
+
+func (m *Memory) StartRun(ctx context.Context, owner, thread string) (RunRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, err := m.thread(owner, thread); err != nil {
+		return RunRecord{}, err
+	}
+	if m.runs == nil {
+		m.runs = map[string]*memRun{}
+	}
+	m.nextRun++
+	r := RunRecord{ID: fmt.Sprintf("run-%d", m.nextRun), Owner: owner, Thread: thread, Status: Running, Started: time.Now()}
+	m.runs[r.ID] = &memRun{r: r}
+	return r, nil
+}
+
+func (m *Memory) run(owner, id string) (*memRun, error) {
+	r, ok := m.runs[id]
+	if !ok || r.r.Owner != owner {
+		return nil, ErrNotFound
+	}
+	return r, nil
+}
+
+func (m *Memory) AddEvent(ctx context.Context, owner, run string, e RunEvent) (RunEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, err := m.run(owner, run)
+	if err != nil {
+		return RunEvent{}, err
+	}
+	e.Seq, e.At, e.Data = int64(len(r.events)+1), time.Now(), slices.Clone(e.Data)
+	r.events = append(r.events, e)
+	return e, nil
+}
+
+func (m *Memory) Events(ctx context.Context, owner, run string, after int64) ([]RunEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, err := m.run(owner, run)
+	if err != nil {
+		return nil, err
+	}
+	var out []RunEvent
+	for _, e := range r.events {
+		if e.Seq > after {
+			e.Data = slices.Clone(e.Data)
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+func (m *Memory) EndRun(ctx context.Context, owner, run string, end RunEnd) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, err := m.run(owner, run)
+	if err != nil {
+		return err
+	}
+	r.r.RunEnd, r.r.Ended, r.r.Status = end, time.Now(), Succeeded
+	if end.Error != "" {
+		r.r.Status = RunFailed
+	}
+	return nil
+}
+
+func (m *Memory) GetRun(ctx context.Context, owner, run string) (RunRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, err := m.run(owner, run)
+	if err != nil {
+		return RunRecord{}, err
+	}
+	return r.r, nil
 }
 
 // cloneMessages copies msgs, their tool calls and native payloads, so the
