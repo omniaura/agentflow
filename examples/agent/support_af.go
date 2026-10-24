@@ -336,7 +336,7 @@ func (s *TriagerAgentServer) serve(w http.ResponseWriter, r *http.Request) {
 		stream.Send("done", resp)
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, resp)
+	afhttp.WriteJSON(w, r, http.StatusOK, resp)
 }
 
 type Support struct {

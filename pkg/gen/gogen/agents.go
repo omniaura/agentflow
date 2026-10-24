@@ -290,5 +290,5 @@ func genAgentServer(buf *bytes.Buffer, a *decl.Agent, name, system string, retur
 	} else {
 		fmt.Fprintf(buf, "resp := %sAgentResponse{Answer: res.Final, Usage: res.Usage}\n", name)
 	}
-	buf.WriteString("if stream != nil {\nstream.Send(\"done\", resp)\nreturn\n}\nafhttp.WriteJSON(w, http.StatusOK, resp)\n}\n\n")
+	buf.WriteString("if stream != nil {\nstream.Send(\"done\", resp)\nreturn\n}\nafhttp.WriteJSON(w, r, http.StatusOK, resp)\n}\n\n")
 }

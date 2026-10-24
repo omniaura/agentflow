@@ -82,7 +82,7 @@ func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusCreated, row)
+	afhttp.WriteJSON(w, r, http.StatusCreated, row)
 }
 
 // ListNotes serves GET /notes with the ListNotes query.
@@ -108,7 +108,7 @@ func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []db.Note{}
 	}
-	afhttp.WriteJSON(w, http.StatusOK, rows)
+	afhttp.WriteJSON(w, r, http.StatusOK, rows)
 }
 
 // UpdateNote serves PATCH /notes/{id} with the UpdateNote query.

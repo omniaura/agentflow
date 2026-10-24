@@ -374,7 +374,7 @@ func (s *NotesAgentServer) serve(w http.ResponseWriter, r *http.Request) {
 		stream.Send("done", resp)
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, resp)
+	afhttp.WriteJSON(w, r, http.StatusOK, resp)
 }
 
 type NotesAssistant struct {

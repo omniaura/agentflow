@@ -142,6 +142,8 @@ func TestErrors(t *testing.T) {
 		{afhttp.QueryFailed(ctx, cause), errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
 		{afhttp.QueryFailed(ctx, fmt.Errorf("insert: %w", &pgError{"23505"})), errs.Public{Status: 409, Code: "already_exists", Message: "already exists"}},
 		{afhttp.QueryFailed(ctx, &pgError{"23503"}), errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
+		// A wrapper around the queries can fail with its own errs factory.
+		{afhttp.QueryFailed(ctx, fmt.Errorf("list: %w", banned.New(ctx))), errs.Public{Status: 403, Code: "banned", Message: "banned"}},
 		{afhttp.ErrNotFound.New(ctx), errs.Public{Status: 404, Code: "not_found", Message: "not found"}},
 		{afhttp.Unauthorized(ctx, cause), errs.Public{Status: 401, Code: "unauthorized", Message: "unauthorized", Action: errs.ActionSignIn}},
 		// An authenticator's own *errs.Error keeps its status.
@@ -172,8 +174,10 @@ func TestErrors(t *testing.T) {
 		t.Fatal("QueryFailed does not wrap its cause")
 	}
 	w := httptest.NewRecorder()
-	afhttp.WriteJSON(w, 200, func() {})
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("unencodable value: %d", w.Code)
+	r := httptest.NewRequest("GET", "/", nil)
+	r = r.WithContext(errs.WithRef(r.Context(), "req-1"))
+	afhttp.WriteJSON(w, r, 200, func() {})
+	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), `"ref":"req-1"`) {
+		t.Fatalf("unencodable value: %d %s", w.Code, w.Body)
 	}
 }

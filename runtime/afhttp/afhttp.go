@@ -46,8 +46,10 @@ func Unauthorized(ctx context.Context, err error) *errs.Error {
 	return ErrUnauthorized.New(ctx).AddError(err)
 }
 
-// QueryFailed wraps a failed query: ErrConflict for a unique violation,
-// otherwise errs.Unknown, whose message says nothing of the cause.
+// QueryFailed wraps a failed query: ErrConflict for a unique violation.
+// An *errs.Error the queries return, such as a permission check in a
+// wrapper around them, keeps its status; anything else is errs.Unknown,
+// whose message says nothing of the cause.
 func QueryFailed(ctx context.Context, err error) *errs.Error {
 	var state interface{ SQLState() string }
 	if errors.As(err, &state) && state.SQLState() == "23505" {
@@ -88,11 +90,11 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	AsError(r.Context(), err).Abort(w)
 }
 
-// WriteJSON writes v as JSON with status.
-func WriteJSON(w http.ResponseWriter, status int, v any) {
+// WriteJSON writes v as JSON with status, the response to r.
+func WriteJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		errs.Unknown.New(context.Background()).AddError(err).Abort(w)
+		errs.Unknown.New(r.Context()).AddError(err).Abort(w)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

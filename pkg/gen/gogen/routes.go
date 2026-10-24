@@ -330,12 +330,12 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		fmt.Fprintf(buf, "row, err := %s\n", call)
 		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))\nreturn\n}\n", expr)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
-		fmt.Fprintf(buf, "afhttp.WriteJSON(w, %s, row)\n", status("http.StatusOK"))
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, row)\n", status("http.StatusOK"))
 	case sqlcgo.Many:
 		fmt.Fprintf(buf, "rows, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		fmt.Fprintf(buf, "if rows == nil {\nrows = []%s{}\n}\n", q.Result.Expr)
-		fmt.Fprintf(buf, "afhttp.WriteJSON(w, %s, rows)\n", status("http.StatusOK"))
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, rows)\n", status("http.StatusOK"))
 	case sqlcgo.ExecRows:
 		fmt.Fprintf(buf, "n, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")

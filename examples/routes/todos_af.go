@@ -91,7 +91,7 @@ func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusCreated, row)
+	afhttp.WriteJSON(w, r, http.StatusCreated, row)
 }
 
 // GetTodo serves GET /todos/{id} with the GetTodo query.
@@ -120,7 +120,7 @@ func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, row)
+	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }
 
 // ListTodos serves GET /todos with the ListTodos query.
@@ -150,7 +150,7 @@ func (rt *TodosRoutes) ListTodos(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []db.Todo{}
 	}
-	afhttp.WriteJSON(w, http.StatusOK, rows)
+	afhttp.WriteJSON(w, r, http.StatusOK, rows)
 }
 
 // SetTodoDone serves PUT /todos/{id}/done with the SetTodoDone query.
@@ -230,7 +230,7 @@ func (rt *TodosRoutes) CountTodos(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, row)
+	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }
 
 // GetTodoTitle serves GET /todos/{id}/title with the GetTodoTitle query.
@@ -249,5 +249,5 @@ func (rt *TodosRoutes) GetTodoTitle(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, row)
+	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }
