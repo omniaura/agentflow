@@ -3,6 +3,8 @@ package survey
 import (
 	"fmt"
 	"testing"
+
+	"github.com/omniaura/agentflow/pkg/sqlcgo"
 )
 
 func TestRun(t *testing.T) {
@@ -18,8 +20,9 @@ func TestRun(t *testing.T) {
 	}
 	want := map[Category][]string{
 		Routes:       {"api/api.go:14 GetUser → GetUser"},
-		Outputs:      {"api/api.go:44 openai.ResponseFormatJSONSchemaParam"},
-		Prompts:      {"api/api.go:46 "},
+		Checks:       {"api/api.go:30 Ban → GetUser, BanUser"},
+		Outputs:      {"api/api.go:67 openai.ResponseFormatJSONSchemaParam"},
+		Prompts:      {"api/api.go:69 "},
 		GenAgentflow: {"api/api_af.go:1 "},
 		GenSqlc:      {"db/q.sql.go:1 "},
 		Agents:       {"api/agent.go:11 RunAgent"},
@@ -36,5 +39,26 @@ func TestRun(t *testing.T) {
 	}
 	if r.AFLines != 2 || r.Lines != r.HandWritten+r.LinesOf(GenAgentflow)+r.LinesOf(GenSqlc) {
 		t.Errorf("lines = %d, hand-written %d, af %d", r.Lines, r.HandWritten, r.AFLines)
+	}
+}
+
+func TestWrites(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		kind sqlcgo.Kind
+		want bool
+	}{
+		{"GetUser", sqlcgo.One, false},
+		{"ListUsers", sqlcgo.Many, false},
+		{"CreateUser", sqlcgo.One, true},
+		{"Settings", sqlcgo.One, false},
+		{"SetName", sqlcgo.One, true},
+		{"Update", sqlcgo.Many, true},
+		{"Touch", sqlcgo.Exec, true},
+		{"CountUsers", sqlcgo.ExecRows, true},
+	} {
+		if got := writes(&sqlcgo.Query{Name: tt.name, Kind: tt.kind}); got != tt.want {
+			t.Errorf("%s %s: got %v", tt.name, tt.kind, got)
+		}
 	}
 }

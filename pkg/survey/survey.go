@@ -1,7 +1,8 @@
 // Package survey estimates how much of a Go module could be defined in .af
 // files: hand-written LLM tool schemas, structured-output schemas, HTTP
-// handlers that only serve one sqlc query, and long prompt strings, next to
-// the code agentflow and sqlc already generate.
+// handlers that serve one sqlc query or read, check and write with two,
+// and long prompt strings, next to the code agentflow and sqlc already
+// generate.
 //
 // It reads source syntactically and uses heuristics, so its numbers are an
 // estimate to steer migration, not a measurement.
@@ -33,6 +34,10 @@ const (
 	Tools   Category = "tool schemas"
 	Outputs Category = "structured outputs"
 	Routes  Category = "single-query handlers"
+	// Checks are handlers that run a sqlc read, check its result in Go,
+	// then run a sqlc write: one .route whose SQL holds the check, with
+	// .empty naming its failure.
+	Checks  Category = "read-check-write handlers"
 	Prompts Category = "prompt strings"
 	Agents  Category = "tool-calling loops"
 
@@ -43,7 +48,7 @@ const (
 )
 
 // Candidates are the categories agentflow could take over.
-var Candidates = []Category{Tools, Outputs, Routes, Prompts, Agents}
+var Candidates = []Category{Tools, Outputs, Routes, Checks, Prompts, Agents}
 
 // Site is one counted piece of code.
 type Site struct {
@@ -118,8 +123,8 @@ func lineCount(b []byte) int {
 	return n
 }
 
-// sqlcQueries returns the names of the sqlc queries in the module, by the
-// import path of their package.
+// sqlcQueries returns the sqlc queries in the module, by the import path
+// of their package, then by name: true for a query that writes.
 func sqlcQueries(root string) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
 	repo, err := sqlcgo.Find(root)
@@ -128,12 +133,30 @@ func sqlcQueries(root string) map[string]map[string]bool {
 	}
 	for _, p := range repo.Packages {
 		names := map[string]bool{}
-		for name := range p.Queries {
-			names[name] = true
+		for name, q := range p.Queries {
+			names[name] = writes(q)
 		}
 		out[p.ImportPath] = names
 	}
 	return out
+}
+
+// writeVerbs start the names of queries that change rows, such as
+// CreateNote, a :one with RETURNING.
+var writeVerbs = []string{"Create", "Insert", "Update", "Upsert", "Delete", "Set", "Add", "Remove", "Mark", "Increment", "Decrement", "Archive", "Restore", "Accept", "Decline", "Revoke", "Save", "Replace", "Clear", "Reset"}
+
+// writes reports whether q changes rows, going by its command and name:
+// sqlc's output has no SQL to tell by.
+func writes(q *sqlcgo.Query) bool {
+	if q.Kind != sqlcgo.One && q.Kind != sqlcgo.Many {
+		return true
+	}
+	for _, v := range writeVerbs {
+		if rest, ok := strings.CutPrefix(q.Name, v); ok && (rest == "" || unicode.IsUpper(rune(rest[0]))) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Report) file(root, path string, queries map[string]map[string]bool) error {
@@ -209,8 +232,14 @@ func (s *scanner) add(c Category, n ast.Node, name string) {
 func (s *scanner) scan(f *ast.File) {
 	for _, d := range f.Decls {
 		if fn, ok := d.(*ast.FuncDecl); ok && isHandler(fn.Type) && fn.Body != nil {
-			if q := s.singleQuery(fn.Body); q != "" {
-				s.add(Routes, fn, fn.Name.Name+" → "+q)
+			calls, tx := s.queryCalls(fn.Body)
+			start, end := s.fset.Position(fn.Body.Lbrace), s.fset.Position(fn.Body.Rbrace)
+			short := end.Line-start.Line <= 60
+			switch {
+			case len(calls) == 1 && short:
+				s.add(Routes, fn, fn.Name.Name+" → "+calls[0].name)
+			case len(calls) == 2 && short && !tx && !calls[0].write && calls[1].write:
+				s.add(Checks, fn, fn.Name.Name+" → "+calls[0].name+", "+calls[1].name)
 			}
 		}
 	}
@@ -358,10 +387,14 @@ func isHandler(ft *ast.FuncType) bool {
 	return ok && rs.Sel.Name == "Request"
 }
 
-// singleQuery returns the sqlc query a handler body calls, when it calls
-// exactly one and is short enough to be glue: decode, query, respond.
-func (s *scanner) singleQuery(body *ast.BlockStmt) string {
-	var calls []string
+type queryCall struct {
+	name  string
+	write bool
+}
+
+// queryCalls returns the sqlc queries a handler body calls, in order, and
+// whether it opens a transaction.
+func (s *scanner) queryCalls(body *ast.BlockStmt) (calls []queryCall, tx bool) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -371,30 +404,39 @@ func (s *scanner) singleQuery(body *ast.BlockStmt) string {
 		if !ok {
 			return true
 		}
-		if s.isQuery(sel.Sel.Name, call) {
-			calls = append(calls, sel.Sel.Name)
+		switch name := sel.Sel.Name; {
+		case name == "Begin" || name == "BeginTx" || name == "WithTx":
+			tx = true
+		case s.isQuery(name, call):
+			calls = append(calls, queryCall{name, s.queryWrites(name)})
 		}
 		return true
 	})
-	if len(calls) != 1 {
-		return ""
+	return calls, tx
+}
+
+// queryWrites reports whether the query a call names writes.
+func (s *scanner) queryWrites(name string) bool {
+	if w, ok := s.localQueries[name]; ok {
+		return w
 	}
-	start, end := s.fset.Position(body.Lbrace), s.fset.Position(body.Rbrace)
-	if end.Line-start.Line > 60 {
-		return "" // Too much else going on to be a plain route.
+	for _, names := range s.sqlcNames {
+		if w, ok := names[name]; ok {
+			return w
+		}
 	}
-	return calls[0]
+	return false
 }
 
 // isQuery reports whether a call to a method named name is a sqlc query:
 // the name is a query and an argument is the package's Params type, or the
 // file is in or imports the sqlc package and the name is unambiguous.
 func (s *scanner) isQuery(name string, call *ast.CallExpr) bool {
-	if s.localQueries[name] {
+	if _, ok := s.localQueries[name]; ok {
 		return true
 	}
 	for pkg, names := range s.sqlcNames {
-		if !names[name] {
+		if _, ok := names[name]; !ok {
 			continue
 		}
 		for _, a := range call.Args {

@@ -26,6 +26,29 @@ func (s *Server) Twice(w http.ResponseWriter, r *http.Request) {
 	s.q.GetUser(r.Context(), db.GetUserParams{ID: 2})
 }
 
+// Ban reads, checks, then writes: one .route with .empty.
+func (s *Server) Ban(w http.ResponseWriter, r *http.Request) {
+	n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	if err != nil || n == 0 {
+		http.Error(w, "not yours", 403)
+		return
+	}
+	s.q.BanUser(r.Context(), n)
+}
+
+// CreateThenRead writes first: not a check.
+func (s *Server) CreateThenRead(w http.ResponseWriter, r *http.Request) {
+	s.q.CreateUser(r.Context())
+	s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+}
+
+// Transfer needs its transaction: not one statement.
+func (s *Server) Transfer(w http.ResponseWriter, r *http.Request) {
+	q := s.q.WithTx(nil)
+	q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	q.CreateUser(r.Context())
+}
+
 var lookup = openai.FunctionDefinitionParam{
 	Name: "lookup",
 	Parameters: map[string]any{

@@ -12,3 +12,15 @@ type Queries struct{}
 type GetUserParams struct{ ID int64 }
 
 func (q *Queries) GetUser(ctx context.Context, arg GetUserParams) (int64, error) { return 0, nil }
+
+const createUser = `-- name: CreateUser :one
+INSERT INTO users DEFAULT VALUES RETURNING id`
+
+func (q *Queries) CreateUser(ctx context.Context) (int64, error) { return 0, nil }
+
+const banUser = `-- name: BanUser :execrows
+UPDATE users SET banned = true WHERE id = $1`
+
+func (q *Queries) BanUser(ctx context.Context, id int64) (int64, error) { return 0, nil }
+
+func (q *Queries) WithTx(tx any) *Queries { return q }
