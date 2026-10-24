@@ -289,6 +289,19 @@ func TestDigest(t *testing.T) {
 	if _, err := afcompact.Digest(ctx, msgs, 8000, 3000, 4, failing); err == nil || err.Error() != "chunk failed" {
 		t.Fatalf("failing chunk: %v", err)
 	}
+	// After a failure, no further chunk is summarized, even by a
+	// summarizer that ignores cancellation.
+	var calls int
+	var cmu sync.Mutex
+	failFirst := func(ctx context.Context, call afagent.ToolCall, part, parts int, chunk string) (string, error) {
+		cmu.Lock()
+		calls++
+		cmu.Unlock()
+		return "", errors.New("down")
+	}
+	if _, err := afcompact.Digest(ctx, msgs, 8000, 3000, 1, failFirst); err == nil || calls != 1 {
+		t.Fatalf("after a failure: %v, %d calls", err, calls)
+	}
 }
 
 // A short conversation with one huge result: the compactor condenses it
