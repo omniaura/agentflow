@@ -457,21 +457,41 @@ func exclusive(a, b queryCall) bool {
 	return false
 }
 
-// leaves reports whether a block ends by leaving its function or loop.
-func leaves(b *ast.BlockStmt) bool {
-	if len(b.List) == 0 {
+// gates reports whether if statement ifs, at path in the handler, keeps
+// the write from running when its body runs: the body ends by returning,
+// panicking, or breaking out of (or continuing) a loop or switch that
+// holds the write. Labeled branches and goto are not followed.
+func gates(ifs *ast.IfStmt, path []ast.Node, write queryCall) bool {
+	b := ifs.Body.List
+	if len(b) == 0 {
 		return false
 	}
-	switch st := b.List[len(b.List)-1].(type) {
+	switch st := b[len(b)-1].(type) {
 	case *ast.ReturnStmt:
 		return true
-	case *ast.BranchStmt:
-		return st.Tok != token.FALLTHROUGH
 	case *ast.ExprStmt:
 		if call, ok := st.X.(*ast.CallExpr); ok {
-			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "panic" {
-				return true
+			if id, ok := call.Fun.(*ast.Ident); ok {
+				return id.Name == "panic"
 			}
+		}
+		return false
+	case *ast.BranchStmt:
+		if st.Label != nil || (st.Tok != token.BREAK && st.Tok != token.CONTINUE) {
+			return false
+		}
+		// The innermost statement the branch leaves.
+		for _, n := range slices.Backward(path) {
+			switch n.(type) {
+			case *ast.ForStmt, *ast.RangeStmt:
+			case *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
+				if st.Tok == token.CONTINUE {
+					continue
+				}
+			default:
+				continue
+			}
+			return slices.Contains(write.path, n)
 		}
 	}
 	return false
@@ -479,8 +499,8 @@ func leaves(b *ast.BlockStmt) bool {
 
 // checked reports whether an if between a read and a write tests what
 // the read returned and gates the write, so the write depends on a check
-// that SQL can hold: the write is inside the if, or the if leaves the
-// handler or loop.
+// that SQL can hold: the write is inside the if, or the if keeps it from
+// running.
 func checked(body *ast.BlockStmt, read, write queryCall) bool {
 	call := read.path[len(read.path)-1]
 	var names []string
@@ -499,10 +519,16 @@ func checked(body *ast.BlockStmt, read, write queryCall) bool {
 	}
 	at := write.path[len(write.path)-1].Pos()
 	found := false
+	var stack []ast.Node
 	ast.Inspect(body, func(n ast.Node) bool {
+		if n == nil {
+			stack = stack[:len(stack)-1]
+			return true
+		}
+		stack = append(stack, n)
 		ifs, ok := n.(*ast.IfStmt)
 		if !ok || found || ifs.Cond.Pos() < call.End() || ifs.Cond.Pos() > at {
-			return !found
+			return true
 		}
 		tests := false
 		ast.Inspect(ifs.Cond, func(c ast.Node) bool {
@@ -511,8 +537,8 @@ func checked(body *ast.BlockStmt, read, write queryCall) bool {
 			}
 			return !tests
 		})
-		found = tests && (slices.Contains(write.path, ast.Node(ifs)) || leaves(ifs.Body))
-		return !found
+		found = tests && (slices.Contains(write.path, ast.Node(ifs)) || gates(ifs, stack[:len(stack)-1], write))
+		return true
 	})
 	return found
 }

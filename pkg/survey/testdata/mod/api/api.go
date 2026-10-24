@@ -94,6 +94,29 @@ func (s *Server) Guarded(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// InnerBreak's break only leaves the loop; the write runs anyway: not a
+// check.
+func (s *Server) InnerBreak(w http.ResponseWriter, r *http.Request) {
+	for range 3 {
+		n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+		if err != nil || n == 0 {
+			break
+		}
+	}
+	s.q.BanUser(r.Context(), 1)
+}
+
+// EachUser's continue skips the write in the same loop: a check.
+func (s *Server) EachUser(w http.ResponseWriter, r *http.Request) {
+	for range 3 {
+		n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+		if err != nil || n == 0 {
+			continue
+		}
+		s.q.BanUser(r.Context(), n)
+	}
+}
+
 // Fallthrough runs the read's case into the write's: a check.
 func (s *Server) Fallthrough(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {

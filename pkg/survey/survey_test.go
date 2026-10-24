@@ -18,9 +18,9 @@ func TestRun(t *testing.T) {
 	}
 	want := map[Category][]string{
 		Routes:       {"api/api.go:15 GetUser → GetUser"},
-		Checks:       {"api/api.go:98 Fallthrough → GetUser, BanUser", "api/api.go:31 Ban → GetUser, BanUser", "api/api.go:67 Audited → GetUser, GetUser", "api/api.go:91 Guarded → GetUser, BanUser"},
-		Outputs:      {"api/api.go:133 openai.ResponseFormatJSONSchemaParam"},
-		Prompts:      {"api/api.go:135 "},
+		Checks:       {"api/api.go:121 Fallthrough → GetUser, BanUser", "api/api.go:110 EachUser → GetUser, BanUser", "api/api.go:31 Ban → GetUser, BanUser", "api/api.go:67 Audited → GetUser, GetUser", "api/api.go:91 Guarded → GetUser, BanUser"},
+		Outputs:      {"api/api.go:156 openai.ResponseFormatJSONSchemaParam"},
+		Prompts:      {"api/api.go:158 "},
 		GenAgentflow: {"api/api_af.go:1 "},
 		GenSqlc:      {"db/q.sql.go:1 ", "audit/q.sql.go:1 "},
 		Agents:       {"api/agent.go:11 RunAgent"},
