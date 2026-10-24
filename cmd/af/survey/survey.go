@@ -60,7 +60,7 @@ func write(w io.Writer, r *survey.Report, top int) {
 	for _, c := range []survey.Category{survey.GenAgentflow, survey.GenSqlc, survey.GenOther} {
 		fmt.Fprintf(w, "  %-32s %7d %8d %s\n", c, len(r.Sites[c]), r.LinesOf(c), pct(r.LinesOf(c), r.Lines))
 	}
-	directive := map[survey.Category]string{survey.Tools: ".tool", survey.Outputs: ".output", survey.Routes: ".route", survey.Prompts: ".title"}
+	directive := map[survey.Category]string{survey.Tools: ".tool", survey.Outputs: ".output", survey.Routes: ".route", survey.Prompts: ".title", survey.Agents: ".agent"}
 	fmt.Fprintf(w, "\n%-34s %7s %8s %s\n", "candidates for .af", "sites", "lines", "of hand-written")
 	total := 0
 	for _, c := range survey.Candidates {
