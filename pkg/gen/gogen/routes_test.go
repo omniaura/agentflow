@@ -291,3 +291,19 @@ func TestGenRoutesSwagMap(t *testing.T) {
 		}
 	}
 }
+
+func TestSwagFailureRules(t *testing.T) {
+	for sql, want := range map[string][2]bool{ // mayFindNone, mayConflict
+		"-- name: CreateTodo :one\nINSERT INTO todos (title) VALUES ($1) RETURNING *": {false, true},
+		"INSERT INTO t (a) VALUES ($1) ON CONFLICT DO NOTHING RETURNING *":            {true, true},
+		"INSERT INTO t (a) SELECT a FROM s RETURNING *":                               {true, true},
+		"UPDATE t SET a = $1 WHERE id = $2":                                           {true, true},
+		"DELETE FROM t WHERE id = $1":                                                 {true, false},
+		"SELECT * FROM t WHERE id = $1":                                               {true, false},
+		"WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x":                          {true, true},
+	} {
+		if got := [2]bool{mayFindNone(sql), mayConflict(sql)}; got != want {
+			t.Errorf("%q: got %v, want %v", sql, got, want)
+		}
+	}
+}

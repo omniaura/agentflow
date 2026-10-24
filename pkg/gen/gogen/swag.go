@@ -56,17 +56,33 @@ func swagType(goType string) string {
 	return "string"
 }
 
-// mayFindNone reports whether a query may find or change no row: anything
-// but an INSERT with no WHERE, which always returns its row.
-func mayFindNone(sql string) bool {
+// statement is sql in upper case, without comments, on one line.
+func statement(sql string) string {
 	var code []string
 	for _, l := range strings.Split(strings.ToUpper(sql), "\n") {
 		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "--") {
 			code = append(code, l)
 		}
 	}
-	stmt := strings.Join(code, " ")
-	return !strings.HasPrefix(stmt, "INSERT") || strings.Contains(stmt, "WHERE")
+	return strings.Join(code, " ")
+}
+
+// mayFindNone reports whether a query may find or change no row: anything
+// but a plain INSERT ... VALUES, which always returns its row. One with a
+// WHERE, a SELECT or ON CONFLICT may insert nothing.
+func mayFindNone(sql string) bool {
+	stmt := statement(sql)
+	if !strings.HasPrefix(stmt, "INSERT") {
+		return true
+	}
+	return strings.Contains(stmt, "WHERE") || strings.Contains(stmt, "SELECT") || strings.Contains(stmt, "ON CONFLICT")
+}
+
+// mayConflict reports whether a query may violate a unique constraint,
+// which the handler reports as 409: an INSERT or UPDATE.
+func mayConflict(sql string) bool {
+	stmt := statement(sql)
+	return strings.HasPrefix(stmt, "INSERT") || strings.HasPrefix(stmt, "UPDATE") || strings.HasPrefix(stmt, "WITH") && (strings.Contains(stmt, "INSERT") || strings.Contains(stmt, "UPDATE"))
 }
 
 // writeSwag writes the swag annotations of b's handler, as lines of its
@@ -142,14 +158,15 @@ func writeSwag(buf *bytes.Buffer, b *boundRoute, bodyType string, sw *Swag, impo
 	failures := map[int]bool{500: true}
 	failures[400] = inputs
 	failures[401] = !r.Public
-	if (q.Kind == sqlcgo.One || q.Kind == sqlcgo.ExecRows) && (r.Empty != nil || mayFindNone(q.SQL)) {
+	// An :execrows query may always change no row.
+	if q.Kind == sqlcgo.ExecRows || q.Kind == sqlcgo.One && (r.Empty != nil || mayFindNone(q.SQL)) {
 		code := 404
 		if r.Empty != nil {
 			code = r.Empty.Status
 		}
 		failures[code] = true
 	}
-	failures[409] = failures[409] || q.Writes()
+	failures[409] = failures[409] || mayConflict(q.SQL)
 	imports[ErrsImport] = true
 	for _, code := range []int{400, 401, 403, 404, 409, 410, 422, 500} {
 		if failures[code] {
