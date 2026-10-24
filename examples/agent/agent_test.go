@@ -232,3 +232,25 @@ func TestSupportAgentAllow(t *testing.T) {
 		t.Errorf("refused call = %+v, refunds %v", refused, s.refunds)
 	}
 }
+
+// Allow is asked once per run: a tool it starts allowing mid-run still
+// isn't run, because it wasn't offered.
+func TestSupportAgentAllowOncePerRun(t *testing.T) {
+	model, _ := script(t,
+		afagent.Message{ToolCalls: []afagent.ToolCall{call("1", "offer_refund", `{"order_id":"A-1","reason":"late"}`)}},
+		afagent.Message{Content: "ok"},
+	)
+	s := &shop{}
+	asked := map[string]int{}
+	agent := &SupportAgent{Model: model, Tools: s, Allow: func(ctx context.Context, tool string) bool {
+		asked[tool]++
+		return tool != "offer_refund" || asked[tool] > 1
+	}}
+	res, err := agent.Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "refund A-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refused := res.Messages[2]; !refused.IsError || len(s.refunds) != 0 || asked["offer_refund"] != 1 {
+		t.Errorf("refused = %+v, refunds %v, asked %v", refused, s.refunds, asked)
+	}
+}

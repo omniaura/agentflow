@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/omniaura/agentflow/examples/routes/db"
@@ -236,14 +237,21 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 	if maxTurns <= 0 {
 		maxTurns = 6
 	}
+	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:            a.Model,
-		System:           system.String(),
-		Tools:            a.tools(ctx),
-		MaxTurns:         maxTurns,
-		Concurrency:      a.Concurrency,
-		OnEvent:          a.OnEvent,
-		Dispatch:         a.dispatch,
+		Model:       a.Model,
+		System:      system.String(),
+		Tools:       tools,
+		MaxTurns:    maxTurns,
+		Concurrency: a.Concurrency,
+		OnEvent:     a.OnEvent,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
 		AnswerOnLastTurn: true,
 	}
 	return loop.Run(ctx, messages)
@@ -264,9 +272,6 @@ func (a *NotesAgent) tools(ctx context.Context) []afagent.ToolSpec {
 }
 
 func (a *NotesAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
-	if a.Allow != nil && !a.Allow(ctx, call.Name) {
-		return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-	}
 	switch call.Name {
 	case ListNotesTool.Name:
 		args, err := ListNotesTool.Decode(call.Arguments)

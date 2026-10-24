@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -134,14 +135,21 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 6
 	}
+	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:            a.Model,
-		System:           system.String(),
-		Tools:            a.tools(ctx),
-		MaxTurns:         maxTurns,
-		Concurrency:      a.Concurrency,
-		OnEvent:          a.OnEvent,
-		Dispatch:         a.dispatch,
+		Model:       a.Model,
+		System:      system.String(),
+		Tools:       tools,
+		MaxTurns:    maxTurns,
+		Concurrency: a.Concurrency,
+		OnEvent:     a.OnEvent,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
 		AnswerOnLastTurn: true,
 	}
 	return loop.Run(ctx, messages)
@@ -162,9 +170,6 @@ func (a *SupportAgent) tools(ctx context.Context) []afagent.ToolSpec {
 }
 
 func (a *SupportAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
-	if a.Allow != nil && !a.Allow(ctx, call.Name) {
-		return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-	}
 	switch call.Name {
 	case LookupOrderTool.Name:
 		args, err := LookupOrderTool.Decode(call.Arguments)
@@ -231,14 +236,21 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 3
 	}
+	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:            a.Model,
-		System:           system.String(),
-		Tools:            a.tools(ctx),
-		MaxTurns:         maxTurns,
-		Concurrency:      a.Concurrency,
-		OnEvent:          a.OnEvent,
-		Dispatch:         a.dispatch,
+		Model:       a.Model,
+		System:      system.String(),
+		Tools:       tools,
+		MaxTurns:    maxTurns,
+		Concurrency: a.Concurrency,
+		OnEvent:     a.OnEvent,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
 		AnswerOnLastTurn: true,
 		Output:           &afagent.OutputSpec{Name: TriageSchema.Name, Description: TriageSchema.Description, Schema: TriageSchema.Schema},
 		Check: func(answer string) error {
@@ -273,9 +285,6 @@ func (a *TriagerAgent) tools(ctx context.Context) []afagent.ToolSpec {
 }
 
 func (a *TriagerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
-	if a.Allow != nil && !a.Allow(ctx, call.Name) {
-		return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-	}
 	switch call.Name {
 	case LookupOrderTool.Name:
 		args, err := LookupOrderTool.Decode(call.Arguments)
@@ -432,14 +441,21 @@ func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 4
 	}
+	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:            a.Model,
-		System:           system.String(),
-		Tools:            a.tools(ctx),
-		MaxTurns:         maxTurns,
-		Concurrency:      a.Concurrency,
-		OnEvent:          a.OnEvent,
-		Dispatch:         a.dispatch,
+		Model:       a.Model,
+		System:      system.String(),
+		Tools:       tools,
+		MaxTurns:    maxTurns,
+		Concurrency: a.Concurrency,
+		OnEvent:     a.OnEvent,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
 		AnswerOnLastTurn: true,
 	}
 	return loop.Run(ctx, messages)
@@ -460,9 +476,6 @@ func (a *TrackerAgent) tools(ctx context.Context) []afagent.ToolSpec {
 }
 
 func (a *TrackerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
-	if a.Allow != nil && !a.Allow(ctx, call.Name) {
-		return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-	}
 	switch call.Name {
 	case LookupOrderTool.Name:
 		args, err := LookupOrderTool.Decode(call.Arguments)

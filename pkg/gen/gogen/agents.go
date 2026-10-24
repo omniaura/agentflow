@@ -120,13 +120,17 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		}
 		toolsExpr := name + "AgentTools"
 		if len(tools) > 0 {
-			toolsExpr = "a.tools(ctx)"
+			// Allow is asked once per run: dispatch then enforces the very
+			// tools offered, even if Allow would answer differently later.
+			buf.WriteString("tools := a.tools(ctx)\n")
+			toolsExpr = "tools"
 		}
 		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %s,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nOnEvent: a.OnEvent,\n", systemExpr, toolsExpr)
 		if len(tools) > 0 {
 			// The last turn answers with what the tools found, rather than
 			// failing with ErrMaxTurns.
-			buf.WriteString("Dispatch: a.dispatch,\nAnswerOnLastTurn: true,\n")
+			imports["slices"] = true
+			buf.WriteString("Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {\nif a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {\n// The model may name a tool it wasn't offered.\nreturn \"\", fmt.Errorf(\"tool %s is not available in this conversation\", call.Name)\n}\nreturn a.dispatch(ctx, call)\n},\nAnswerOnLastTurn: true,\n")
 		}
 		if returns == nil {
 			buf.WriteString("}\nreturn loop.Run(ctx, messages)\n}\n\n")
@@ -141,8 +145,6 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			imports["fmt"] = true
 			fmt.Fprintf(buf, "// tools are the tools offered in a run: those Allow allows.\nfunc (a *%sAgent) tools(ctx context.Context) []afagent.ToolSpec {\nif a.Allow == nil {\nreturn %sAgentTools\n}\nvar out []afagent.ToolSpec\nfor _, t := range %sAgentTools {\nif a.Allow(ctx, t.Name) {\nout = append(out, t)\n}\n}\nreturn out\n}\n\n", name, name, name)
 			fmt.Fprintf(buf, "func (a *%sAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {\n", name)
-			// The model may name a tool it wasn't offered.
-			buf.WriteString("if a.Allow != nil && !a.Allow(ctx, call.Name) {\nreturn \"\", fmt.Errorf(\"tool %s is not available in this conversation\", call.Name)\n}\n")
 			buf.WriteString("switch call.Name {\n")
 			for _, t := range tools {
 				tn := camel(t.Name)
