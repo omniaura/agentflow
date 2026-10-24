@@ -138,12 +138,26 @@ type BeforeTurn = func(ctx context.Context, turn int, msgs []afagent.Message) ([
 // or failed with the run's error. It returns the run, or a zero Result and
 // nil when nothing was queued.
 //
+// When the Store implements Runs, Run records the run and how it ended,
+// and Recorder and Record add events to it from the ctx agent gets.
+//
 // Run one worker per thread at a time: claims are safe to race, but the
 // transcript is written by whoever runs.
 func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.Result, error) {
 	claimed, err := s.Claim(ctx, owner, id)
 	if err != nil || len(claimed) == 0 {
 		return afagent.Result{}, err
+	}
+	// With a Store that records runs, the run and its events go to the
+	// database too.
+	var run *recorder
+	if runs, ok := s.(Runs); ok {
+		rec, err := runs.StartRun(ctx, owner, id)
+		if err != nil {
+			return afagent.Result{}, errors.Join(err, finish(ctx, s, owner, id, claimed, err))
+		}
+		run = &recorder{runs: runs, owner: owner, run: rec.ID}
+		ctx = context.WithValue(ctx, recorderKey{}, run)
 	}
 	saved, err := s.Transcript(ctx, owner, id)
 	if err != nil {
@@ -188,7 +202,12 @@ func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.R
 		saveErr = save(context.WithoutCancel(ctx), res.Messages)
 	}
 	failure := errors.Join(runErr, saveErr)
-	return res, errors.Join(failure, finish(ctx, s, owner, id, claimed, failure))
+	var endErr error
+	if run != nil {
+		end := RunEnd{Turns: res.Turns, ToolCalls: res.ToolCalls, Usage: res.Usage, Error: errString(failure)}
+		endErr = run.runs.EndRun(context.WithoutCancel(ctx), owner, run.run, end)
+	}
+	return res, errors.Join(failure, finish(ctx, s, owner, id, claimed, failure), endErr)
 }
 
 func finish(ctx context.Context, s Store, owner, id string, claimed []Incoming, failure error) error {

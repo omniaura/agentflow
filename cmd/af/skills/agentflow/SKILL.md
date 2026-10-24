@@ -212,7 +212,9 @@ Answers customer questions about their orders.
 - Conversations that live in the database: `runtime/afthread`. Implement `afthread.Store` over
   the existing tables (don't create new ones if threads and a message queue exist), check it
   with `afthreadtest.Run`, and answer queued messages with `afthread.Run(ctx, store, owner,
-  thread, agentFunc)`: it delivers mid-run messages and saves before every turn.
+  thread, agentFunc)`: it delivers mid-run messages and saves before every turn. If the store
+  implements `afthread.Runs`, set `OnEvent: afthread.Recorder(ctx)` in the agent func to record
+  the run's events.
 - Long conversations: `runtime/afcompact`. Set `BeforeTurn: (&afcompact.Compactor{Budget: n,
   Summarize: afcompact.Summarize(model)}).BeforeTurn`. It microcompacts old tool results, then folds
   older rounds into a summary, only as far as needed. Don't hand-write context-budget loops.

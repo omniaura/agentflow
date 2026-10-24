@@ -159,3 +159,66 @@ func TestRunNativeChange(t *testing.T) {
 		t.Fatalf("transcript = %+v", got)
 	}
 }
+
+// With a store that records runs, Run records the run, its events and how
+// it ended.
+func TestRunRecordsRun(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: "m1", Content: "look it up"})
+	model := afagent.ModelFunc(func() func(context.Context, afagent.Request) (afagent.Response, error) {
+		n := 0
+		return func(ctx context.Context, req afagent.Request) (afagent.Response, error) {
+			n++
+			if n == 1 {
+				return afagent.Response{Message: afagent.Message{ToolCalls: []afagent.ToolCall{{ID: "1", Name: "look", Arguments: `{"id":7}`}}}, Usage: afagent.Usage{InputTokens: 50, OutputTokens: 5}}, nil
+			}
+			return afagent.Response{Message: afagent.Message{Content: "found"}, Usage: afagent.Usage{InputTokens: 60, OutputTokens: 3}}, nil
+		}
+	}())
+	var runID string
+	agent := func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+		// Other code records with the run's ctx too, as a compactor would.
+		afthread.Record(ctx, "compacted", map[string]int{"before": 900, "after": 400})
+		l := afagent.Loop{Model: model, Tools: []afagent.ToolSpec{{Name: "look"}}, BeforeTurn: before, OnEvent: afthread.Recorder(ctx),
+			Dispatch: func(context.Context, afagent.ToolCall) (string, error) { return "row 7", nil }}
+		return l.Run(ctx, msgs)
+	}
+	if _, err := afthread.Run(ctx, s, "ann", th.ID, agent); err != nil {
+		t.Fatal(err)
+	}
+	runID = "run-1"
+	r, err := s.GetRun(ctx, "ann", runID)
+	if err != nil || r.Status != afthread.Succeeded || r.Thread != th.ID || r.Turns != 2 || r.ToolCalls != 1 || r.Usage.InputTokens != 110 {
+		t.Fatalf("run = %+v, %v", r, err)
+	}
+	events, _ := s.Events(ctx, "ann", runID, 0)
+	var kinds []string
+	for _, e := range events {
+		kinds = append(kinds, e.Kind)
+	}
+	// No text deltas; tool events carry the call and result.
+	if strings.Join(kinds, ",") != "compacted,model_responded,tool_called,tool_returned,model_responded" {
+		t.Fatalf("events = %v", kinds)
+	}
+	if !strings.Contains(string(events[3].Data), `"result":"row 7"`) || !strings.Contains(string(events[2].Data), `"arguments":"{\"id\":7}"`) {
+		t.Errorf("tool events = %s / %s", events[2].Data, events[3].Data)
+	}
+
+	// A failed run is recorded as failed, with the error.
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: "m2", Content: "again"})
+	failing, _ := scripted(t, afagent.Message{Content: "FAIL"})
+	afthread.Run(ctx, s, "ann", th.ID, loopAgent(failing, nil))
+	if r, _ := s.GetRun(ctx, "ann", "run-2"); r.Status != afthread.RunFailed || !strings.Contains(r.Error, "model down") {
+		t.Fatalf("failed run = %+v", r)
+	}
+}
+
+// Without a recorded run, Record and Recorder do nothing.
+func TestRecordWithoutRun(t *testing.T) {
+	if err := afthread.Record(context.Background(), "x", 1); err != nil {
+		t.Fatal(err)
+	}
+	afthread.Recorder(context.Background())(afagent.Event{Kind: afagent.ToolCalled, Call: &afagent.ToolCall{}})
+}
