@@ -141,7 +141,6 @@ func sqlcQueries(root string) map[string]map[string]bool {
 	return out
 }
 
-
 func (r *Report) file(root, path string, queries map[string]map[string]bool) error {
 	src, err := os.ReadFile(path)
 	if err != nil {
