@@ -514,6 +514,44 @@ func (d *Document) sectionDirectiveAt(off int) string {
 	return ""
 }
 
+// queryAt describes the section containing off: whether off is past its
+// .sql line, inside the query, and the kind of query it runs, from .sql
+// or sqlc's output, or "" when that isn't known.
+func (d *Document) queryAt(off int) (qk sqlcgo.Kind, inSQL bool) {
+	for _, t := range d.Tokens {
+		if t.Kind != kind.Section || off < t.Start || off > t.End {
+			continue
+		}
+		for i := t.Start; i < t.End; {
+			end := lineEnd(d.Content, i, t.End)
+			fields := strings.Fields(string(d.Content[i:end]))
+			if len(fields) > 0 && fields[0] == ".sql" {
+				inSQL = inSQL || off > end
+				if len(fields) > 1 {
+					qk = sqlcgo.Kind(fields[1])
+				}
+			}
+			i = end + 1
+		}
+		if qk != "" {
+			return qk, inSQL
+		}
+		// A route names its query in its header.
+		header := strings.Fields(string(d.Content[t.Start:lineEnd(d.Content, t.Start, t.End)]))
+		p := d.path()
+		if len(header) < 4 || header[0] != ".route" || p == "" {
+			return "", inSQL
+		}
+		if repo, err := sqlcgo.Find(filepath.Dir(p)); err == nil {
+			if _, q, err := repo.Lookup(header[3]); err == nil {
+				qk = q.Kind
+			}
+		}
+		return qk, inSQL
+	}
+	return "", false
+}
+
 var paramTypeRE = regexp.MustCompile(`^\.(?:param|field)\s+[A-Za-z_][A-Za-z0-9_.\[\]]*\??\s+\S*$`)
 
 // directiveCompletions suggests directives at the start of a line, and
@@ -558,12 +596,22 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".field", "output field: .field name [type] [description]")
 		add(".maxbytes", "cap the output's size")
 	case ".route":
+		qk, inSQL := d.queryAt(d.positionToOffset(pos))
+		if inSQL {
+			// The rest of the section is SQL.
+			break
+		}
 		add(".auth", "arguments read from the caller")
 		add(".public", "serve without authentication")
 		add(".status", "success status code")
 		add(".maxbytes", "cap the request body")
-		add(".empty", "the error when the query finds no row: .empty [4xx] message (default 404)")
-		add(".wrap", "respond with the result in an object: .wrap todos for {\"todos\": [...]}")
+		// Offer what applies to the query's kind, when it's known.
+		if qk == "" || qk == sqlcgo.One || qk == sqlcgo.ExecRows {
+			add(".empty", "the error when the query finds no row: .empty [4xx] message (default 404)")
+		}
+		if qk == "" || qk == sqlcgo.One || qk == sqlcgo.Many {
+			add(".wrap", "respond with the result in an object: .wrap todos for {\"todos\": [...]}")
+		}
 		add(".sql", "write the query here: .sql :one|:many|:exec|:execrows, then the SQL")
 	}
 	add(".title", "start a prompt")

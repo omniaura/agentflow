@@ -378,3 +378,46 @@ func TestRouteWrapHover(t *testing.T) {
 		t.Errorf("hover of a route without .wrap:\n%s", hover)
 	}
 }
+
+func TestRouteCompletionsFollowQueryKind(t *testing.T) {
+	dir, err := filepath.Abs("../../examples/routes")
+	require.NoError(t, err)
+	labels := func(src string, line int) []string {
+		t.Helper()
+		doc := openAt(t, filepath.Join(dir, "x.af"), src)
+		var out []string
+		for _, c := range doc.directiveCompletions(Position{Line: line, Character: 1}, []byte(".")) {
+			out = append(out, c.Label)
+		}
+		return out
+	}
+	for _, tt := range []struct {
+		name, src string
+		line      int
+		want, not []string
+	}{
+		// The kind from .sql, even below the cursor.
+		{"inline :execrows", ".route PUT /a/{id} SetX\n.\n.sql :execrows\nUPDATE t SET x = 1 WHERE id = @id\n", 1, []string{".empty", ".auth"}, []string{".wrap"}},
+		{"inline :many", ".route GET /a ListX\n.\n.sql :many\nSELECT 1\n", 1, []string{".wrap"}, []string{".empty"}},
+		{"inline :exec", ".route POST /a TouchX\n.\n.sql :exec\nSELECT 1\n", 1, []string{".status"}, []string{".wrap", ".empty"}},
+		// The kind from sqlc's output: ListTodos is :many, GetTodo :one.
+		{"sqlc :many", ".route GET /todos ListTodos\n.\n", 1, []string{".wrap"}, []string{".empty"}},
+		{"sqlc :one", ".route GET /todos/{id} GetTodo\n.\n", 1, []string{".wrap", ".empty"}, nil},
+		// An unknown query offers both.
+		{"unknown", ".route GET /x Nope\n.\n", 1, []string{".wrap", ".empty"}, nil},
+		// Below .sql is SQL: no route directives.
+		{"after .sql", ".route GET /a ListX\n.sql :many\nSELECT 1\n.\n", 3, nil, []string{".auth", ".wrap", ".empty", ".sql"}},
+	} {
+		got := labels(tt.src, tt.line)
+		for _, w := range tt.want {
+			if !slices.Contains(got, w) {
+				t.Errorf("%s: missing %s in %v", tt.name, w, got)
+			}
+		}
+		for _, n := range tt.not {
+			if slices.Contains(got, n) {
+				t.Errorf("%s: offers %s: %v", tt.name, n, got)
+			}
+		}
+	}
+}
