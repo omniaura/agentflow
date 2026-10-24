@@ -160,6 +160,9 @@ const DigestPrefix = "[Condensed from a %d-character result, in %d parts]\n"
 // so the agent keeps what the results said, unlike Microcompact. A chunk
 // that fails fails the whole digest.
 func Digest(ctx context.Context, msgs []afagent.Message, over, chunk, concurrency int, summarize ChunkSummarizer) ([]afagent.Message, error) {
+	if chunk <= 0 {
+		return nil, fmt.Errorf("afcompact: Digest needs a positive chunk size, got %d", chunk)
+	}
 	calls := map[string]afagent.ToolCall{}
 	type job struct {
 		msg, part int
@@ -171,7 +174,9 @@ func Digest(ctx context.Context, msgs []afagent.Message, over, chunk, concurrenc
 		for _, c := range m.ToolCalls {
 			calls[c.ID] = c
 		}
-		if m.Role != afagent.Tool || utf8.RuneCountInString(m.Content) <= over || strings.HasPrefix(m.Content, "[Condensed from") {
+		// Size alone decides: a condensed result is short, so it isn't
+		// condensed again unless it is still over.
+		if m.Role != afagent.Tool || utf8.RuneCountInString(m.Content) <= over {
 			continue
 		}
 		chunks := split(m.Content, chunk)
@@ -194,30 +199,34 @@ func Digest(ctx context.Context, msgs []afagent.Message, over, chunk, concurrenc
 			cancel()
 		})
 	}
-	sem := make(chan struct{}, max(1, concurrency))
+	// A fixed pool of workers, however many chunks there are.
+	queue := make(chan job)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, j := range jobs {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				fail(ctx.Err())
-				return
+	for range min(max(1, concurrency), len(jobs)) {
+		wg.Go(func() {
+			for j := range queue {
+				out, err := summarize(ctx, calls[msgs[j.msg].ToolCallID], j.part+1, len(parts[j.msg]), j.text)
+				if err != nil {
+					fail(err)
+					continue
+				}
+				mu.Lock()
+				parts[j.msg][j.part] = out
+				mu.Unlock()
 			}
-			defer func() { <-sem }()
-			out, err := summarize(ctx, calls[msgs[j.msg].ToolCallID], j.part+1, len(parts[j.msg]), j.text)
-			if err != nil {
-				fail(err)
-				return
-			}
-			mu.Lock()
-			parts[j.msg][j.part] = out
-			mu.Unlock()
-		}()
+		})
 	}
+feed:
+	for _, j := range jobs {
+		select {
+		case queue <- j:
+		case <-ctx.Done():
+			fail(ctx.Err())
+			break feed
+		}
+	}
+	close(queue)
 	wg.Wait()
 	if failed != nil {
 		return nil, failed
