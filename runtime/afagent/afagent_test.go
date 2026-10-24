@@ -212,9 +212,14 @@ func TestLoopCheckRejectsAnswer(t *testing.T) {
 func TestLoopCheckGivesUpAtMaxTurns(t *testing.T) {
 	model, _ := script(t, Message{Content: "no"}, Message{Content: "no"})
 	l := Loop{Model: model, MaxTurns: 2, Check: func(string) error { return errors.New("bad") }}
-	_, err := l.Run(context.Background(), nil)
+	res, err := l.Run(context.Background(), nil)
 	if !errors.Is(err, ErrMaxTurns) || !strings.Contains(err.Error(), "the last answer was rejected: bad") {
 		t.Fatalf("got %v", err)
+	}
+	// The transcript ends on the rejected answer, not on a retry prompt
+	// the model never saw.
+	if last := res.Messages[len(res.Messages)-1]; last.Role != Assistant || last.Content != "no" || len(res.Messages) != 3 {
+		t.Errorf("messages = %+v", res.Messages)
 	}
 }
 

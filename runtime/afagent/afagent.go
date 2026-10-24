@@ -256,9 +256,7 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 	if maxTurns <= 0 {
 		maxTurns = DefaultMaxTurns
 	}
-	var rejected error
 	for res.Turns < maxTurns {
-		rejected = nil
 		if err := ctx.Err(); err != nil {
 			return res, err
 		}
@@ -297,6 +295,7 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		res.Usage.add(resp.Usage)
 		res.Messages = append(res.Messages, resp.Message)
 		final := len(resp.Message.ToolCalls) == 0
+		var rejected error
 		if final && l.Check != nil {
 			rejected = l.Check(resp.Message.Content)
 		}
@@ -309,6 +308,10 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		if final {
 			if rejected != nil {
 				l.emit(Event{Kind: AnswerRejected, Turn: res.Turns, Err: rejected})
+				if res.Turns == maxTurns {
+					// No turn is left to ask again: end on the rejected answer.
+					return res, fmt.Errorf("%w: the last answer was rejected: %w", ErrMaxTurns, rejected)
+				}
 				res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected)})
 				continue
 			}
@@ -316,9 +319,6 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			return res, nil
 		}
 		res.Messages = append(res.Messages, l.runTools(ctx, res.Turns, resp.Message.ToolCalls)...)
-	}
-	if rejected != nil {
-		return res, fmt.Errorf("%w: the last answer was rejected: %w", ErrMaxTurns, rejected)
 	}
 	return res, ErrMaxTurns
 }
