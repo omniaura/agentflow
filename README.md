@@ -553,6 +553,19 @@ if res.Output.Urgent { ... } // res.Output is a TriageOutput
 
 The adapters send the output's strict schema as the provider's structured output format. `Run` checks each final answer with the output's decoder. An answer that doesn't decode goes back to the model with the error, so it can try again within `.maxturns`.
 
+Set `Check` to vet what a schema can't express, such as that the answer covers every input or that its indices exist. Its error goes back to the model in the same way:
+
+```go
+agent := &TriagerAgent{Model: model, Tools: impl, Check: func(ctx context.Context, out TriageOutput) error {
+	if out.Category == TriageCategoryRefund && out.OrderId == "" {
+		return errors.New("a refund needs the order_id") // the model reads this
+	}
+	return nil
+}}
+```
+
+If the answers are still rejected at `.maxturns`, `Run` returns an error that wraps both `afagent.ErrMaxTurns` and the last rejection. An agent with `.returns` and no tools is a one-shot structured call that comes with the retries built in. That replaces hand-written code that sends a response format, decodes the answer strictly, validates it and asks again.
+
 With `.serve POST /triage`, the agent is also an HTTP endpoint:
 
 ```go

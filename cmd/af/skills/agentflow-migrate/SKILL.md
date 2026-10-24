@@ -42,7 +42,7 @@ Each category has a `.af` replacement:
 | Survey category | Hand-written code | Replace with |
 | --- | --- | --- |
 | tool schemas | JSON Schema maps or SDK tool params, args structs, argument checks | `.tool` |
-| structured outputs | response-format schemas and the structs they decode into | `.output` |
+| structured outputs | response-format schemas and the structs they decode into; the call that sends one, validates the answer and asks again | `.output`; for the call, an `.agent` with `.returns` and no tools, with the validation in `Check` |
 | tool-calling loops | a loop that calls a model, runs its tool calls and sends results back | `.agent` (+ `.returns`) |
 | prompt strings | long string constants with prompt text | `.title` prompts |
 | single-query handlers | decode request, call one sqlc query, write JSON | `.route` (+ `.sql`) |

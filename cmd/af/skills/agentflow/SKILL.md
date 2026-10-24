@@ -202,6 +202,10 @@ Answers customer questions about their orders.
 - `.returns name` makes the final answer an `.output` of the file. `Run` then returns
   `<Name>AgentResult`, whose `Output` field is decoded and checked. Answers that don't
   decode go back to the model to retry. Use it whenever code reads the agent's answer.
+  Set the agent's `Check func(ctx, <Name>Output) error` for rules a schema can't express
+  (covers every input, indices exist). Its error goes back to the model, so word it for
+  the model. With no tools, `.returns` is a one-shot structured call with retries. Use it
+  instead of hand-writing response formats, strict decoding and retry loops.
 - `.serve POST /path` also generates `<Name>AgentServer{Agent, Prepare, Done}` with
   `Register(mux)`. The client posts `{"message": "..."}`. `Prepare` authenticates and
   returns the prompt values and the stored history, and `Done` stores `res.Messages`.

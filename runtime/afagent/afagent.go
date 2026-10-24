@@ -215,7 +215,9 @@ var (
 	ErrRefused = errors.New("afagent: the model refused")
 )
 
-// ErrMaxTurns means the model kept calling tools for MaxTurns model calls.
+// ErrMaxTurns means the model kept calling tools, or giving answers Check
+// rejected, for MaxTurns model calls. After a rejected last answer the
+// error also wraps Check's.
 var ErrMaxTurns = errors.New("afagent: the agent did not finish within its turn limit")
 
 // DefaultMaxTurns bounds a loop whose MaxTurns is 0.
@@ -306,6 +308,10 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		if final {
 			if rejected != nil {
 				l.emit(Event{Kind: AnswerRejected, Turn: res.Turns, Err: rejected})
+				if res.Turns == maxTurns {
+					// No turn is left to ask again: end on the rejected answer.
+					return res, fmt.Errorf("%w: the last answer was rejected: %w", ErrMaxTurns, rejected)
+				}
 				res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected)})
 				continue
 			}
