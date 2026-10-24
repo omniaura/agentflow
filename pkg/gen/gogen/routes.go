@@ -23,6 +23,8 @@ type Options struct {
 	// Queries resolves the sqlc query a .route names. Files with routes
 	// need it.
 	Queries func(name string) (*sqlcgo.Package, *sqlcgo.Query, error)
+	// Swag, when set, writes swag annotations on route handlers.
+	Swag *Swag
 	// SiblingTools are the tools of the other .af files of the package,
 	// which an agent's .tools may name.
 	SiblingTools []ast.SiblingTool
@@ -100,6 +102,12 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 			empties = append(empties, b)
 		}
 	}
+	if opts.Swag != nil && len(empties) == 0 {
+		// The error responses' type for swag, which resolves it through
+		// the file's imports.
+		imports[ErrsImport] = true
+		buf.WriteString("// errs.Error is the body of the routes' error responses.\nvar _ *errs.Error\n\n")
+	}
 	if len(empties) > 0 {
 		imports[ErrsImport] = true
 		buf.WriteString("// The errors of the routes with .empty: what a query that finds no row,\n// or changes none, means.\nvar (\n")
@@ -174,7 +182,7 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 	buf.WriteString("if rt.OnError != nil {\nrt.OnError(w, r, err)\nreturn\n}\nafhttp.WriteError(w, r, err)\n}\n\n")
 
 	for _, b := range bound {
-		writeHandler(buf, name, b, imports)
+		writeHandler(buf, name, b, opts, imports)
 	}
 	return nil
 }
@@ -292,14 +300,43 @@ func bind(r *decl.Route, pkg *sqlcgo.Package, q *sqlcgo.Query) (*boundRoute, err
 	return b, nil
 }
 
-func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[string]bool) {
+func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options, imports map[string]bool) {
 	r, q := b.r, b.q
+	var body []int
+	for i := range q.Args {
+		if b.sources[i] == "body" {
+			body = append(body, i)
+		}
+	}
+	bodyType := ""
+	if len(body) > 0 {
+		// Named, so API docs such as swag's can refer to it.
+		bodyType = lowerFirst(routes) + b.handler + "Body"
+		fmt.Fprintf(buf, "// %s is the JSON body of %s %s.\ntype %s struct {\n", bodyType, r.Method, r.Path, bodyType)
+		for _, i := range body {
+			a := q.Args[i]
+			typ := a.Type.Expr
+			if a.Type.Bytes {
+				// sqlc maps json and jsonb to []byte, which encoding/json
+				// reads as base64: take the JSON value as is instead.
+				typ = "json.RawMessage"
+				imports["encoding/json"] = true
+			} else {
+				addImports(imports, b.pkg, a.Type.Imports)
+			}
+			fmt.Fprintf(buf, "%s %s `json:%q`\n", camel(a.Name), typ, a.JSON)
+		}
+		buf.WriteString("}\n\n")
+	}
 	fmt.Fprintf(buf, "// %s serves %s %s with the %s query.\n", b.handler, r.Method, r.Path, q.Name)
 	if r.Description != "" {
 		buf.WriteString("//\n")
 		for _, l := range strings.Split(r.Description, "\n") {
 			fmt.Fprintf(buf, "// %s\n", strings.TrimRight(l, " \t"))
 		}
+	}
+	if opts.Swag != nil {
+		writeSwag(buf, b, bodyType, opts.Swag, imports)
 	}
 	fmt.Fprintf(buf, "func (rt *%sRoutes) %s(w http.ResponseWriter, r *http.Request) {\n", routes, b.handler)
 	cc := r.CacheControl()
@@ -332,7 +369,6 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 	if len(q.Args) > 0 {
 		fmt.Fprintf(buf, "var arg %s\n", argType(b))
 	}
-	var body []int
 	for i, a := range q.Args {
 		switch b.sources[i] {
 		case "path":
@@ -346,26 +382,10 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 			fmt.Fprintf(buf, "%s = caller.%s\n", field(i), callerField(a))
 		case "query":
 			fmt.Fprintf(buf, "if err := afhttp.ParseQuery(r, %q, &%s); err != nil {\nrt.fail(w, r, err)\nreturn\n}\n", a.JSON, field(i))
-		case "body":
-			body = append(body, i)
 		}
 	}
 	if len(body) > 0 {
-		buf.WriteString("var body struct {\n")
-		for _, i := range body {
-			a := q.Args[i]
-			typ := a.Type.Expr
-			if a.Type.Bytes {
-				// sqlc maps json and jsonb to []byte, which encoding/json
-				// reads as base64: take the JSON value as is instead.
-				typ = "json.RawMessage"
-				imports["encoding/json"] = true
-			} else {
-				addImports(imports, b.pkg, a.Type.Imports)
-			}
-			fmt.Fprintf(buf, "%s %s `json:%q`\n", camel(a.Name), typ, a.JSON)
-		}
-		buf.WriteString("}\n")
+		fmt.Fprintf(buf, "var body %s\n", bodyType)
 		fmt.Fprintf(buf, "if err := afhttp.DecodeBody(w, r, %d, &body); err != nil {\nrt.fail(w, r, err)\nreturn\n}\n", r.MaxBytes)
 		for _, i := range body {
 			a := q.Args[i]

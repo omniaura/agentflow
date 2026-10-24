@@ -50,6 +50,11 @@ func (rt *NotesRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
 	afhttp.WriteError(w, r, err)
 }
 
+// notesCreateNoteBody is the JSON body of POST /notes.
+type notesCreateNoteBody struct {
+	Body string `json:"body"`
+}
+
 // CreateNote serves POST /notes with the CreateNote query.
 //
 // Creates a note for the caller.
@@ -66,9 +71,7 @@ func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 	}
 	var arg db.CreateNoteParams
 	arg.OwnerID = caller.OwnerID
-	var body struct {
-		Body string `json:"body"`
-	}
+	var body notesCreateNoteBody
 	if err := afhttp.DecodeBody(w, r, 0, &body); err != nil {
 		rt.fail(w, r, err)
 		return
@@ -113,6 +116,11 @@ func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
 	afhttp.WriteJSON(w, r, http.StatusOK, map[string]any{"notes": rows})
 }
 
+// notesUpdateNoteBody is the JSON body of PATCH /notes/{id}.
+type notesUpdateNoteBody struct {
+	Body string `json:"body"`
+}
+
 // UpdateNote serves PATCH /notes/{id} with the UpdateNote query.
 //
 // Replaces a note's body. The server sets updated_at.
@@ -132,9 +140,7 @@ func (rt *NotesRoutes) UpdateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	arg.OwnerID = caller.OwnerID
-	var body struct {
-		Body string `json:"body"`
-	}
+	var body notesUpdateNoteBody
 	if err := afhttp.DecodeBody(w, r, 0, &body); err != nil {
 		rt.fail(w, r, err)
 		return

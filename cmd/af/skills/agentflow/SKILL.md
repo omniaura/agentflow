@@ -271,6 +271,9 @@ Creates a todo for the caller.
 - Authenticated `:one`/`:many` responses, errors included, get `Cache-Control: no-store`.
   `.cache 5m` lets caches keep a GET result (`private` plus `Vary: Authorization, Cookie`,
   or `public` on a `.public` route); any other value is sent as written (`.cache no-cache`).
+- In a module that uses swag, generated handlers get swag annotations (tag from the file name,
+  `@Security` from the nearest `@securityDefinitions`). Don't hand-write annotations for them;
+  run `swag init` as usual.
 - Put checks in the SQL, not in Go: ownership, limits and states go in the `WHERE` of
   one statement (`UPDATE ... WHERE id = @id AND owner_id = @owner_id`, `INSERT ...
   SELECT ... WHERE (SELECT count(*) ...) < 5`). Then `.empty [4xx] message` names the

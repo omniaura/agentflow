@@ -228,3 +228,66 @@ func TestHasNoStore(t *testing.T) {
 		}
 	}
 }
+
+func TestGenRoutesSwag(t *testing.T) {
+	repo, err := sqlcgo.Find("../../../examples/routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := ast.NewFile("todos.af", []byte(".route GET /todos/{id} GetTodo\n.auth owner_id\nGets a todo.\nThe caller's only.\n\n.route POST /todos CreateTodo\n.auth owner_id\n.status 201\n\n.route GET /todos ListTodos\n.auth owner_id\n.wrap todos\n\n.route GET /stats/count CountTodos\n.public\n\n.route PUT /todos/{id}/done SetTodoDone\n.auth owner_id\n.empty 409 already done\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup, Swag: &Swag{Security: "BearerAuth", Tags: "todos"}}); err != nil {
+		t.Fatal(err)
+	}
+	code := buf.String()
+	for _, want := range []string{
+		"// @Summary Gets a todo.\n// @Description Gets a todo. The caller's only.\n// @Tags todos\n// @Security BearerAuth\n// @Produce json\n// @Param id path integer true \"id\"\n// @Success 200 {object} db.Todo\n// @Failure 400 {object} errs.Error\n// @Failure 401 {object} errs.Error\n// @Failure 404 {object} errs.Error\n// @Failure 500 {object} errs.Error\n// @Router /todos/{id} [get]\nfunc (rt *TodosRoutes) GetTodo(",
+		// A body is a named type swag can read; an insert can conflict.
+		"// @Accept json\n// @Produce json\n// @Param body body todosCreateTodoBody true \"request body\"\n// @Success 201 {object} db.Todo\n",
+		// An INSERT always returns its row: no 404.
+		"// @Failure 400 {object} errs.Error\n// @Failure 401 {object} errs.Error\n// @Failure 409 {object} errs.Error\n// @Failure 500 {object} errs.Error\n// @Router /todos [post]\nfunc (rt *TodosRoutes) CreateTodo(",
+		"type todosCreateTodoBody struct {",
+		// Query parameters, nullable ones optional; a wrapped list.
+		"// @Param done query boolean false \"done\"\n// @Success 200 {object} map[string][]db.Todo\n",
+		// Public: no security, no 401.
+		"// @Produce json\n// @Success 200 {object} int64\n// @Failure 404 {object} errs.Error\n// @Failure 500 {object} errs.Error\n// @Router /stats/count [get]\n",
+		// No body: 204, and the .empty status.
+		"// @Success 204\n// @Failure 400 {object} errs.Error\n// @Failure 401 {object} errs.Error\n// @Failure 409 {object} errs.Error\n// @Failure 500 {object} errs.Error\n// @Router /todos/{id}/done [put]\n",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing\n%s\nin\n%s", want, code)
+		}
+	}
+	if strings.Contains(code, "@Tags todos\n// @Security BearerAuth\n// @Produce json\n// @Success 200 {object} int64") {
+		t.Error("public route secured")
+	}
+	// Without Swag, no annotations.
+	buf.Reset()
+	if err := GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup}); err != nil || strings.Contains(buf.String(), "@Router") {
+		t.Errorf("annotated without Swag: %v", err)
+	}
+}
+
+func TestGenRoutesSwagMap(t *testing.T) {
+	repo, err := sqlcgo.Find("../../../examples/routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := ast.NewFile("cards.af", []byte(".route GET /cards ListTodos\n.auth owner_id\n.map todoCard\n\n.route GET /cards/{id} GetTodo\n.auth owner_id\n.map other\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup, Swag: &Swag{MapTypes: map[string]string{"todoCard": "TodoCard"}}}); err != nil {
+		t.Fatal(err)
+	}
+	// The .map func's result type, when known; otherwise a plain object.
+	for _, want := range []string{"// @Success 200 {array} TodoCard\n", "// @Success 200 {object} object\n"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
