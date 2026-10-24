@@ -328,7 +328,9 @@ func (d *Document) queryDefinition(query string) []protocol.Location {
 }
 
 // sqlcDefinition finds the query a tool's .sqlc line links: the query it
-// names, or the one af gen picks from its file.
+// names, or the one af gen picks from its file. When none matches, it opens
+// the file at the top, to show the queries there; the diagnostic on the
+// line reports the problem.
 func (d *Document) sqlcDefinition(t *decl.Tool) []protocol.Location {
 	if t.SQLCFile == "" {
 		return d.queryDefinition(t.SQLCQuery)

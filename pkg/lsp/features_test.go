@@ -162,6 +162,21 @@ func TestDefinitionSQLC(t *testing.T) {
 	}
 }
 
+func TestDefinitionSQLCNoMatch(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "q.sql"), []byte("-- name: A :one\nSELECT 1;\n\n-- name: B :one\nSELECT 2;\n"), 0o644))
+	src := ".tool pick\nPicks.\n.sqlc q.sql\n\n.tool missing\nMisses.\n.sqlc q.sql C\n"
+	doc := openAt(t, filepath.Join(dir, "x.af"), src)
+	// Several queries and none named after the tool, or a query the file
+	// lacks: the file, at the top.
+	for _, line := range []int{2, 6} {
+		loc := doc.Definition(Position{Line: line, Character: 7})
+		if len(loc) != 1 || !strings.HasSuffix(loc[0].URI, "/q.sql") || loc[0].Range.Start.Line != 0 {
+			t.Errorf("line %d -> %+v", line, loc)
+		}
+	}
+}
+
 func TestDefinitionRouteQuery(t *testing.T) {
 	path, err := filepath.Abs("../../examples/routes/todos.af")
 	require.NoError(t, err)
