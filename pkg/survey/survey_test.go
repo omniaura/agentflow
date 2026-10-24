@@ -22,6 +22,7 @@ func TestRun(t *testing.T) {
 		Prompts:      {"api/api.go:46 "},
 		GenAgentflow: {"api/api_af.go:1 "},
 		GenSqlc:      {"db/q.sql.go:1 "},
+		Agents:       {"api/agent.go:11 RunAgent"},
 	}
 	for c, w := range want {
 		if fmt.Sprint(got[c]) != fmt.Sprint(w) {
