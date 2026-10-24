@@ -384,11 +384,11 @@ Arguments named by the path or by `.auth` never come from the request body, so a
 | `.maxbytes n` | Cap the request body (default 1 MiB). |
 | `.empty [4xx] message` | The error when a `:one` query finds no row, or an `:execrows` query changes none (default `404 not found`). |
 | `.wrap key` | Respond with a `:one` or `:many` result as the one field of an object: `.wrap notes` gives `{"notes": [...]}`. |
-| `.cache 5m` | Let caches keep a `GET` result: `private, max-age=300`, or `public, max-age=300` on a `.public` route. Any other value is sent as written: `.cache no-cache`. |
+| `.cache 5m` | Let caches keep a `GET` result, for at most a year: `private, max-age=300` (with `Vary: Authorization, Cookie`), or `public, max-age=300` on a `.public` route. Any other value is sent as written: `.cache no-cache`. |
 
 The text that isn't a directive becomes the handler's doc comment.
 
-Results of authenticated routes are sent with `Cache-Control: no-store` unless `.cache` says otherwise, so no browser or proxy keeps one caller's data. The header goes on successful `:one` and `:many` responses only, so an error is never cached.
+Responses of authenticated `:one` and `:many` routes, errors included, are sent with `Cache-Control: no-store` unless `.cache` says otherwise, so no browser or proxy keeps one caller's data. A `.cache` duration goes on successful responses only, so an error is never cached. On an authenticated route it also adds `Vary: Authorization, Cookie`: a browser shares one private cache between the accounts signed in to it, and this makes it ask again after a switch of accounts.
 
 **Checks in SQL, failures with `.empty`.** A handler that loads a row to check who owns it, a limit or a state, then writes, can usually be one statement whose `WHERE` holds the checks. `.empty` names what an empty result means:
 

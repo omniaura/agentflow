@@ -54,6 +54,7 @@ func (rt *NotesRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
 //
 // Creates a note for the caller.
 func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if rt.Auth == nil {
 		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
@@ -82,7 +83,6 @@ func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	afhttp.WriteJSON(w, r, http.StatusCreated, row)
 }
 
@@ -90,6 +90,7 @@ func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 //
 // Lists the caller's notes, pinned first, as {"notes": [...]}.
 func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if rt.Auth == nil {
 		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
@@ -109,7 +110,6 @@ func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []db.Note{}
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	afhttp.WriteJSON(w, r, http.StatusOK, map[string]any{"notes": rows})
 }
 

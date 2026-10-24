@@ -289,6 +289,13 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		}
 	}
 	fmt.Fprintf(buf, "func (rt *%sRoutes) %s(w http.ResponseWriter, r *http.Request) {\n", routes, b.handler)
+	cc := r.CacheControl()
+	withBody := q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many
+	noStore := withBody && strings.Contains(cc, "no-store")
+	if noStore {
+		// On every response, errors too: none of them may be kept.
+		fmt.Fprintf(buf, "w.Header().Set(\"Cache-Control\", %q)\n", cc)
+	}
 	usesCaller := slices.Contains(b.sources, "auth")
 	if !r.Public {
 		// An unset Auth fails closed rather than panicking.
@@ -372,9 +379,13 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		return def
 	}
 	cache := ""
-	if cc := r.CacheControl(); cc != "" {
+	if cc != "" && !noStore {
 		// Set on success only, so no cache keeps an error.
 		cache = fmt.Sprintf("w.Header().Set(\"Cache-Control\", %q)\n", cc)
+		if v := r.Vary(); v != "" {
+			// Add, keeping what middleware varies by, such as Origin.
+			cache += fmt.Sprintf("w.Header().Add(\"Vary\", %q)\n", v)
+		}
 	}
 	switch q.Kind {
 	case sqlcgo.One:

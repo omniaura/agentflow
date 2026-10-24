@@ -171,12 +171,13 @@ func TestTodoRoutes(t *testing.T) {
 	expect("GET", "/todos?done=maybe", "ann", "", 400, `"fields":{"done":"invalid value \"maybe\""}`)
 
 	expect("GET", "/stats/count", "", "", 200, "2")
-	// Responses to a caller are never cached; .cache 1m lets caches keep
-	// the public count, but not its errors.
+	// Responses to a caller are never cached, errors included; .cache 1m
+	// lets caches keep the public count, but not its errors.
 	for _, c := range []struct{ method, path, user, want string }{
 		{"GET", "/todos/2", "bob", "no-store"},
 		{"GET", "/todos", "ann", "no-store"},
-		{"GET", "/todos/1", "bob", ""},
+		{"GET", "/todos/1", "bob", "no-store"},
+		{"GET", "/todos/1", "", "no-store"},
 		{"GET", "/stats/count", "", "public, max-age=60"},
 		{"GET", "/todos/2/title", "", ""},
 	} {

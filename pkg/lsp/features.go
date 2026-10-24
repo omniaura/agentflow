@@ -701,6 +701,9 @@ func (d *Document) SectionHover(pos Position) string {
 		}
 		if cc := s.CacheControl(); cc != "" && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many) {
 			fmt.Fprintf(&b, "\n`Cache-Control: %s`.\n", cc)
+			if v := s.Vary(); v != "" {
+				fmt.Fprintf(&b, "`Vary: %s`.\n", v)
+			}
 		}
 		if e := s.Empty; e != nil && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.ExecRows) {
 			fmt.Fprintf(&b, "\nNo row: %d %q.\n", e.Status, e.Msg)

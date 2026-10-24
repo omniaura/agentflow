@@ -132,6 +132,7 @@ func TestParseRouteCache(t *testing.T) {
 		{".route GET /todos ListTodos\n.cache 5m\n", "private, max-age=300"},
 		{".route GET /todos ListTodos\n.cache 1h\n.public\n", "public, max-age=3600"},
 		{".route HEAD /todos ListTodos\n.cache 30s\n", "private, max-age=30"},
+		{".route GET /todos ListTodos\n.public\n.cache 8760h\n", "public, max-age=31536000"},
 		// Anything else is written as is, on any method.
 		{".route GET /todos ListTodos\n.public\n.cache no-cache\n", "no-cache"},
 		{".route POST /todos CreateTodo\n.cache private, no-store\n", "private, no-store"},
@@ -140,8 +141,13 @@ func TestParseRouteCache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%q: %v", c.src, err)
 		}
-		if got := f.Routes[0].CacheControl(); got != c.want {
+		r := f.Routes[0]
+		if got := r.CacheControl(); got != c.want {
 			t.Errorf("%q: Cache-Control %q, want %q", c.src, got, c.want)
+		}
+		// Only a private max-age needs Vary.
+		if got, want := r.Vary() != "", strings.HasPrefix(c.want, "private, max-age"); got != want {
+			t.Errorf("%q: Vary %q", c.src, r.Vary())
 		}
 	}
 	for _, c := range []struct{ src, want string }{
@@ -150,6 +156,9 @@ func TestParseRouteCache(t *testing.T) {
 		{".route GET /a ListTodos\n.cache 1.5s\n", "whole seconds"},
 		{".route GET /a ListTodos\n.cache 5 minutes\n", "duration such as 30s, 5m or 1h"},
 		{".route GET /a ListTodos\n.cache 1d\n", "duration such as 30s, 5m or 1h"},
+		// Past a year, and past what int holds on 32-bit platforms.
+		{".route GET /a ListTodos\n.cache 8761h\n", "at most a year"},
+		{".route GET /a ListTodos\n.cache 3000000000s\n", "at most a year"},
 		{".route GET /a ListTodos\n.cache 1m\n.cache 2m\n", "only one .cache line"},
 		{".route POST /a CreateTodo\n.cache 5m\n", "only GET and HEAD responses are cached"},
 		{".route GET /a ListTodos\n.cache no-\x7fstore\n", "printable ASCII"},

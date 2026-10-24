@@ -194,6 +194,10 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 	return r, nil
 }
 
+// maxCacheAge is the longest .cache duration: caches treat longer max-age
+// values as a year anyway.
+const maxCacheAge = 365 * 24 * time.Hour
+
 // parseCache reads a .cache value: a duration such as 5m, or a
 // Cache-Control value to write as is.
 func (r *Route) parseCache(v string) error {
@@ -203,6 +207,9 @@ func (r *Route) parseCache(v string) error {
 	if d, err := time.ParseDuration(v); err == nil {
 		if d < time.Second || d%time.Second != 0 {
 			return fmt.Errorf(".cache needs a duration of whole seconds, at least 1s; got %s", v)
+		}
+		if d > maxCacheAge {
+			return fmt.Errorf(".cache needs a duration of at most a year (8760h); got %s", v)
 		}
 		r.MaxAge = int(d / time.Second)
 		return nil
@@ -220,8 +227,8 @@ func (r *Route) parseCache(v string) error {
 }
 
 // CacheControl is the Cache-Control header of the route's responses with
-// a body, or "" for none. A .cache duration is private to the caller, or
-// public on a .public route. Without .cache, responses to an
+// a body, or "" for none. A .cache duration is private to the caller (see
+// Vary), or public on a .public route. Without .cache, responses to an
 // authenticated caller are no-store, so no cache keeps one caller's data.
 func (r *Route) CacheControl() string {
 	switch {
@@ -233,6 +240,17 @@ func (r *Route) CacheControl() string {
 		return r.Cache
 	case !r.Public:
 		return "no-store"
+	}
+	return ""
+}
+
+// Vary is the Vary header that goes with CacheControl, or "" for none. A
+// browser keeps one private cache for every account signed in to it, so a
+// cached authenticated response varies by the credentials that chose it:
+// after a switch of accounts, the browser asks again.
+func (r *Route) Vary() string {
+	if r.MaxAge > 0 && !r.Public {
+		return "Authorization, Cookie"
 	}
 	return ""
 }
