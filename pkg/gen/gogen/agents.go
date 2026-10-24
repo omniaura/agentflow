@@ -46,10 +46,15 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		name := camel(a.Name)
 
 		var methods, subs []toolRef
+		messaging := false
 		for _, r := range tools {
-			if r.sub != nil {
+			switch {
+			case r.sub != nil:
 				subs = append(subs, r)
-			} else {
+			case r.tool.Builtin:
+				messaging = true
+				imports[AftoolImport] = true
+			default:
 				methods = append(methods, r)
 			}
 		}
@@ -80,6 +85,9 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		buf.WriteString("Model afagent.Model\n")
 		if len(methods) > 0 {
 			fmt.Fprintf(buf, "Tools %sTools\n", name)
+		}
+		if messaging {
+			buf.WriteString("// Messenger runs the send_message and list_agents tools, such as an\n// afthread.Messenger for this agent's owner, with From set to this agent.\nMessenger afagent.Messenger\n")
 		}
 		for _, r := range subs {
 			sn := camel(r.sub.Name)
@@ -179,6 +187,16 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			for _, r := range tools {
 				d := r.def()
 				fmt.Fprintf(buf, "case %s.Name:\nargs, err := %s.Decode(call.Arguments)\nif err != nil {\nreturn \"\", err\n}\n", d, d)
+				if r.sub == nil && r.tool.Builtin {
+					imports["errors"] = true
+					buf.WriteString("if a.Messenger == nil {\nreturn \"\", errors.New(\"messaging other agents is not set up\")\n}\n")
+					if r.tool.Name == "send_message" {
+						buf.WriteString("return a.Messenger.Send(ctx, args.To, args.Text)\n")
+					} else {
+						buf.WriteString("_ = args\nreturn a.Messenger.List(ctx)\n")
+					}
+					continue
+				}
 				if r.sub == nil {
 					fmt.Fprintf(buf, "return a.Tools.%s(ctx, args)\n", camel(r.tool.Name))
 					continue
@@ -316,8 +334,11 @@ type toolRef struct {
 // def is the Go name of the tool's definition: XTool, or XAgentTool for a
 // subagent.
 func (r toolRef) def() string {
-	if r.sub != nil {
+	switch {
+	case r.sub != nil:
 		return camel(r.sub.Name) + "AgentTool"
+	case r.tool.Builtin:
+		return "aftool." + camel(r.tool.Name)
 	}
 	return camel(r.tool.Name) + "Tool"
 }

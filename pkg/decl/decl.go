@@ -70,6 +70,14 @@ type Param struct {
 	declared bool
 }
 
+// Builtins are the tools an agent's .tools may name without declaring
+// them, unless the package declares a tool or agent of the same name:
+// send_message and list_agents, for messaging the owner's other agents.
+var Builtins = map[string]*Tool{
+	"send_message": {Name: "send_message", Builtin: true, Description: "Send a message to another agent."},
+	"list_agents":  {Name: "list_agents", Builtin: true, Description: "List the agents you can message."},
+}
+
 // Tool is a parsed .tool section.
 type Tool struct {
 	Name        string
@@ -80,6 +88,9 @@ type Tool struct {
 	Start, End int
 	// Output marks an .output section.
 	Output bool
+	// Builtin marks a tool agentflow provides, such as send_message: it
+	// has no section, and generated agents run it themselves.
+	Builtin bool
 	// SQL is the query that implements the tool, written after a .sql
 	// line, and SQLKind its sqlc command; both are empty for a tool you
 	// implement in Go.

@@ -73,3 +73,31 @@ func TestGenAgentErrors(t *testing.T) {
 		})
 	}
 }
+
+// send_message and list_agents are built in, unless the package declares a
+// tool so named.
+func TestGenAgentBuiltinMessaging(t *testing.T) {
+	code, err := genAgentFile(t, ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, send_message, list_agents\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Messenger afagent.Messenger",
+		"{Name: aftool.SendMessage.Name, Description: aftool.SendMessage.Description, Schema: aftool.SendMessage.Schema}",
+		"return a.Messenger.Send(ctx, args.To, args.Text)",
+		"return a.Messenger.List(ctx)",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	// The interface has only the declared tool's method.
+	if strings.Contains(code, "SendMessage(ctx context.Context") || !strings.Contains(code, "Look(ctx context.Context, args LookArgs)") {
+		t.Errorf("tools interface:\n%s", code)
+	}
+	// A declared send_message is the file's own tool.
+	code, err = genAgentFile(t, ".title A\nHi.\n\n.tool send_message\n.param to Who.\nMine.\n\n.agent x\n.tools send_message\n")
+	if err != nil || strings.Contains(code, "aftool.SendMessage") || strings.Contains(code, "Messenger") || !strings.Contains(code, "a.Tools.SendMessage(ctx, args)") {
+		t.Errorf("declared send_message: %v\n%s", err, code)
+	}
+}

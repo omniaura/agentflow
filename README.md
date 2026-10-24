@@ -569,6 +569,17 @@ concierge := &ConciergeAgent{Model: model, Tools: &shop{}, Tracker: tracker.AsTo
 
 The subagent has its own model, tools, turn limit and events, and sees only the task, so the calling model must put everything it needs in it. An agent can't list itself, agents can't call each other in a cycle, and a subagent needs a description. At run time, `AsTool` refuses to nest subagents deeper than `afagent.MaxDepth` (8), which also covers custom wiring the static check can't see.
 
+**Messaging other agents.** `send_message` and `list_agents` are built-in tools, unless the package declares a tool or agent with one of those names:
+
+```af
+.agent coordinator
+.tools list_agents, send_message
+
+Coordinates the other agents: finds who can help and messages them.
+```
+
+The generated agent gets a `Messenger afagent.Messenger` field that runs them. Set it to an `afthread.Messenger` for the run's owner, with `From` set to this agent. Messages go to the other agent's inbox, and its replies come back as messages between this agent's turns, so the two can talk in both directions.
+
 Tools can live in their own files. The generated code of every `.af` file in a directory shares one Go package, so `.tools` may name a tool declared in another file of the directory. Its schema and decoder are generated there, and the agent calls it by name. `af lint` and the language server resolve those names too: go to definition jumps to the other file, and completion after `.tools` lists every tool of the package. A tool may be declared once per package.
 
 You implement the tools as methods and bring a model:

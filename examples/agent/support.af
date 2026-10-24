@@ -48,3 +48,10 @@ shipping.af: an agent may use the tools of any .af file in its package.
 
 Answers any customer question, handing parcel tracking to the tracker
 agent, which runs as a subagent with its own tools.
+
+.agent coordinator
+.tools list_agents, send_message
+.maxturns 4
+
+Coordinates the other agents: finds who can help and messages them.
+send_message and list_agents are built in; set Messenger to run them.

@@ -221,6 +221,9 @@ Answers customer questions about their orders.
   Summarize: afcompact.Summarize(model), SummarizeChunk: afcompact.SummarizeChunk(model)}).BeforeTurn`.
   It microcompacts old tool results, condenses large ones in parallel chunks (Digest), then folds
   older rounds into a summary, only as far as needed. Don't hand-write context-budget loops.
+- Agents talking to each other: list the built-ins `send_message` and `list_agents` in `.tools`
+  and set the generated `Messenger` field (an `afthread.Messenger` with `From` = this agent).
+  Don't declare your own messaging tools.
 - A run's tools can depend on the caller: set the agent's `Allow func(ctx, tool) bool` (for
   example, a workspace's enabled tools). Declare every tool the agent may ever use in `.tools`
   and let `Allow` narrow it per run; the dispatcher refuses tools it didn't offer.

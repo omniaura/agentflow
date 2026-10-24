@@ -668,6 +668,10 @@ func (d *Document) toolNameCompletions(off int, beforeCursor []byte) []Completio
 			add(sib.Name(), description, kind+" in "+filepath.Base(sib.Path))
 		}
 	}
+	// The built-ins, unless the package names something so.
+	for _, name := range []string{"send_message", "list_agents"} {
+		add(name, decl.Builtins[name].Description, "built-in tool")
+	}
 	return items
 }
 

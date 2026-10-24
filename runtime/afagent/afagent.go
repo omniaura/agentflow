@@ -227,6 +227,16 @@ var (
 	ErrRefused = errors.New("afagent: the model refused")
 )
 
+// Messenger carries messages between agents: what the built-in
+// send_message and list_agents tools call. afthread.Messenger is one.
+type Messenger interface {
+	// Send delivers text to the agent named to and returns what the
+	// sender is told.
+	Send(ctx context.Context, to, text string) (string, error)
+	// List returns the agents the sender may message.
+	List(ctx context.Context) (string, error)
+}
+
 // ErrMaxTurns means the model kept calling tools, or giving answers Check
 // rejected, for MaxTurns model calls. After a rejected last answer the
 // error also wraps Check's. With AnswerOnLastTurn, only a rejected last

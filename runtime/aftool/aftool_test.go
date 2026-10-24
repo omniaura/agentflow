@@ -157,3 +157,18 @@ func TestProviderFormats(t *testing.T) {
 		t.Fatalf("anthropic = %s", raw)
 	}
 }
+
+// list_agents takes no arguments: unknown properties are rejected, as its
+// schema says, while an open object still accepts any.
+func TestClosedEmptyObject(t *testing.T) {
+	if _, err := aftool.ListAgents.Decode(`{}`); err != nil {
+		t.Fatalf("{}: %v", err)
+	}
+	if _, err := aftool.ListAgents.Decode(`{"unexpected":true}`); err == nil || !strings.Contains(err.Error(), "unknown property") {
+		t.Fatalf("extra property: %v", err)
+	}
+	open := &aftool.Def[map[string]any]{Name: "x", Shape: aftool.Shape{Kind: aftool.Object}}
+	if _, err := open.Decode(`{"anything":1}`); err != nil {
+		t.Fatalf("open object: %v", err)
+	}
+}

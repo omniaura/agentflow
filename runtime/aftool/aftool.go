@@ -70,8 +70,11 @@ type Shape struct {
 	// Items is the element shape of an Array.
 	Items *Shape
 	// Fields are the properties of an Object. An Object with no Fields
-	// accepts any properties.
+	// accepts any properties, unless it is Closed.
 	Fields []Field
+	// Closed makes an Object with no Fields accept no properties, as a
+	// tool that takes no arguments.
+	Closed bool
 }
 
 // Task is the argument of an agent called as another agent's tool: the
@@ -79,6 +82,36 @@ type Shape struct {
 type Task struct {
 	Task string `json:"task"`
 }
+
+// SendMessageArgs are the arguments of SendMessage.
+type SendMessageArgs struct {
+	To   string `json:"to"`
+	Text string `json:"text"`
+}
+
+// NoArgs are the arguments of a tool that takes none.
+type NoArgs struct{}
+
+// SendMessage and ListAgents are the built-in tools an agent's .tools may
+// name to message the owner's other agents. Generated agents run them with
+// their Messenger.
+var (
+	SendMessage = &Def[SendMessageArgs]{
+		Name:        "send_message",
+		Description: "Send a message to another agent. It works on its own and answers, if it does, with a message that reaches you later; don't wait for it in this answer.",
+		Schema:      []byte(`{"type":"object","properties":{"to":{"type":"string","description":"The agent to message, as list_agents names it."},"text":{"type":"string","description":"The message, with everything the agent needs: it sees nothing else of this conversation."}},"required":["to","text"],"additionalProperties":false}`),
+		Shape: Shape{Kind: Object, Fields: []Field{
+			{Name: "to", Required: true, Shape: Shape{Kind: String}},
+			{Name: "text", Required: true, Shape: Shape{Kind: String}},
+		}},
+	}
+	ListAgents = &Def[NoArgs]{
+		Name:        "list_agents",
+		Description: "List the agents you can message, with what each does.",
+		Schema:      []byte(`{"type":"object","properties":{},"additionalProperties":false}`),
+		Shape:       Shape{Kind: Object, Closed: true},
+	}
+)
 
 // Def is the definition of one tool whose arguments decode into Args.
 type Def[Args any] struct {
@@ -259,7 +292,7 @@ func (d checker) check(raw json.RawMessage, s Shape, path string) error {
 		if raw[0] != '{' || json.Unmarshal(raw, &props) != nil {
 			return d.fail(path, "expected an object, got "+jsonType(raw))
 		}
-		if len(s.Fields) == 0 {
+		if len(s.Fields) == 0 && !s.Closed {
 			return nil
 		}
 		for name := range props {
