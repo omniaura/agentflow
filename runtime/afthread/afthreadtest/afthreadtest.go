@@ -227,19 +227,22 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 		if !ok {
 			t.Skip("the store isn't a directory")
 		}
-		first, _ := s.Create(ctx, afthread.Thread{Owner: "ann", Agent: "tracker", Title: "Tracks parcels."})
+		// An owner of its own: a database store keeps what other subtests
+		// created.
+		owner := fmt.Sprintf("dir-%d", time.Now().UnixNano())
+		first, _ := s.Create(ctx, afthread.Thread{Owner: owner, Agent: "tracker", Title: "Tracks parcels."})
 		time.Sleep(2 * time.Millisecond)
-		s.Create(ctx, afthread.Thread{Owner: "ann", Agent: "tracker", Title: "a later thread"})
-		s.Create(ctx, afthread.Thread{Owner: "ann", Agent: "billing", Title: "Handles invoices."})
+		s.Create(ctx, afthread.Thread{Owner: owner, Agent: "tracker", Title: "a later thread"})
+		s.Create(ctx, afthread.Thread{Owner: owner, Agent: "billing", Title: "Handles invoices."})
 		s.Create(ctx, afthread.Thread{Owner: "bob", Agent: "secret"})
 		// An agent's messages go to its oldest thread.
-		if id, err := dir.AgentThread(ctx, "ann", "tracker"); err != nil || id != first.ID {
+		if id, err := dir.AgentThread(ctx, owner, "tracker"); err != nil || id != first.ID {
 			t.Fatalf("AgentThread = %q, %v; want %q", id, err, first.ID)
 		}
-		if _, err := dir.AgentThread(ctx, "ann", "secret"); !errors.Is(err, afthread.ErrNoAgent) {
+		if _, err := dir.AgentThread(ctx, owner, "secret"); !errors.Is(err, afthread.ErrNoAgent) {
 			t.Errorf("another owner's agent: %v", err)
 		}
-		agents, err := dir.Agents(ctx, "ann")
+		agents, err := dir.Agents(ctx, owner)
 		if err != nil || len(agents) != 2 || agents[0] != (afthread.AgentInfo{Name: "billing", Description: "Handles invoices."}) || agents[1] != (afthread.AgentInfo{Name: "tracker", Description: "Tracks parcels."}) {
 			t.Fatalf("Agents = %+v, %v", agents, err)
 		}

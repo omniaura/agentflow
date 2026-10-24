@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -17,7 +19,7 @@ import (
 )
 
 // testPool connects to AF_TEST_DATABASE_URL, in a schema of its own that
-// it drops after the test, and applies the migration there. It skips
+// it drops after the test, and applies the migrations there, in order. It skips
 // without a URL.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
@@ -56,12 +58,19 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	migration, err := os.ReadFile("migrations/001_afthread.sql")
+	migrations, err := filepath.Glob("migrations/*.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, string(migration)); err != nil {
-		t.Fatal(err)
+	slices.Sort(migrations)
+	for _, m := range migrations {
+		sql, err := os.ReadFile(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("%s: %v", m, err)
+		}
 	}
 	return pool
 }
