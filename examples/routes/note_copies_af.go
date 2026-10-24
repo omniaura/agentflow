@@ -81,5 +81,6 @@ func (rt *NoteCopiesRoutes) CopyNote(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	afhttp.WriteJSON(w, r, http.StatusCreated, row)
 }

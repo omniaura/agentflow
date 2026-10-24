@@ -250,6 +250,9 @@ Creates a todo for the caller.
   description (which becomes the doc comment) are optional.
 - `.wrap notes` responds `{"notes": [...]}` instead of the bare array (`:one` and `:many`
   only). Use it when clients expect an object, or to leave room for more fields.
+- Authenticated `:one`/`:many` results get `Cache-Control: no-store`. `.cache 5m` lets
+  caches keep a GET result (`private`, or `public` on a `.public` route); any other value is
+  sent as written (`.cache no-cache`).
 - Put checks in the SQL, not in Go: ownership, limits and states go in the `WHERE` of
   one statement (`UPDATE ... WHERE id = @id AND owner_id = @owner_id`, `INSERT ...
   SELECT ... WHERE (SELECT count(*) ...) < 5`). Then `.empty [4xx] message` names the

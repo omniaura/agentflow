@@ -171,6 +171,28 @@ func TestTodoRoutes(t *testing.T) {
 	expect("GET", "/todos?done=maybe", "ann", "", 400, `"fields":{"done":"invalid value \"maybe\""}`)
 
 	expect("GET", "/stats/count", "", "", 200, "2")
+	// Responses to a caller are never cached; .cache 1m lets caches keep
+	// the public count, but not its errors.
+	for _, c := range []struct{ method, path, user, want string }{
+		{"GET", "/todos/2", "bob", "no-store"},
+		{"GET", "/todos", "ann", "no-store"},
+		{"GET", "/todos/1", "bob", ""},
+		{"GET", "/stats/count", "", "public, max-age=60"},
+		{"GET", "/todos/2/title", "", ""},
+	} {
+		req, _ := http.NewRequest(c.method, srv.URL+c.path, nil)
+		if c.user != "" {
+			req.Header.Set("Authorization", "Bearer "+c.user)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got := resp.Header.Get("Cache-Control"); got != c.want {
+			t.Errorf("%s %s: Cache-Control %q, want %q", c.method, c.path, got, c.want)
+		}
+	}
 	expect("GET", "/todos/2/title", "", "", 200, `"Bob's"`)
 	expect("DELETE", "/todos/1", "bob", "", 404, "")
 	expect("DELETE", "/todos/1", "ann", "", 204, "")

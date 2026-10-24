@@ -82,6 +82,7 @@ func (rt *NotesRoutes) CreateNote(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	afhttp.WriteJSON(w, r, http.StatusCreated, row)
 }
 
@@ -108,6 +109,7 @@ func (rt *NotesRoutes) ListNotes(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []db.Note{}
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	afhttp.WriteJSON(w, r, http.StatusOK, map[string]any{"notes": rows})
 }
 

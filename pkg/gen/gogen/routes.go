@@ -79,6 +79,9 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		if uses[b.q.Name] > 1 {
 			b.handler += camel(strings.ToLower(b.r.Method))
 		}
+		if b.r.CacheOffset != 0 && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
+			return &RouteError{Offset: b.r.CacheOffset, Err: fmt.Errorf(".cache applies to a :one or :many result; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
+		}
 		if b.r.Wrap != "" && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
 			return &RouteError{Offset: b.r.WrapOffset, Err: fmt.Errorf(".wrap puts a :one or :many result in an object; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
 		}
@@ -368,6 +371,11 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		}
 		return def
 	}
+	cache := ""
+	if cc := r.CacheControl(); cc != "" {
+		// Set on success only, so no cache keeps an error.
+		cache = fmt.Sprintf("w.Header().Set(\"Cache-Control\", %q)\n", cc)
+	}
 	switch q.Kind {
 	case sqlcgo.One:
 		path, expr := b.pkg.NoRowsImport()
@@ -376,11 +384,13 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		fmt.Fprintf(buf, "row, err := %s\n", call)
 		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, %s.New(r.Context()).AddError(err))\nreturn\n}\n", expr, b.emptyErr())
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
+		buf.WriteString(cache)
 		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), b.wrap("row"))
 	case sqlcgo.Many:
 		fmt.Fprintf(buf, "rows, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		fmt.Fprintf(buf, "if rows == nil {\nrows = []%s{}\n}\n", q.Result.Expr)
+		buf.WriteString(cache)
 		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), b.wrap("rows"))
 	case sqlcgo.ExecRows:
 		fmt.Fprintf(buf, "n, err := %s\n", call)

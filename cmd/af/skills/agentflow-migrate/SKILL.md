@@ -77,6 +77,10 @@ old handler wrote, so clients don't break:
 - **An object around the result** (`map[string]any{"companies": rows}`): add `.wrap companies`.
 - **Field names:** sqlc names JSON fields after columns (and `json_tags_case_style`). Rename
   with `AS` in the SELECT, and select only the fields the old response had.
+- **Headers:** results of authenticated routes are sent with `Cache-Control: no-store`.
+  If the old handler set a max-age, add `.cache` with it (`.cache 5m` sends `private,
+  max-age=300`, or `public` on a `.public` route); for any other value, `.cache <value>`
+  sends it as written.
 - **Computed fields** (URLs built in Go, redacted values): compute them in SQL, or keep the
   handler.
 

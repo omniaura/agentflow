@@ -91,6 +91,7 @@ func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	afhttp.WriteJSON(w, r, http.StatusCreated, row)
 }
 
@@ -120,6 +121,7 @@ func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }
 
@@ -150,6 +152,7 @@ func (rt *TodosRoutes) ListTodos(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []db.Todo{}
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	afhttp.WriteJSON(w, r, http.StatusOK, rows)
 }
 
@@ -230,6 +233,7 @@ func (rt *TodosRoutes) CountTodos(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
+	w.Header().Set("Cache-Control", "public, max-age=60")
 	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }
 

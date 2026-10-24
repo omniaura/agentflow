@@ -140,3 +140,38 @@ func TestGenRoutesWrap(t *testing.T) {
 		t.Errorf("wrap on :execrows: %v", err)
 	}
 }
+
+func TestGenRoutesCache(t *testing.T) {
+	code, err := genRoutesFile(t, ".route GET /a ListTodos\n.auth owner_id\n\n.route GET /c CountTodos\n.public\n.cache 1m\n\n.route GET /t/{id} GetTodoTitle\n.public\n\n.route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := func(name string) string {
+		_, rest, _ := strings.Cut(code, ") "+name+"(w http.ResponseWriter")
+		body, _, _ := strings.Cut(rest, "\n}\n")
+		return body
+	}
+	for _, c := range []struct{ handler, want string }{
+		{"ListTodos", "no-store"},
+		{"CountTodos", "public, max-age=60"},
+		{"GetTodoTitle", ""},
+		// A 204 has no body to cache.
+		{"SetTodoDone", ""},
+	} {
+		body := handler(c.handler)
+		set := `w.Header().Set("Cache-Control", "` + c.want + `")`
+		switch {
+		case c.want == "" && strings.Contains(body, "Cache-Control"):
+			t.Errorf("%s sets Cache-Control:\n%s", c.handler, body)
+		case c.want != "" && !strings.Contains(body, set+"\n\tafhttp.WriteJSON"):
+			// Right before the success response, so errors aren't cached.
+			t.Errorf("%s: missing %s before WriteJSON in\n%s", c.handler, set, body)
+		}
+	}
+	src := ".route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n.cache no-cache\n"
+	_, err = genRoutesFile(t, src)
+	var re *RouteError
+	if !errors.As(err, &re) || !strings.Contains(err.Error(), ".cache applies to a :one or :many result") || src[re.Offset:re.Offset+6] != ".cache" {
+		t.Errorf("cache on :execrows: %v", err)
+	}
+}

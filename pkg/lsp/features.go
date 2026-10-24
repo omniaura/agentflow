@@ -612,6 +612,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		}
 		if qk == "" || qk == sqlcgo.One || qk == sqlcgo.Many {
 			add(".wrap", "respond with the result in an object: .wrap todos for {\"todos\": [...]}")
+			add(".cache", "Cache-Control: .cache 5m, or a value such as .cache no-cache (default no-store when authenticated)")
 		}
 		add(".sql", "write the query here: .sql :one|:many|:exec|:execrows, then the SQL")
 	}
@@ -697,6 +698,9 @@ func (d *Document) SectionHover(pos Position) string {
 		}
 		if s.Wrap != "" && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many) {
 			fmt.Fprintf(&b, "\nResponds `{%q: ...}`.\n", s.Wrap)
+		}
+		if cc := s.CacheControl(); cc != "" && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many) {
+			fmt.Fprintf(&b, "\n`Cache-Control: %s`.\n", cc)
 		}
 		if e := s.Empty; e != nil && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.ExecRows) {
 			fmt.Fprintf(&b, "\nNo row: %d %q.\n", e.Status, e.Msg)
