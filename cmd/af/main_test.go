@@ -1,9 +1,12 @@
 package main
 
 import (
+	"io/fs"
+	"regexp"
 	"testing"
 
 	"github.com/omniaura/agentflow/cfg"
+	"github.com/omniaura/agentflow/cmd/af/skills"
 	"github.com/spf13/viper"
 )
 
@@ -63,8 +66,44 @@ func TestNewRootCommandDefaults(t *testing.T) {
 	if _, _, err := cmd.Find([]string{"survey"}); err != nil {
 		t.Fatalf("expected survey subcommand, got error %v", err)
 	}
-	if len(cmd.Commands()) != 9 {
-		t.Fatalf("expected 9 subcommands, got %d", len(cmd.Commands()))
+	if _, _, err := cmd.Find([]string{"upgrade"}); err != nil {
+		t.Fatalf("expected upgrade subcommand, got error %v", err)
+	}
+	if len(cmd.Commands()) != 10 {
+		t.Fatalf("expected 10 subcommands, got %d", len(cmd.Commands()))
+	}
+}
+
+// The skills tell agents to run af commands; every one must exist.
+func TestSkillsNameRealCommands(t *testing.T) {
+	cmd := newRootCommand()
+	// Commands appear in code: after a backtick, or at the start of a line
+	// in a code block.
+	re := regexp.MustCompile("(?m)(?:`|^)(?:go tool )?af ([a-z]+)(?: ([a-z]+))?")
+	n := 0
+	err := fs.WalkDir(skills.FS, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		b, err := skills.FS.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
+			args := []string{m[1]}
+			if m[2] != "" {
+				args = append(args, m[2])
+			}
+			found, _, err := cmd.Find(args)
+			if err != nil || found == cmd {
+				t.Errorf("%s: %q is not an af command", path, m[0])
+			}
+			n++
+		}
+		return nil
+	})
+	if err != nil || n < 5 {
+		t.Fatalf("checked %d commands, err %v", n, err)
 	}
 }
 

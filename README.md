@@ -31,6 +31,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
 - [LSP Server](#lsp-server)
 - [Agent Skills](#agent-skills)
 - [Ejecting the Runtime](#ejecting-the-runtime)
+- [Upgrading](#upgrading)
 - [CLI Usage](#cli-usage)
 - [Releases](#releases)
 
@@ -675,6 +676,8 @@ Run it again after upgrading af to upgrade the skill. Each installed file carrie
 
 `af skills print` writes the skill to stdout.
 
+A second skill, `agentflow-migrate`, is installed alongside it. It walks a coding agent through moving hand-written code into `.af` one site at a time, using `af survey` to find candidates. For each site the agent writes the declaration, switches the callers, deletes the old code, and pins the old behaviour with a test. The skill also covers resolving upgrade conflicts. `af skills print agentflow-migrate` shows it.
+
 ## Ejecting the Runtime
 
 Code generated for `.tool`, `.route` and `.agent` imports small runtime packages, `aftool`, `afhttp` and `afagent`, from `github.com/omniaura/agentflow/runtime`. Like shadcn/ui, you can pop them out into your own repository and own them:
@@ -695,6 +698,18 @@ Edit the copies freely. To upgrade them after upgrading af, run `af eject` again
 | written by hand, or the original isn't available | kept, with the new version written next to it as `<file>.af-new` |
 
 Files a new version drops are removed unless you've edited them. `--force` replaces edited files instead of merging. Each copied file records its af version and a content hash in an `agentflow-vendored:` comment. Leave that comment in place so upgrades can tell your edits apart.
+
+## Upgrading
+
+    go tool af upgrade          # or: go tool af upgrade v0.14.0
+
+`af upgrade` moves the module's `af` tool pin to the new version, then uses that af to:
+1. upgrade the runtime packages listed in `agentflow.json`, merging your edits (`af eject`)
+2. upgrade the installed skills (`af skills install`)
+3. regenerate every `_af.go` (`af gen prompts .`)
+4. check the result (`af check ./...`)
+
+It stops at the first failing step. If ejected files have merge conflicts, resolve the markers and run it again. The module must pin af with `go get -tool github.com/omniaura/agentflow/cmd/af`.
 
 ## Surveying a Codebase
 

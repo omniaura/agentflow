@@ -88,7 +88,7 @@ func TestInstall(t *testing.T) {
 	if err := install(&out, defaultDirs(), false); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{".agents/skills/agentflow/SKILL.md", ".claude/skills/agentflow/SKILL.md"} {
+	for _, p := range []string{".agents/skills/agentflow/SKILL.md", ".claude/skills/agentflow/SKILL.md", ".agents/skills/agentflow-migrate/SKILL.md", ".claude/skills/agentflow-migrate/SKILL.md"} {
 		if !strings.Contains(out.String(), "created "+filepath.FromSlash(p)) {
 			t.Fatalf("output %q is missing %s", out.String(), p)
 		}

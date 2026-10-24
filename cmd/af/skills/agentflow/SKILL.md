@@ -214,10 +214,12 @@ Creates a todo for the caller.
 
 ## Ejected runtime
 
-If the repository has `agentflow.json`, the runtime packages (`aftool`, `afhttp`, `afagent`) have
-been copied into it with `af eject`, and generated code imports those copies. Editing the
-copies is fine. Keep their `agentflow-vendored:` comment, and run `af eject` after upgrading
-af to merge in the new version. Fix any conflict markers it leaves.
+If the repository has `agentflow.json`, the runtime packages (`aftool`, `afhttp`, `afagent`,
+and maybe the `afanthropic`/`afopenai` adapters) have been copied into it with `af eject`.
+Generated code imports those copies. Editing the copies is fine; keep their
+`agentflow-vendored:` comment. To move to a new af, run `go tool af upgrade`, which
+merges the new runtime into the copies. Then fix any conflict markers it leaves (see the
+`agentflow-migrate` skill).
 
 ## Pitfalls
 

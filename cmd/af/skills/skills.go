@@ -18,7 +18,7 @@ import (
 
 // FS holds the skills, one directory per skill.
 //
-//go:embed agentflow
+//go:embed agentflow agentflow-migrate
 var FS embed.FS
 
 type options struct {
