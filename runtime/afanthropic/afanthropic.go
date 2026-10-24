@@ -13,6 +13,7 @@ package afanthropic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -74,7 +75,7 @@ func (m *Model) Complete(ctx context.Context, req afagent.Request) (afagent.Resp
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return afagent.Response{}, fmt.Errorf("afanthropic: %w", err)
+		return afagent.Response{}, apiError(err)
 	}
 	return response(msg)
 }
@@ -233,3 +234,18 @@ func response(msg anthropic.Message) (afagent.Response, error) {
 }
 
 var _ afagent.Model = (*Model)(nil)
+
+// apiError wraps a failed request, as an *afagent.ModelError with the
+// status and Retry-After hint when the API answered with an error.
+func apiError(err error) error {
+	err = fmt.Errorf("afanthropic: %w", err)
+	var e *anthropic.Error
+	if !errors.As(err, &e) {
+		return err
+	}
+	me := &afagent.ModelError{Status: e.StatusCode, Err: err}
+	if e.Response != nil {
+		me.RetryAfter = afagent.RetryAfter(e.Response.Header)
+	}
+	return me
+}

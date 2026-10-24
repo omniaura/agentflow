@@ -117,6 +117,13 @@ If the backend has its own LLM gateway, implement `afagent.Model` over it with
 `afanthropic.Model` or `afopenai.Model`. Run `go tool af eject afanthropic` to own an
 adapter and extend it.
 
+Gateway code that retries a rate-limited or overloaded provider, falls back to another
+one, or records usage per call maps onto `runtime/afmodel`: `Retry(m, policy)` (a go-kit
+`errs.RetryPolicy`), `Fallback(primary, backup)` and `Meter(m, record)`. Move such code one
+behaviour at a time. Keep product rules (which plan may use which model, billing rates)
+in the `record` func or in a `ModelFunc`, and test the old retry and fallback cases
+against the wrappers with a fake `Model`.
+
 ### Measure
 
 Run `go tool af survey` again after a batch of migrations and report the before and

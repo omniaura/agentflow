@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -221,5 +222,27 @@ func TestStreamsText(t *testing.T) {
 	req := f.bodies[0]
 	if req["stream"] != true || req["stream_options"].(map[string]any)["include_usage"] != true {
 		t.Errorf("request = %v", req)
+	}
+}
+
+func TestAPIErrorsCarryStatus(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Retry-After-Ms", "1500")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(429)
+			io.WriteString(w, `{"error":{"message":"Rate limited","type":"rate_limit_exceeded","param":null,"code":"rate_limit_exceeded"}}`)
+		}))
+		c := openai.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("test"), option.WithMaxRetries(0))
+		req := afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}}
+		if stream {
+			req.OnText = func(string) {}
+		}
+		_, err := (&Model{Client: &c, Model: "m"}).Complete(context.Background(), req)
+		srv.Close()
+		var me *afagent.ModelError
+		if !errors.As(err, &me) || me.Status != 429 || me.RetryAfter != 1500*time.Millisecond || !strings.HasPrefix(err.Error(), "afopenai: ") {
+			t.Errorf("stream=%v: got %#v", stream, err)
+		}
 	}
 }

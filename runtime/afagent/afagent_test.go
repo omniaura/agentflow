@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -354,5 +356,37 @@ func TestLoopHeldTextIsSafe(t *testing.T) {
 	late("too late")
 	if n := deltas.Load(); n != 20 {
 		t.Errorf("%d deltas, want 20", n)
+	}
+}
+
+func TestRetryAfter(t *testing.T) {
+	for _, tt := range []struct {
+		h    http.Header
+		want time.Duration
+	}{
+		{http.Header{"Retry-After": {"3"}}, 3 * time.Second},
+		{http.Header{"Retry-After": {"0.5"}}, 500 * time.Millisecond},
+		{http.Header{"Retry-After-Ms": {"1500"}, "Retry-After": {"9"}}, 1500 * time.Millisecond},
+		{http.Header{"Retry-After": {"soon"}}, 0},
+		{http.Header{"Retry-After": {"-2"}}, 0},
+		{http.Header{"Retry-After": {time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)}}, 0},
+		{http.Header{}, 0},
+		// Too long for a Duration: the longest one, not a negative one.
+		{http.Header{"Retry-After": {"1e300"}}, math.MaxInt64},
+		{http.Header{"Retry-After-Ms": {"9223372036855"}}, math.MaxInt64},
+		{http.Header{"Retry-After": {"Inf"}}, math.MaxInt64},
+		{http.Header{"Retry-After": {"NaN"}}, 0},
+	} {
+		if got := RetryAfter(tt.h); got != tt.want {
+			t.Errorf("%v: got %v", tt.h, got)
+		}
+	}
+	future := time.Now().Add(time.Minute).UTC().Format(http.TimeFormat)
+	if got := RetryAfter(http.Header{"Retry-After": {future}}); got < 50*time.Second || got > time.Minute {
+		t.Errorf("date: got %v", got)
+	}
+	e := &ModelError{Status: 429, Err: context.Canceled}
+	if e.Error() != context.Canceled.Error() || !errors.Is(e, context.Canceled) {
+		t.Error("ModelError does not wrap its cause")
 	}
 }

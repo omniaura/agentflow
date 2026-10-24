@@ -214,7 +214,9 @@ Answers customer questions about their orders.
 - `Model` is `afagent.Model`. Use `&afanthropic.Model{}` (Claude) or
   `&afopenai.Model{Model: id}` (OpenAI-compatible) from
   `github.com/omniaura/agentflow/runtime`, or wrap another provider call in
-  `afagent.ModelFunc`. Don't
+  `afagent.ModelFunc`. Wrap it with `afmodel.Retry`, `afmodel.Fallback` and
+  `afmodel.Meter` for retries on 429/5xx/529, a backup provider and per-call usage,
+  instead of writing those loops. Don't
   hand-write tool-calling loops, dispatch switches or argument decoding for an agent
   that an `.agent` section can declare. Bad arguments and tool errors already go back
   to the model as failed tool results.
