@@ -175,6 +175,14 @@ func TestGenRoutesCache(t *testing.T) {
 			t.Errorf("%s sets Cache-Control:\n%s", h, body)
 		}
 	}
+	// However it's spelled, no-store covers errors too.
+	code, err = genRoutesFile(t, ".route GET /t/{id} GetTodoTitle\n.public\n.cache private, No-Store\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := handler("GetTodoTitle"); !strings.HasPrefix(body, "\t"+set("private, No-Store")+"\n") || strings.Count(body, "Cache-Control") != 1 {
+		t.Errorf("No-Store:\n%s", body)
+	}
 	src := ".route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n.cache no-cache\n"
 	_, err = genRoutesFile(t, src)
 	var re *RouteError
