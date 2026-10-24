@@ -260,7 +260,8 @@ func (d *Document) Definition(pos Position) []protocol.Location {
 
 // agentToolDefinition returns where the tool named under off, on an
 // agent's .tools line, is declared: in this file or another .af file of
-// its directory. It returns nil when off isn't on such a name.
+// its directory, or both when it is declared twice. It returns nil when
+// off isn't on such a name.
 func (d *Document) agentToolDefinition(a *decl.Agent, sec token.T, off int) []protocol.Location {
 	start := strings.LastIndexByte(string(d.Content[:off]), '\n') + 1
 	end := lineEnd(d.Content, start, sec.End)
@@ -268,7 +269,9 @@ func (d *Document) agentToolDefinition(a *decl.Agent, sec token.T, off int) []pr
 	if !strings.HasPrefix(line, ".tools ") && !strings.HasPrefix(line, ".tools\t") {
 		return nil
 	}
-	isName := func(c byte) bool { return c == '_' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+	isName := func(c byte) bool {
+		return c == '_' || c == '-' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+	}
 	i, j := off-start, off-start
 	for i > len(".tools") && isName(line[i-1]) {
 		i--
@@ -284,26 +287,29 @@ func (d *Document) agentToolDefinition(a *decl.Agent, sec token.T, off int) []pr
 	if err != nil {
 		return nil
 	}
-	if k := slices.IndexFunc(f.Tools, func(t *decl.Tool) bool { return t.Name == name }); k >= 0 {
-		pos := offsetToPosition(d.Content, f.Tools[k].Start)
-		return []protocol.Location{{URI: d.URI, Range: Range{Start: pos, End: pos}.protocol()}}
-	}
-	p := d.path()
-	if p == "" {
-		return nil
-	}
-	for _, sib := range ast.SiblingTools(p) {
-		if sib.Tool.Name != name {
-			continue
+	// Every declaration: a name declared twice in the package is an error
+	// lint reports, and the editor lets the user pick the one to fix.
+	var locs []protocol.Location
+	for _, t := range f.Tools {
+		if t.Name == name {
+			pos := offsetToPosition(d.Content, t.Start)
+			locs = append(locs, protocol.Location{URI: d.URI, Range: Range{Start: pos, End: pos}.protocol()})
 		}
-		src, err := os.ReadFile(sib.Path)
-		if err != nil {
-			return nil
-		}
-		pos := offsetToPosition(src, sib.Tool.Start)
-		return []protocol.Location{{URI: fileURI(sib.Path), Range: Range{Start: pos, End: pos}.protocol()}}
 	}
-	return nil
+	if p := d.path(); p != "" {
+		for _, sib := range ast.SiblingTools(p) {
+			if sib.Tool.Name != name {
+				continue
+			}
+			src, err := os.ReadFile(sib.Path)
+			if err != nil {
+				continue
+			}
+			pos := offsetToPosition(src, sib.Tool.Start)
+			locs = append(locs, protocol.Location{URI: fileURI(sib.Path), Range: Range{Start: pos, End: pos}.protocol()})
+		}
+	}
+	return locs
 }
 
 func (d *Document) variableDefinition(tok token.T, off int) []protocol.Location {

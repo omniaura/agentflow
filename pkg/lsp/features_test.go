@@ -1,6 +1,7 @@
 package lsp
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -493,5 +494,22 @@ func TestAgentToolsDefinitionAndCompletion(t *testing.T) {
 	}
 	if labels["track_shipment"] != "tool in shipping.af" || labels["offer_refund"] != "tool in this file" || labels["lookup_order"] != "" || len(labels) != 2 {
 		t.Fatalf("completions = %v", labels)
+	}
+}
+
+func TestAgentToolsDefinitionOfADuplicate(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "b.af"), []byte(".tool track\n\nTracks.\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "c.af"), []byte(".tool track\n\nAgain.\n"), 0o644)
+	src := ".title A\nHi.\n\n.tool track\nOnce more.\n\n.agent x\n.tools track\n"
+	doc := openAt(t, filepath.Join(dir, "a.af"), src)
+	// All three declarations, this file's first, not an arbitrary one.
+	loc := doc.Definition(at(t, doc, "track\n", 1))
+	var got []string
+	for _, l := range loc {
+		got = append(got, fmt.Sprintf("%s:%d", filepath.Base(string(l.URI)), l.Range.Start.Line))
+	}
+	if strings.Join(got, ",") != "a.af:3,b.af:0,c.af:0" {
+		t.Fatalf("definitions = %v", got)
 	}
 }
