@@ -79,6 +79,9 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		if uses[b.q.Name] > 1 {
 			b.handler += camel(strings.ToLower(b.r.Method))
 		}
+		if b.r.CacheOffset != 0 && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
+			return &RouteError{Offset: b.r.CacheOffset, Err: fmt.Errorf(".cache applies to a :one or :many result; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
+		}
 		if b.r.Wrap != "" && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
 			return &RouteError{Offset: b.r.WrapOffset, Err: fmt.Errorf(".wrap puts a :one or :many result in an object; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
 		}
@@ -286,6 +289,13 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		}
 	}
 	fmt.Fprintf(buf, "func (rt *%sRoutes) %s(w http.ResponseWriter, r *http.Request) {\n", routes, b.handler)
+	cc := r.CacheControl()
+	withBody := q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many
+	noStore := withBody && hasNoStore(cc)
+	if noStore {
+		// On every response, errors too: none of them may be kept.
+		fmt.Fprintf(buf, "w.Header().Set(\"Cache-Control\", %q)\n", cc)
+	}
 	usesCaller := slices.Contains(b.sources, "auth")
 	if !r.Public {
 		// An unset Auth fails closed rather than panicking.
@@ -368,6 +378,15 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		}
 		return def
 	}
+	cache := ""
+	if cc != "" && !noStore {
+		// Set on success only, so no cache keeps an error.
+		cache = fmt.Sprintf("w.Header().Set(\"Cache-Control\", %q)\n", cc)
+		if v := r.Vary(); v != "" {
+			// Add, keeping what middleware varies by, such as Origin.
+			cache += fmt.Sprintf("w.Header().Add(\"Vary\", %q)\n", v)
+		}
+	}
 	switch q.Kind {
 	case sqlcgo.One:
 		path, expr := b.pkg.NoRowsImport()
@@ -376,11 +395,13 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		fmt.Fprintf(buf, "row, err := %s\n", call)
 		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, %s.New(r.Context()).AddError(err))\nreturn\n}\n", expr, b.emptyErr())
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
+		buf.WriteString(cache)
 		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), b.wrap("row"))
 	case sqlcgo.Many:
 		fmt.Fprintf(buf, "rows, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		fmt.Fprintf(buf, "if rows == nil {\nrows = []%s{}\n}\n", q.Result.Expr)
+		buf.WriteString(cache)
 		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), b.wrap("rows"))
 	case sqlcgo.ExecRows:
 		fmt.Fprintf(buf, "n, err := %s\n", call)
@@ -392,6 +413,18 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, imports map[s
 		fmt.Fprintf(buf, "w.WriteHeader(%s)\n", status("http.StatusNoContent"))
 	}
 	buf.WriteString("}\n\n")
+}
+
+// hasNoStore reports whether Cache-Control value cc has the no-store
+// directive. Directive names are case-insensitive.
+func hasNoStore(cc string) bool {
+	for _, d := range strings.Split(cc, ",") {
+		name, _, _ := strings.Cut(d, "=")
+		if strings.EqualFold(strings.TrimSpace(name), "no-store") {
+			return true
+		}
+	}
+	return false
 }
 
 var statusNames = map[int]string{

@@ -61,6 +61,7 @@ func (rt *TodosRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
 //
 // Creates a todo for the caller.
 func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if rt.Auth == nil {
 		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
@@ -96,6 +97,7 @@ func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
 
 // GetTodo serves GET /todos/{id} with the GetTodo query.
 func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if rt.Auth == nil {
 		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
@@ -127,6 +129,7 @@ func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
 //
 // Lists the caller's todos. Filter with ?done=true or ?done=false.
 func (rt *TodosRoutes) ListTodos(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if rt.Auth == nil {
 		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
@@ -230,6 +233,7 @@ func (rt *TodosRoutes) CountTodos(w http.ResponseWriter, r *http.Request) {
 		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
+	w.Header().Set("Cache-Control", "public, max-age=60")
 	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }
 

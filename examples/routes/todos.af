@@ -18,6 +18,7 @@ Lists the caller's todos. Filter with ?done=true or ?done=false.
 
 .route GET /stats/count CountTodos
 .public
+.cache 1m
 
 .route GET /todos/{id}/title GetTodoTitle
 .public

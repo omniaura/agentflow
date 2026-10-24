@@ -6,10 +6,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // RouteDirectives are the directives allowed inside a route section.
-var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".empty", ".wrap", ".sql"}
+var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".empty", ".wrap", ".cache", ".sql"}
 
 // SQLKinds are the sqlc query commands a .sql line may name.
 var SQLKinds = []string{":one", ":many", ":exec", ":execrows"}
@@ -45,8 +46,14 @@ type Route struct {
 	// Wrap, from .wrap, names the one field of a JSON object the response
 	// puts the query's result in: {"todos": [...]}. WrapOffset is the
 	// .wrap line's.
-	Wrap        string
-	WrapOffset  int
+	Wrap       string
+	WrapOffset int
+	// Cache, from .cache, is the Cache-Control value written as is, and
+	// MaxAge the seconds of a .cache duration; CacheOffset is the .cache
+	// line's. CacheControl resolves them.
+	Cache       string
+	MaxAge      int
+	CacheOffset int
 	Description string
 	// SQL is the query written in the section after a .sql line, which af
 	// gen hands to sqlc, and SQLKind its sqlc command (":one", ...). Both
@@ -148,6 +155,15 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf("usage: .wrap key, as in .wrap todos to respond {\"todos\": [...]}; got %q", key)}
 			}
 			r.Wrap, r.WrapOffset = key, off
+		case hasDirective(b, ".cache"):
+			if r.CacheOffset != 0 {
+				return nil, &Error{Offset: off, Msg: "only one .cache line"}
+			}
+			v := strings.TrimSpace(strings.TrimPrefix(l, ".cache"))
+			if err := r.parseCache(v); err != nil {
+				return nil, &Error{Offset: off, Msg: err.Error()}
+			}
+			r.CacheOffset = off
 		case hasDirective(b, ".empty"):
 			if r.Empty != nil {
 				return nil, &Error{Offset: off, Msg: "only one .empty line"}
@@ -171,8 +187,72 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 	if r.Public && len(r.Auth) > 0 {
 		return nil, &Error{Offset: start, Msg: "a .public route has no caller, so it cannot use .auth"}
 	}
+	if r.MaxAge > 0 && r.Method != "GET" && r.Method != "HEAD" {
+		return nil, &Error{Offset: r.CacheOffset, Msg: fmt.Sprintf("only GET and HEAD responses are cached; a %s route can use .cache no-store", r.Method)}
+	}
 	r.Description = strings.TrimRight(trimLeadingBlankLines(strings.Join(desc, "\n")), " \t\n")
 	return r, nil
+}
+
+// maxCacheAge is the longest .cache duration: caches treat longer max-age
+// values as a year anyway.
+const maxCacheAge = 365 * 24 * time.Hour
+
+// parseCache reads a .cache value: a duration such as 5m, or a
+// Cache-Control value to write as is.
+func (r *Route) parseCache(v string) error {
+	if v == "" {
+		return fmt.Errorf("usage: .cache 5m, or a Cache-Control value such as .cache no-cache")
+	}
+	if d, err := time.ParseDuration(v); err == nil {
+		if d < time.Second || d%time.Second != 0 {
+			return fmt.Errorf(".cache needs a duration of whole seconds, at least 1s; got %s", v)
+		}
+		if d > maxCacheAge {
+			return fmt.Errorf(".cache needs a duration of at most a year (8760h); got %s", v)
+		}
+		r.MaxAge = int(d / time.Second)
+		return nil
+	}
+	if v[0] >= '0' && v[0] <= '9' {
+		return fmt.Errorf(".cache needs a duration such as 30s, 5m or 1h; got %q", v)
+	}
+	for _, c := range v {
+		if c < ' ' || c > '~' {
+			return fmt.Errorf(".cache value %q must be printable ASCII", v)
+		}
+	}
+	r.Cache = v
+	return nil
+}
+
+// CacheControl is the Cache-Control header of the route's responses with
+// a body, or "" for none. A .cache duration is private to the caller (see
+// Vary), or public on a .public route. Without .cache, responses to an
+// authenticated caller are no-store, so no cache keeps one caller's data.
+func (r *Route) CacheControl() string {
+	switch {
+	case r.MaxAge > 0 && r.Public:
+		return fmt.Sprintf("public, max-age=%d", r.MaxAge)
+	case r.MaxAge > 0:
+		return fmt.Sprintf("private, max-age=%d", r.MaxAge)
+	case r.Cache != "":
+		return r.Cache
+	case !r.Public:
+		return "no-store"
+	}
+	return ""
+}
+
+// Vary is the Vary header that goes with CacheControl, or "" for none. A
+// browser keeps one private cache for every account signed in to it, so a
+// cached authenticated response varies by the credentials that chose it:
+// after a switch of accounts, the browser asks again.
+func (r *Route) Vary() string {
+	if r.MaxAge > 0 && !r.Public {
+		return "Authorization, Cookie"
+	}
+	return ""
 }
 
 // BodyFromQueryString reports whether the route reads its remaining

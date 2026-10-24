@@ -140,3 +140,69 @@ func TestGenRoutesWrap(t *testing.T) {
 		t.Errorf("wrap on :execrows: %v", err)
 	}
 }
+
+func TestGenRoutesCache(t *testing.T) {
+	code, err := genRoutesFile(t, ".route GET /a ListTodos\n.auth owner_id\n\n.route GET /a/{id} GetTodo\n.auth owner_id\n.cache 5m\n\n.route GET /c CountTodos\n.public\n.cache 1m\n\n.route GET /t/{id} GetTodoTitle\n.public\n\n.route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := func(name string) string {
+		_, rest, _ := strings.Cut(code, ") "+name+"(w http.ResponseWriter, r *http.Request) {\n")
+		body, _, _ := strings.Cut(rest, "\n}\n")
+		return body
+	}
+	set := func(v string) string { return `w.Header().Set("Cache-Control", "` + v + `")` }
+	// no-store goes first, so errors aren't kept either.
+	if body := handler("ListTodos"); !strings.HasPrefix(body, "\t"+set("no-store")+"\n") || strings.Count(body, "Cache-Control") != 1 {
+		t.Errorf("ListTodos:\n%s", body)
+	}
+	for _, c := range []struct{ handler, want string }{
+		// A cached caller's result varies by the credentials that chose it.
+		{"GetTodo", set("private, max-age=300") + "\n\t" + `w.Header().Add("Vary", "Authorization, Cookie")`},
+		{"CountTodos", set("public, max-age=60")},
+	} {
+		// Right before the success response, so errors aren't cached.
+		if body := handler(c.handler); !strings.Contains(body, c.want+"\n\tafhttp.WriteJSON") || strings.Count(body, "Cache-Control") != 1 {
+			t.Errorf("%s: missing %s before WriteJSON in\n%s", c.handler, c.want, body)
+		}
+	}
+	if body := handler("CountTodos"); strings.Contains(body, "Vary") {
+		t.Errorf("public result varies:\n%s", body)
+	}
+	// Public with no .cache, and a 204 with no body to cache.
+	for _, h := range []string{"GetTodoTitle", "SetTodoDone"} {
+		if body := handler(h); body == "" || strings.Contains(body, "Cache-Control") {
+			t.Errorf("%s sets Cache-Control:\n%s", h, body)
+		}
+	}
+	// However it's spelled, no-store covers errors too.
+	code, err = genRoutesFile(t, ".route GET /t/{id} GetTodoTitle\n.public\n.cache private, No-Store\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body := handler("GetTodoTitle"); !strings.HasPrefix(body, "\t"+set("private, No-Store")+"\n") || strings.Count(body, "Cache-Control") != 1 {
+		t.Errorf("No-Store:\n%s", body)
+	}
+	src := ".route PUT /a/{id}/done SetTodoDone\n.auth owner_id\n.cache no-cache\n"
+	_, err = genRoutesFile(t, src)
+	var re *RouteError
+	if !errors.As(err, &re) || !strings.Contains(err.Error(), ".cache applies to a :one or :many result") || src[re.Offset:re.Offset+6] != ".cache" {
+		t.Errorf("cache on :execrows: %v", err)
+	}
+}
+
+func TestHasNoStore(t *testing.T) {
+	for cc, want := range map[string]bool{
+		"no-store":                         true,
+		"private, No-Store":                true,
+		"private,no-store ":                true,
+		"no-cache":                         false,
+		"private, max-age=300, x-no-store": false,
+		`private, x="no-store"`:            false,
+		"":                                 false,
+	} {
+		if got := hasNoStore(cc); got != want {
+			t.Errorf("hasNoStore(%q) = %v, want %v", cc, got, want)
+		}
+	}
+}

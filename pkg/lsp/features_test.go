@@ -379,6 +379,26 @@ func TestRouteWrapHover(t *testing.T) {
 	}
 }
 
+func TestRouteCacheHover(t *testing.T) {
+	path, err := filepath.Abs("../../examples/routes/todos.af")
+	require.NoError(t, err)
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	doc := openAt(t, path, string(src))
+	for query, want := range map[string]string{
+		"CountTodos":   "`Cache-Control: public, max-age=60`.",
+		"ListTodos":    "`Cache-Control: no-store`.",
+		"GetTodoTitle": "",
+		// 204: no body to cache.
+		"SetTodoDone": "",
+	} {
+		hover := doc.SectionHover(at(t, doc, query, 0))
+		if want == "" && strings.Contains(hover, "Cache-Control") || want != "" && !strings.Contains(hover, want) {
+			t.Errorf("%s hover, want %q:\n%s", query, want, hover)
+		}
+	}
+}
+
 func TestRouteCompletionsFollowQueryKind(t *testing.T) {
 	dir, err := filepath.Abs("../../examples/routes")
 	require.NoError(t, err)
@@ -398,8 +418,8 @@ func TestRouteCompletionsFollowQueryKind(t *testing.T) {
 	}{
 		// The kind from .sql, even below the cursor.
 		{"inline :execrows", ".route PUT /a/{id} SetX\n.\n.sql :execrows\nUPDATE t SET x = 1 WHERE id = @id\n", 1, []string{".empty", ".auth"}, []string{".wrap"}},
-		{"inline :many", ".route GET /a ListX\n.\n.sql :many\nSELECT 1\n", 1, []string{".wrap"}, []string{".empty"}},
-		{"inline :exec", ".route POST /a TouchX\n.\n.sql :exec\nSELECT 1\n", 1, []string{".status"}, []string{".wrap", ".empty"}},
+		{"inline :many", ".route GET /a ListX\n.\n.sql :many\nSELECT 1\n", 1, []string{".wrap", ".cache"}, []string{".empty"}},
+		{"inline :exec", ".route POST /a TouchX\n.\n.sql :exec\nSELECT 1\n", 1, []string{".status"}, []string{".wrap", ".empty", ".cache"}},
 		// The kind from sqlc's output: ListTodos is :many, GetTodo :one.
 		{"sqlc :many", ".route GET /todos ListTodos\n.\n", 1, []string{".wrap"}, []string{".empty"}},
 		{"sqlc :one", ".route GET /todos/{id} GetTodo\n.\n", 1, []string{".wrap", ".empty"}, nil},

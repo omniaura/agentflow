@@ -57,6 +57,7 @@ func (rt *NoteCopiesRoutes) fail(w http.ResponseWriter, r *http.Request, err err
 // checks both in SQL. Two copies at once can both see 4 notes; a limit that
 // must hold under concurrent writes needs a lock or a trigger.
 func (rt *NoteCopiesRoutes) CopyNote(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	if rt.Auth == nil {
 		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
