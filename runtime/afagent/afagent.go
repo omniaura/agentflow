@@ -276,6 +276,12 @@ type Loop struct {
 	Check func(answer string) error
 	// MaxTurns bounds the model calls; 0 means DefaultMaxTurns.
 	MaxTurns int
+	// BeforeTurn, when set, is called before each model call with the
+	// turn about to start (1 for the first) and the conversation so far.
+	// The messages it returns are the conversation from then on, so it
+	// can compact a long one, or add messages that arrived during the run.
+	// Its error ends the run.
+	BeforeTurn func(ctx context.Context, turn int, messages []Message) ([]Message, error)
 	// MaxToolCalls, when above 0, bounds the tool calls of a run. Calls a
 	// turn makes beyond it are refused, and later turns withhold the
 	// tools, so the model answers with what it has; Result.OutOfToolCalls
@@ -307,6 +313,13 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			return res, err
 		}
 		res.Turns++
+		if l.BeforeTurn != nil {
+			msgs, err := l.BeforeTurn(ctx, res.Turns, res.Messages)
+			if err != nil {
+				return res, err
+			}
+			res.Messages = msgs
+		}
 		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
 		spent := l.MaxToolCalls > 0 && res.ToolCalls >= l.MaxToolCalls
 		last := l.AnswerOnLastTurn && res.Turns == maxTurns

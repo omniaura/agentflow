@@ -206,6 +206,9 @@ Answers customer questions about their orders.
   it with a `task` string; set the generated field (`Tracker`) to `(&TrackerAgent{...}).AsTool(system)`.
   The subagent sees only the task, so its description should say what to put in one. Don't
   hand-write a "spawn_sub_agent" tool and its dispatch.
+- `BeforeTurn func(ctx, turn, messages) ([]Message, error)` on a generated agent replaces the
+  conversation before each model call: compaction and context-budget checks go there, not in a
+  hand-written loop.
 - A run's tools can depend on the caller: set the agent's `Allow func(ctx, tool) bool` (for
   example, a workspace's enabled tools). Declare every tool the agent may ever use in `.tools`
   and let `Allow` narrow it per run; the dispatcher refuses tools it didn't offer.

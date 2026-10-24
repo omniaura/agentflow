@@ -120,9 +120,10 @@ handler. Write a test for each failure.
 These stay hand-written:
 - **Handlers with real logic:** several queries, transactions, side effects or
   streaming. `.route` serves exactly one sqlc query.
-- **Loops that mix providers mid-run, or rewrite the conversation between turns**
-  (compaction, re-ranking). `.agent` runs a plain loop over `afagent.Model`, so wrap
-  that logic in a `Model` instead, or leave the loop as it is.
+- **Loops that mix providers mid-run.** `.agent` runs one `afagent.Model`, so put the switch
+  inside a `Model` (or `afmodel.Fallback`), or leave the loop as it is. Loops that rewrite the
+  conversation between turns (compaction, context budgets) can migrate: that logic becomes
+  the agent's `BeforeTurn`.
 - **Schemas with features `.param` can't express:** `oneOf`, recursive types,
   patterns. Leave them, or add a comment saying why.
 

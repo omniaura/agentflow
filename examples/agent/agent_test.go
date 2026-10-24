@@ -271,3 +271,23 @@ func TestSupportAgentRunsOnlyOfferedTools(t *testing.T) {
 		t.Fatalf("got %v, %+v, refunds %v", err, res.Messages[2], s.refunds)
 	}
 }
+
+// BeforeTurn compacts a long conversation before the model sees it.
+func TestSupportAgentBeforeTurn(t *testing.T) {
+	look := afagent.Message{ToolCalls: []afagent.ToolCall{call("1", "lookup_order", `{"order_id":"A-1"}`)}}
+	model, seen := script(t, look, look, afagent.Message{Content: "Delivered late."})
+	agent := &SupportAgent{Model: model, Tools: &shop{}, BeforeTurn: func(ctx context.Context, turn int, msgs []afagent.Message) ([]afagent.Message, error) {
+		if len(msgs) > 3 {
+			// Keep the question; summarize the rest.
+			return []afagent.Message{msgs[0], {Role: afagent.User, Content: "(summary: A-1 was delivered late)"}}, nil
+		}
+		return msgs, nil
+	}}
+	res, err := agent.Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "where is A-1?"})
+	if err != nil || res.Final != "Delivered late." {
+		t.Fatalf("got %v: %+v", err, res)
+	}
+	if third := (*seen)[2].Messages; len(third) != 2 || !strings.Contains(third[1].Content, "summary") {
+		t.Errorf("third request = %+v", third)
+	}
+}
