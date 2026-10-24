@@ -17,14 +17,15 @@ func TestRun(t *testing.T) {
 		}
 	}
 	want := map[Category][]string{
-		Routes:       {"api/api.go:15 GetUser → GetUser"},
-		Checks:       {"api/api.go:121 Fallthrough → GetUser, BanUser", "api/api.go:110 EachUser → GetUser, BanUser", "api/api.go:31 Ban → GetUser, BanUser", "api/api.go:67 Audited → GetUser, GetUser", "api/api.go:91 Guarded → GetUser, BanUser"},
-		Outputs:      {"api/api.go:156 openai.ResponseFormatJSONSchemaParam"},
+		Routes: {"api/api.go:15 GetUser → GetUser"},
+		Checks: {"api/api.go:121 Fallthrough → GetUser, BanUser", "api/api.go:110 EachUser → GetUser, BanUser", "api/api.go:31 Ban → GetUser, BanUser", "api/api.go:67 Audited → GetUser, GetUser", "api/api.go:91 Guarded → GetUser, BanUser"},
+		// Loops asking again until an answer passes a check: .returns + Check.
+		Outputs:      {"api/gateway.go:118 retry until valid", "api/gateway.go:40 retry until valid", "api/api.go:156 openai.ResponseFormatJSONSchemaParam"},
 		Prompts:      {"api/api.go:158 "},
 		GenAgentflow: {"api/api_af.go:1 "},
 		GenSqlc:      {"db/q.sql.go:1 ", "audit/q.sql.go:1 "},
 		Agents:       {"api/agent.go:11 RunAgent"},
-		Gateway:      {"api/gateway.go:28 retry", "api/gateway.go:40 retry until valid", "api/gateway.go:64 fallback", "api/gateway.go:52 fallback", "api/gateway.go:75 usage"},
+		Gateway:      {"api/gateway.go:28 retry", "api/gateway.go:67 fallback", "api/gateway.go:107 retry", "api/gateway.go:55 fallback", "api/gateway.go:78 usage", "billing/meter.go:12 usage"},
 	}
 	for c, w := range want {
 		if fmt.Sprint(got[c]) != fmt.Sprint(w) {

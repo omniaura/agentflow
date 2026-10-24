@@ -39,7 +39,10 @@ func Retry(ctx context.Context, c anthropic.Client, p anthropic.MessageNewParams
 func Valid(ctx context.Context, c anthropic.Client, p anthropic.MessageNewParams) error {
 	for tries := 0; tries < 3; tries++ {
 		m, err := c.Messages.New(ctx, p)
-		if err == nil && len(m.Content) > 0 {
+		if err != nil {
+			return err
+		}
+		if len(m.Content) > 0 {
 			return nil
 		}
 	}
@@ -93,6 +96,55 @@ func NotGateway(ctx context.Context, db pg, cat catalog, candidates []string, fa
 	}
 	if _, err := cat.LookupUpstream(ctx); err != nil {
 		return errors.New("fallback")
+	}
+	return nil
+}
+
+// Again retries failed calls under an attempt counter, with no wait:
+// afmodel.Retry, not a check.
+func Again(ctx context.Context, c anthropic.Client, p anthropic.MessageNewParams) (*anthropic.Message, error) {
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		var m *anthropic.Message
+		if m, err = c.Messages.New(ctx, p); err == nil {
+			return m, nil
+		}
+	}
+	return nil, err
+}
+
+// Ranged counts attempts in the range value and checks each answer.
+func Ranged(ctx context.Context, c anthropic.Client, p anthropic.MessageNewParams, plan []int) error {
+	for _, attempt := range plan {
+		_ = attempt
+		m, err := c.Messages.New(ctx, p)
+		if err != nil {
+			return err
+		}
+		if len(m.Content) > 0 {
+			return nil
+		}
+	}
+	return errors.New("no valid answer")
+}
+
+type httpClient struct{}
+
+func (httpClient) Do(ctx context.Context, url string) error { return nil }
+
+// Not gateway code: a loop over providers that gives up on the first
+// error, and a retried plain HTTP call.
+func NotFallback(ctx context.Context, providers []anthropic.Client, p anthropic.MessageNewParams, h httpClient) error {
+	for _, pr := range providers {
+		if _, err := pr.Messages.New(ctx, p); err != nil {
+			return err
+		}
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if h.Do(ctx, "https://example.com") == nil {
+			return nil
+		}
+		time.Sleep(time.Second)
 	}
 	return nil
 }

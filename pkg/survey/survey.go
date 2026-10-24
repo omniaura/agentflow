@@ -43,8 +43,8 @@ const (
 	// Gateway is hand-written LLM gateway code: retrying a model call,
 	// falling back to another model when one fails, or reading a call's
 	// token usage. runtime/afmodel's Retry, Fallback and Meter wrap any
-	// afagent.Model with it; asking again for an answer that failed a
-	// check ("retry until valid") is an agent's Check.
+	// afagent.Model with it. Loops asking again for an answer that failed
+	// a check count as Outputs ("retry until valid"): an agent's Check.
 	Gateway Category = "gateway code"
 
 	// Code already generated.
@@ -262,8 +262,12 @@ func (s *scanner) scan(f *ast.File) {
 			case isAgentLoop(n):
 				site, name := s.agentSite(stack)
 				s.add(Agents, site, name)
-			case s.llm && retryKind(n) != "":
-				s.add(Gateway, n, retryKind(n))
+			case s.llm && retryKind(n) == "retry":
+				s.add(Gateway, n, "retry")
+			case s.llm && retryKind(n) == "retry until valid":
+				// The structured call and its check: an agent with
+				// .returns and Check, not gateway code.
+				s.add(Outputs, n, "retry until valid")
 			case s.llm && isRange(n) && isFallbackLoop(n.(*ast.RangeStmt)):
 				s.add(Gateway, n, "fallback")
 			}
@@ -313,7 +317,7 @@ func isAgentLoop(loop ast.Node) bool {
 
 // llmImportRE matches the import paths of model SDKs and of packages that
 // wrap them, such as a backend's own llm or inference package.
-var llmImportRE = regexp.MustCompile(`(?i)(openai|anthropic|genai|generativeai|bedrock|openrouter|ollama|mistral|cohere|/llms?(/|$)|/inference(/|$))`)
+var llmImportRE = regexp.MustCompile(`(?i)(openai|anthropic|genai|generativeai|bedrock|openrouter|ollama|mistral|cohere|/afmodel(/|$)|/llms?(/|$)|/inference(/|$))`)
 
 func isRange(n ast.Node) bool {
 	_, ok := n.(*ast.RangeStmt)
@@ -375,11 +379,12 @@ func containsAny(s string, words []string) bool {
 	return slices.ContainsFunc(words, func(w string) bool { return strings.Contains(s, w) })
 }
 
-// retryKind reports whether a loop calls a model again on failure, as
-// "retry" when it waits between tries or checks for a rate limit or
-// overload (runtime/afmodel.Retry), or "retry until valid" when it only
-// counts attempts, asking again for an answer that failed a check (an
-// agent's Check). It returns "" for neither.
+// retryKind reports whether a loop calls a model again, as "retry" when
+// it tries again after errors: it waits between tries, checks for a rate
+// limit or overload, or counts attempts without giving up on an error
+// (runtime/afmodel.Retry). It is "retry until valid" when it counts
+// attempts but returns on an error: what it asks again for is an answer
+// that failed a check (an agent's Check). It returns "" for neither.
 func retryKind(loop ast.Node) string {
 	var call, attempts, wait bool
 	var header []ast.Node
@@ -387,7 +392,7 @@ func retryKind(loop ast.Node) string {
 	case *ast.ForStmt:
 		header = []ast.Node{l.Init, l.Cond, l.Post}
 	case *ast.RangeStmt:
-		header = []ast.Node{l.Key, l.X}
+		header = []ast.Node{l.Key, l.Value, l.X}
 	}
 	for _, h := range header {
 		if h != nil {
@@ -417,10 +422,70 @@ func retryKind(loop ast.Node) string {
 	switch {
 	case call && wait:
 		return "retry"
-	case call && attempts:
+	case call && attempts && abortsOnErr(loop):
+		// Errors end the loop, so what it tries again is an answer that
+		// came back but failed a check.
 		return "retry until valid"
+	case call && attempts:
+		return "retry"
 	}
 	return ""
+}
+
+// isErrCheck reports whether e is err != nil.
+func isErrCheck(e ast.Expr) bool {
+	b, ok := e.(*ast.BinaryExpr)
+	if !ok || b.Op != token.NEQ {
+		return false
+	}
+	x, ok := b.X.(*ast.Ident)
+	return ok && x.Name == "err" && exprName(b.Y) == "nil"
+}
+
+// abortsOnErr reports whether a loop returns when err != nil, rather than
+// trying again.
+func abortsOnErr(loop ast.Node) bool {
+	found := false
+	inspectBody(loop, func(n ast.Node) {
+		if ifs, ok := n.(*ast.IfStmt); ok && isErrCheck(ifs.Cond) {
+			inspectBody(ifs.Body, func(m ast.Node) {
+				_, ret := m.(*ast.ReturnStmt)
+				found = found || ret
+			})
+		}
+	})
+	return found
+}
+
+// exitsOnSuccess reports whether a loop returns or breaks other than
+// under if err != nil: it stops once a try works.
+func exitsOnSuccess(loop ast.Node) bool {
+	found := false
+	var errDepth int
+	var walk func(n ast.Node) bool
+	walk = func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return n == loop
+		case *ast.IfStmt:
+			if isErrCheck(n.Cond) {
+				errDepth++
+				ast.Inspect(n.Body, walk)
+				errDepth--
+				if n.Else != nil {
+					ast.Inspect(n.Else, walk)
+				}
+				return false
+			}
+		case *ast.ReturnStmt:
+			found = found || errDepth == 0
+		case *ast.BranchStmt:
+			found = found || (n.Tok == token.BREAK && errDepth == 0)
+		}
+		return !found
+	}
+	ast.Inspect(loop, walk)
+	return found
 }
 
 // fallbackWords are words in the names of what a fallback tries next.
@@ -428,8 +493,8 @@ var fallbackWords = []string{"route", "provider", "model", "fallback", "backend"
 
 // isFallbackLoop reports whether a range loop tries a model call per
 // route, provider or model, going on to the next when one fails: it
-// returns or breaks out on success, and otherwise falls through or
-// continues to the next.
+// returns or breaks out on success, not under if err != nil, and
+// otherwise falls through or continues to the next.
 func isFallbackLoop(r *ast.RangeStmt) bool {
 	x := r.X
 	if c, ok := x.(*ast.CallExpr); ok && exprName(c.Fun) == "len" && len(c.Args) == 1 {
@@ -439,18 +504,14 @@ func isFallbackLoop(r *ast.RangeStmt) bool {
 	if !containsAny(exprName(x), fallbackWords) {
 		return false
 	}
-	var call, stop bool
+	call := false
 	inspectBody(r, func(n ast.Node) {
-		switch n := n.(type) {
-		case *ast.CallExpr:
-			call = call || isGatewayCall(n)
-		case *ast.BranchStmt:
-			stop = stop || n.Tok == token.BREAK
-		case *ast.ReturnStmt:
-			stop = true
+		if c, ok := n.(*ast.CallExpr); ok {
+			call = call || isGatewayCall(c)
 		}
 	})
-	return call && stop
+	// A loop that returns on the first error never tries the next one.
+	return call && exitsOnSuccess(r)
 }
 
 // isFallback reports whether an if statement handles a failed model call
