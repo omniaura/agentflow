@@ -219,7 +219,7 @@ func genAgentAsTool(buf *bytes.Buffer, a *decl.Agent, name, system string, retur
 		buf.WriteString(", the\n// decoded output as JSON")
 	}
 	buf.WriteString(".\n")
-	fmt.Fprintf(buf, "func (a *%sAgent) AsTool(%s) func(ctx context.Context, task string) (string, error) {\nreturn func(ctx context.Context, task string) (string, error) {\nres, err := a.Run(ctx, %safagent.Message{Role: afagent.User, Content: task})\nif err != nil {\nreturn \"\", err\n}\n", name, param, arg)
+	fmt.Fprintf(buf, "func (a *%sAgent) AsTool(%s) func(ctx context.Context, task string) (string, error) {\nreturn func(ctx context.Context, task string) (string, error) {\nctx, err := afagent.Nest(ctx)\nif err != nil {\nreturn \"\", err\n}\nres, err := a.Run(ctx, %safagent.Message{Role: afagent.User, Content: task})\nif err != nil {\nreturn \"\", err\n}\n", name, param, arg)
 	if returns != nil {
 		buf.WriteString("b, err := json.Marshal(res.Output)\n")
 	}
@@ -295,6 +295,10 @@ func agentTools(f ast.File, a *decl.Agent, siblings []ast.SiblingTool) ([]toolRe
 			return nil, fmt.Errorf("agent %s lists itself in .tools", a.Name)
 		case sub != nil && strings.TrimSpace(sub.Description) == "":
 			return nil, fmt.Errorf("agent %s: agent %s needs a description to be called as a tool: the model reads it to know when to call it", a.Name, sub.Name)
+		case sub != nil:
+			if cycle := ast.SubagentCycle(a.Name, ast.PackageAgents(f.Agents, siblings)); cycle != nil {
+				return nil, fmt.Errorf("agents call each other in a cycle (%s), which could delegate without end", strings.Join(cycle, " → "))
+			}
 		}
 		out = append(out, toolRef{tool: t, sub: sub})
 	}

@@ -169,3 +169,20 @@ func TestLintAgentToolsOfOtherFiles(t *testing.T) {
 		t.Fatalf("duplicate: %v %#v", err, d)
 	}
 }
+
+// Each agent on a cycle is reported at its .tools line.
+func TestLintSubagentCycle(t *testing.T) {
+	d := lintString(t, ".title A\nHi.\n\n.agent x\n.tools y\n\nDoes x.\n\n.agent y\n.tools z\n\nDoes y.\n\n.agent z\n.tools x\n\nDoes z.\n")
+	var got []string
+	for _, x := range d {
+		got = append(got, fmt.Sprintf("%d %s", x.Line, x.Message))
+	}
+	want := []string{
+		"5 agents call each other in a cycle (x → y → z → x), which could delegate without end",
+		"10 agents call each other in a cycle (y → z → x → y), which could delegate without end",
+		"15 agents call each other in a cycle (z → x → y → z), which could delegate without end",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got\n%s", strings.Join(got, "\n"))
+	}
+}

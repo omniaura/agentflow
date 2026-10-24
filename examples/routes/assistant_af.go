@@ -321,6 +321,10 @@ var NotesAgentTool = &aftool.Def[aftool.Task]{
 // with the task as the user's message, and returns its answer.
 func (a *NotesAgent) AsTool(system *NotesAssistant) func(ctx context.Context, task string) (string, error) {
 	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
 		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
 		if err != nil {
 			return "", err

@@ -126,3 +126,50 @@ func FindTool(tools []*decl.Tool, agents []*decl.Agent, siblings []SiblingTool, 
 	}
 	return nil, nil, fmt.Errorf("no tool or agent %s in this file or the other .af files of its directory (%s)", name, list)
 }
+
+// SubagentCycle returns the chain by which agent name calls itself through
+// subagents named in .tools, such as [a b a], or nil. agents are the
+// agents of the package by name: a cycle could delegate without end.
+func SubagentCycle(name string, agents map[string]*decl.Agent) []string {
+	var path []string
+	seen := map[string]bool{}
+	var visit func(n string) bool
+	visit = func(n string) bool {
+		path = append(path, n)
+		if len(path) > 1 && n == name {
+			return true
+		}
+		if seen[n] {
+			path = path[:len(path)-1]
+			return false
+		}
+		seen[n] = true
+		if a := agents[n]; a != nil {
+			for _, t := range a.Tools {
+				if agents[t] != nil && visit(t) {
+					return true
+				}
+			}
+		}
+		path = path[:len(path)-1]
+		return false
+	}
+	if visit(name) {
+		return path
+	}
+	return nil
+}
+
+// PackageAgents returns the agents of a file and its siblings by name.
+func PackageAgents(agents []*decl.Agent, siblings []SiblingTool) map[string]*decl.Agent {
+	out := map[string]*decl.Agent{}
+	for _, s := range siblings {
+		if s.Agent != nil {
+			out[s.Agent.Name] = s.Agent
+		}
+	}
+	for _, a := range agents {
+		out[a.Name] = a
+	}
+	return out
+}

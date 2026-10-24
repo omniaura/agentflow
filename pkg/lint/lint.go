@@ -175,6 +175,11 @@ func (l *linter) checkAgent(a *decl.Agent) {
 			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s lists itself in .tools", a.Name))
 		case sub != nil && strings.TrimSpace(sub.Description) == "":
 			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: agent %s needs a description to be called as a tool: the model reads it to know when to call it", a.Name, sub.Name))
+		case sub != nil:
+			if cycle := ast.SubagentCycle(a.Name, ast.PackageAgents(l.agents, siblings)); cycle != nil {
+				l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agents call each other in a cycle (%s), which could delegate without end", strings.Join(cycle, " → ")))
+				return
+			}
 		}
 	}
 }

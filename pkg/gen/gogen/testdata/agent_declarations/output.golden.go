@@ -208,6 +208,10 @@ var SupportAgentTool = &aftool.Def[aftool.Task]{
 // with the task as the user's message, and returns its answer.
 func (a *SupportAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
 	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
 		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
 		if err != nil {
 			return "", err
@@ -346,6 +350,10 @@ var TriagerAgentTool = &aftool.Def[aftool.Task]{
 // decoded output as JSON.
 func (a *TriagerAgent) AsTool(system *Support) func(ctx context.Context, task string) (string, error) {
 	return func(ctx context.Context, task string) (string, error) {
+		ctx, err := afagent.Nest(ctx)
+		if err != nil {
+			return "", err
+		}
 		res, err := a.Run(ctx, system, afagent.Message{Role: afagent.User, Content: task})
 		if err != nil {
 			return "", err

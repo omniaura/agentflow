@@ -58,6 +58,7 @@ func TestGenAgentErrors(t *testing.T) {
 		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools find\n", "no tool or agent find in this file or the other .af files of its directory (have look, x)"},
 		{"unknown output", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.returns p\n", "no output p in this file (have o)"},
 		{"itself", ".title A\nHi.\n\n.agent x\n.tools x\n\nDoes x.\n", "agent x lists itself in .tools"},
+		{"cycle", ".title A\nHi.\n\n.agent x\n.tools y\n\nDoes x.\n\n.agent y\n.tools x\n\nDoes y.\n", "agents call each other in a cycle (x → y → x)"},
 		{"subagent without a description", ".title A\nHi.\n\n.agent x\n.tools y\n\n.agent y\n", "agent y needs a description to be called as a tool"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

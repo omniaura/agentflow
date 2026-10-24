@@ -479,3 +479,16 @@ func TestRetryAfter(t *testing.T) {
 		t.Error("ModelError does not wrap its cause")
 	}
 }
+
+func TestNest(t *testing.T) {
+	ctx := context.Background()
+	for i := range MaxDepth {
+		var err error
+		if ctx, err = Nest(ctx); err != nil {
+			t.Fatalf("level %d: %v", i+1, err)
+		}
+	}
+	if _, err := Nest(ctx); !errors.Is(err, ErrMaxDepth) {
+		t.Fatalf("past MaxDepth: %v", err)
+	}
+}

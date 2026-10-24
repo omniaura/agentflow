@@ -556,7 +556,7 @@ tracker := &TrackerAgent{Model: model, Tools: &courier{}}
 concierge := &ConciergeAgent{Model: model, Tools: &shop{}, Tracker: tracker.AsTool(&Support{})}
 ```
 
-The subagent has its own model, tools, turn limit and events, and sees only the task, so the calling model must put everything it needs in it. An agent can't list itself, and a subagent needs a description.
+The subagent has its own model, tools, turn limit and events, and sees only the task, so the calling model must put everything it needs in it. An agent can't list itself, agents can't call each other in a cycle, and a subagent needs a description. At run time, `AsTool` refuses to nest subagents deeper than `afagent.MaxDepth` (8), which also covers custom wiring the static check can't see.
 
 Tools can live in their own files. The generated code of every `.af` file in a directory shares one Go package, so `.tools` may name a tool declared in another file of the directory. Its schema and decoder are generated there, and the agent calls it by name. `af lint` and the language server resolve those names too: go to definition jumps to the other file, and completion after `.tools` lists every tool of the package. A tool may be declared once per package.
 

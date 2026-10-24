@@ -43,3 +43,21 @@ func TestSiblingTools(t *testing.T) {
 		t.Fatalf("duplicate tool: %v", err)
 	}
 }
+
+func TestSubagentCycle(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "b.af"), []byte(".title B\nHi.\n\n.agent b\n.tools a, look\n\nDoes b.\n"), 0o644)
+	own, err := NewFile("a.af", []byte(".title A\nHi.\n\n.agent a\n.tools b\n\nDoes a.\n\n.agent c\n.tools b\n\nDoes c.\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents := PackageAgents(own.Agents, SiblingTools(filepath.Join(dir, "a.af")))
+	// Through another file of the package.
+	if got := SubagentCycle("a", agents); strings.Join(got, ",") != "a,b,a" {
+		t.Errorf("a: %v", got)
+	}
+	// c reaches the a-b cycle but isn't on it.
+	if got := SubagentCycle("c", agents); got != nil {
+		t.Errorf("c: %v", got)
+	}
+}
