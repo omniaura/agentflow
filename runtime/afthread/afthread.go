@@ -159,9 +159,19 @@ func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.R
 		run = &recorder{runs: runs, owner: owner, run: rec.ID}
 		ctx = context.WithValue(ctx, recorderKey{}, run)
 	}
+	// done finishes the claimed messages, then records how the run ended,
+	// finishing's failure included, on every path out.
+	done := func(res afagent.Result, failure error) (afagent.Result, error) {
+		failure = errors.Join(failure, finish(ctx, s, owner, id, claimed, failure))
+		if run == nil {
+			return res, failure
+		}
+		end := RunEnd{Turns: res.Turns, ToolCalls: res.ToolCalls, Usage: res.Usage, Error: errString(failure)}
+		return res, errors.Join(failure, run.runs.EndRun(context.WithoutCancel(ctx), owner, run.run, end))
+	}
 	saved, err := s.Transcript(ctx, owner, id)
 	if err != nil {
-		return afagent.Result{}, errors.Join(err, finish(ctx, s, owner, id, claimed, err))
+		return done(afagent.Result{}, err)
 	}
 	// save writes msgs, the conversation the model sees, to the thread.
 	save := func(ctx context.Context, msgs []afagent.Message) error {
@@ -201,13 +211,7 @@ func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.R
 	if len(res.Messages) > 0 {
 		saveErr = save(context.WithoutCancel(ctx), res.Messages)
 	}
-	failure := errors.Join(runErr, saveErr)
-	var endErr error
-	if run != nil {
-		end := RunEnd{Turns: res.Turns, ToolCalls: res.ToolCalls, Usage: res.Usage, Error: errString(failure)}
-		endErr = run.runs.EndRun(context.WithoutCancel(ctx), owner, run.run, end)
-	}
-	return res, errors.Join(failure, finish(ctx, s, owner, id, claimed, failure), endErr)
+	return done(res, errors.Join(runErr, saveErr))
 }
 
 func finish(ctx context.Context, s Store, owner, id string, claimed []Incoming, failure error) error {

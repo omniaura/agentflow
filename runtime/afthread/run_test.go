@@ -222,3 +222,47 @@ func TestRecordWithoutRun(t *testing.T) {
 	}
 	afthread.Recorder(context.Background())(afagent.Event{Kind: afagent.ToolCalled, Call: &afagent.ToolCall{}})
 }
+
+// failingStore fails one method, to check the run record on every path.
+type failingStore struct {
+	*afthread.Memory
+	transcript, finish bool
+}
+
+func (f failingStore) Transcript(ctx context.Context, owner, id string) ([]afagent.Message, error) {
+	if f.transcript {
+		return nil, errors.New("transcript unavailable")
+	}
+	return f.Memory.Transcript(ctx, owner, id)
+}
+
+func (f failingStore) Finish(ctx context.Context, owner, id string, ids []int64, err error) error {
+	if f.finish {
+		return errors.New("finish unavailable")
+	}
+	return f.Memory.Finish(ctx, owner, id, ids, err)
+}
+
+func TestRunRecordsEveryFailure(t *testing.T) {
+	ctx := context.Background()
+	for name, c := range map[string]struct {
+		store failingStore
+		want  string
+	}{
+		"transcript": {failingStore{Memory: &afthread.Memory{}, transcript: true}, "transcript unavailable"},
+		"finish":     {failingStore{Memory: &afthread.Memory{}, finish: true}, "finish unavailable"},
+	} {
+		s := c.store
+		th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+		s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: "m1", Content: "hi"})
+		model, _ := scripted(t, afagent.Message{Content: "hello"})
+		_, err := afthread.Run(ctx, s, "ann", th.ID, loopAgent(model, nil))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Fatalf("%s: got %v", name, err)
+		}
+		// The run doesn't stay running, and its error says why.
+		if r, err := s.GetRun(ctx, "ann", "run-1"); err != nil || r.Status != afthread.RunFailed || !strings.Contains(r.Error, c.want) {
+			t.Errorf("%s: run = %+v, %v", name, r, err)
+		}
+	}
+}
