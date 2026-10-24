@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -112,6 +113,10 @@ type SupportAgent struct {
 	MaxTurns int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
+	// Allow, when set, picks the tools of a run, such as the ones a
+	// workspace enabled: only tools it allows are offered to the model,
+	// and a call to another is refused. Nil allows every tool.
+	Allow func(ctx context.Context, tool string) bool
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -130,17 +135,38 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 6
 	}
+	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:            a.Model,
-		System:           system.String(),
-		Tools:            SupportAgentTools,
-		MaxTurns:         maxTurns,
-		Concurrency:      a.Concurrency,
-		OnEvent:          a.OnEvent,
-		Dispatch:         a.dispatch,
+		Model:       a.Model,
+		System:      system.String(),
+		Tools:       tools,
+		MaxTurns:    maxTurns,
+		Concurrency: a.Concurrency,
+		OnEvent:     a.OnEvent,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
 		AnswerOnLastTurn: true,
 	}
 	return loop.Run(ctx, messages)
+}
+
+// tools are the tools offered in a run: those Allow allows.
+func (a *SupportAgent) tools(ctx context.Context) []afagent.ToolSpec {
+	if a.Allow == nil {
+		return SupportAgentTools
+	}
+	var out []afagent.ToolSpec
+	for _, t := range SupportAgentTools {
+		if a.Allow(ctx, t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func (a *SupportAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
@@ -178,6 +204,10 @@ type TriagerAgent struct {
 	MaxTurns int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
+	// Allow, when set, picks the tools of a run, such as the ones a
+	// workspace enabled: only tools it allows are offered to the model,
+	// and a call to another is refused. Nil allows every tool.
+	Allow func(ctx context.Context, tool string) bool
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -206,14 +236,21 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 3
 	}
+	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:            a.Model,
-		System:           system.String(),
-		Tools:            TriagerAgentTools,
-		MaxTurns:         maxTurns,
-		Concurrency:      a.Concurrency,
-		OnEvent:          a.OnEvent,
-		Dispatch:         a.dispatch,
+		Model:       a.Model,
+		System:      system.String(),
+		Tools:       tools,
+		MaxTurns:    maxTurns,
+		Concurrency: a.Concurrency,
+		OnEvent:     a.OnEvent,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
 		AnswerOnLastTurn: true,
 		Output:           &afagent.OutputSpec{Name: TriageSchema.Name, Description: TriageSchema.Description, Schema: TriageSchema.Schema},
 		Check: func(answer string) error {
@@ -231,6 +268,20 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	}
 	out.Output, err = TriageSchema.Decode(res.Final)
 	return out, err
+}
+
+// tools are the tools offered in a run: those Allow allows.
+func (a *TriagerAgent) tools(ctx context.Context) []afagent.ToolSpec {
+	if a.Allow == nil {
+		return TriagerAgentTools
+	}
+	var out []afagent.ToolSpec
+	for _, t := range TriagerAgentTools {
+		if a.Allow(ctx, t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func (a *TriagerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
@@ -368,6 +419,10 @@ type TrackerAgent struct {
 	MaxTurns int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
+	// Allow, when set, picks the tools of a run, such as the ones a
+	// workspace enabled: only tools it allows are offered to the model,
+	// and a call to another is refused. Nil allows every tool.
+	Allow func(ctx context.Context, tool string) bool
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -386,17 +441,38 @@ func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxTurns <= 0 {
 		maxTurns = 4
 	}
+	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:            a.Model,
-		System:           system.String(),
-		Tools:            TrackerAgentTools,
-		MaxTurns:         maxTurns,
-		Concurrency:      a.Concurrency,
-		OnEvent:          a.OnEvent,
-		Dispatch:         a.dispatch,
+		Model:       a.Model,
+		System:      system.String(),
+		Tools:       tools,
+		MaxTurns:    maxTurns,
+		Concurrency: a.Concurrency,
+		OnEvent:     a.OnEvent,
+		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+				// The model may name a tool it wasn't offered.
+				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
+			}
+			return a.dispatch(ctx, call)
+		},
 		AnswerOnLastTurn: true,
 	}
 	return loop.Run(ctx, messages)
+}
+
+// tools are the tools offered in a run: those Allow allows.
+func (a *TrackerAgent) tools(ctx context.Context) []afagent.ToolSpec {
+	if a.Allow == nil {
+		return TrackerAgentTools
+	}
+	var out []afagent.ToolSpec
+	for _, t := range TrackerAgentTools {
+		if a.Allow(ctx, t.Name) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func (a *TrackerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {

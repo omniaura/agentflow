@@ -67,6 +67,8 @@ Each category has a `.af` replacement:
    - `(&XAgent{Model: m, Tools: impl}).Run(...)` replaces the loop. Turn the loop's
      `switch` cases into `XTools` methods. Tools spread over several Go files can stay
      in several `.af` files of the package: the agent's `.tools` names them all.
+     A loop that filters its tool catalog per user or per run, and checks each call against
+     that allowlist, becomes the agent's `Allow` func.
    - `NewXRoutes(queries, auth).Register(mux)` replaces the handlers.
 5. **Delete the hand-written code** the generated code replaced. Don't keep both.
 6. **Verify with tests:** `go build ./... && go test ./...`. Add a test that pins the
