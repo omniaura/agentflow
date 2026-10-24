@@ -199,6 +199,9 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 			return repo.Lookup(query)
 		}
 	}
+	if slices.ContainsFunc(ff.Agents, func(a *decl.Agent) bool { return a.Tools != nil }) {
+		opts.SiblingTools = ast.SiblingTools(name)
+	}
 	var buf bytes.Buffer
 	if err := gogen.GenFileOptions(&buf, ff, packageDir(name), opts); err != nil {
 		return "", nil, err

@@ -33,3 +33,10 @@ Sorts one customer message.
 .maxturns 3
 
 Sorts customer messages, looking orders up when it helps.
+
+.agent tracker
+.tools lookup_order, track_shipment
+.maxturns 4
+
+Tells customers where their parcel is. track_shipment is declared in
+shipping.af: an agent may use the tools of any .af file in its package.

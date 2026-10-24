@@ -459,3 +459,39 @@ func TestRouteCompletionsFollowQueryKind(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentToolsDefinitionAndCompletion(t *testing.T) {
+	path, err := filepath.Abs("../../examples/agent/support.af")
+	require.NoError(t, err)
+	src, err := os.ReadFile(path)
+	require.NoError(t, err)
+	doc := openAt(t, path, string(src))
+
+	// A tool of another file of the package: its .tool line there.
+	loc := doc.Definition(at(t, doc, "track_shipment", 0))
+	if len(loc) != 1 || !strings.HasSuffix(string(loc[0].URI), "/examples/agent/shipping.af") || loc[0].Range.Start.Line != 0 {
+		t.Fatalf("track_shipment definition = %+v", loc)
+	}
+	// A tool of this file, from the middle of its name.
+	pos := at(t, doc, "lookup_order, track", 0)
+	pos.Character += 3
+	loc = doc.Definition(pos)
+	want := doc.byteOffsetToPosition(strings.Index(string(src), ".tool lookup_order"))
+	if len(loc) != 1 || loc[0].URI != protocol.DocumentUri(doc.URI) || loc[0].Range.Start.Line != uint32(want.Line) {
+		t.Fatalf("lookup_order definition = %+v, want line %d", loc, want.Line)
+	}
+	// The .tools directive itself isn't a name.
+	if loc := doc.Definition(at(t, doc, ".tools lookup_order, track", 0)); loc != nil {
+		t.Fatalf(".tools definition = %+v", loc)
+	}
+
+	// Completion after .tools offers every tool of the package not yet listed.
+	line := at(t, doc, ".tools lookup_order, track", 0).Line
+	labels := map[string]string{}
+	for _, it := range doc.directiveCompletions(Position{Line: line, Character: len(".tools lookup_order, ")}, []byte(".tools lookup_order, ")) {
+		labels[it.Label] = it.Detail
+	}
+	if labels["track_shipment"] != "tool in shipping.af" || labels["offer_refund"] != "tool in this file" || labels["lookup_order"] != "" || len(labels) != 2 {
+		t.Fatalf("completions = %v", labels)
+	}
+}

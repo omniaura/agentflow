@@ -3,6 +3,7 @@ package gogen
 import (
 	"bytes"
 	"fmt"
+	"github.com/omniaura/agentflow/pkg/ast"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +23,9 @@ type Options struct {
 	// Queries resolves the sqlc query a .route names. Files with routes
 	// need it.
 	Queries func(name string) (*sqlcgo.Package, *sqlcgo.Query, error)
+	// SiblingTools are the tools of the other .af files of the package,
+	// which an agent's .tools may name.
+	SiblingTools []ast.SiblingTool
 	// Imports replaces import paths in generated code, such as a runtime
 	// package with the copy af eject wrote into the repository.
 	Imports map[string]string

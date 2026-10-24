@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/ast"
 	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/token"
 	"github.com/omniaura/agentflow/pkg/token/kind"
@@ -87,6 +88,7 @@ type linter struct {
 	// the whole file is read.
 	titleTexts []string
 	tools      []string
+	toolDecls  []*decl.Tool
 	outputs    []string
 	agents     []*decl.Agent
 	hasTitle   bool
@@ -150,14 +152,18 @@ func (l *linter) checkAgent(a *decl.Agent) {
 		off := l.directiveOffset(a, ".returns")
 		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: no output %s in this file (%s)", a.Name, a.Returns, have))
 	}
+	if a.Tools == nil {
+		return
+	}
+	// .tools may name tools of the other .af files of the package.
+	siblings := ast.SiblingTools(l.name)
 	for _, name := range a.Tools {
-		if !slices.Contains(l.tools, name) {
+		if slices.Contains(l.tools, name) && !slices.ContainsFunc(siblings, func(s ast.SiblingTool) bool { return s.Tool.Name == name }) {
+			continue
+		}
+		if _, err := ast.FindTool(l.toolDecls, siblings, name); err != nil {
 			off := l.directiveOffset(a, ".tools")
-			have := "it declares none"
-			if len(l.tools) > 0 {
-				have = "have " + strings.Join(l.tools, ", ")
-			}
-			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: no tool %s in this file (%s)", a.Name, name, have))
+			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: %v", a.Name, err))
 		}
 	}
 }
@@ -207,6 +213,7 @@ func (l *linter) checkSection(tok token.T) {
 			l.outputs = append(l.outputs, s.Name)
 		} else {
 			l.tools = append(l.tools, s.Name)
+			l.toolDecls = append(l.toolDecls, s)
 		}
 	case *decl.Route:
 		key = "route " + s.Method + " " + s.Path
