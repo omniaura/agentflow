@@ -246,7 +246,7 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 		Concurrency: a.Concurrency,
 		OnEvent:     a.OnEvent,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.
 				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
 			}

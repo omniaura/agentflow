@@ -80,7 +80,7 @@ func TestSupportAgent(t *testing.T) {
 	}{
 		{"1", `{"status":"delivered late","total":"$20"}`, false},
 		{"2", `offer_refund: invalid arguments: reason: "changed my mind" is not one of damaged, late`, true},
-		{"3", `there is no tool named "cancel_order"`, true},
+		{"3", "tool cancel_order is not available in this conversation", true},
 	}
 	if len(results) != len(want) {
 		t.Fatalf("results = %+v", results)
@@ -252,5 +252,22 @@ func TestSupportAgentAllowOncePerRun(t *testing.T) {
 	}
 	if refused := res.Messages[2]; !refused.IsError || len(s.refunds) != 0 || asked["offer_refund"] != 1 {
 		t.Errorf("refused = %+v, refunds %v, asked %v", refused, s.refunds, asked)
+	}
+}
+
+// Without Allow, dispatch still runs only the tools offered: a caller that
+// narrows SupportAgentTools doesn't leave the others callable.
+func TestSupportAgentRunsOnlyOfferedTools(t *testing.T) {
+	saved := SupportAgentTools
+	defer func() { SupportAgentTools = saved }()
+	SupportAgentTools = saved[:1]
+	model, _ := script(t,
+		afagent.Message{ToolCalls: []afagent.ToolCall{call("1", "offer_refund", `{"order_id":"A-1","reason":"late"}`)}},
+		afagent.Message{Content: "ok"},
+	)
+	s := &shop{}
+	res, err := (&SupportAgent{Model: model, Tools: s}).Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "hi"})
+	if err != nil || !res.Messages[2].IsError || len(s.refunds) != 0 {
+		t.Fatalf("got %v, %+v, refunds %v", err, res.Messages[2], s.refunds)
 	}
 }

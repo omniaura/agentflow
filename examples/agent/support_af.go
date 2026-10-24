@@ -144,7 +144,7 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 		Concurrency: a.Concurrency,
 		OnEvent:     a.OnEvent,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.
 				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
 			}
@@ -245,7 +245,7 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		Concurrency: a.Concurrency,
 		OnEvent:     a.OnEvent,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.
 				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
 			}
@@ -450,7 +450,7 @@ func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		Concurrency: a.Concurrency,
 		OnEvent:     a.OnEvent,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
+			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.
 				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
 			}

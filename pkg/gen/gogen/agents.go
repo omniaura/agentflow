@@ -130,7 +130,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			// The last turn answers with what the tools found, rather than
 			// failing with ErrMaxTurns.
 			imports["slices"] = true
-			buf.WriteString("Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {\nif a.Allow != nil && !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {\n// The model may name a tool it wasn't offered.\nreturn \"\", fmt.Errorf(\"tool %s is not available in this conversation\", call.Name)\n}\nreturn a.dispatch(ctx, call)\n},\nAnswerOnLastTurn: true,\n")
+			buf.WriteString("Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {\nif !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {\n// The model may name a tool it wasn't offered.\nreturn \"\", fmt.Errorf(\"tool %s is not available in this conversation\", call.Name)\n}\nreturn a.dispatch(ctx, call)\n},\nAnswerOnLastTurn: true,\n")
 		}
 		if returns == nil {
 			buf.WriteString("}\nreturn loop.Run(ctx, messages)\n}\n\n")
