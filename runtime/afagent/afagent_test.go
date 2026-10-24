@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -370,6 +371,11 @@ func TestRetryAfter(t *testing.T) {
 		{http.Header{"Retry-After": {"-2"}}, 0},
 		{http.Header{"Retry-After": {time.Now().Add(-time.Hour).UTC().Format(http.TimeFormat)}}, 0},
 		{http.Header{}, 0},
+		// Too long for a Duration: the longest one, not a negative one.
+		{http.Header{"Retry-After": {"1e300"}}, math.MaxInt64},
+		{http.Header{"Retry-After-Ms": {"9223372036855"}}, math.MaxInt64},
+		{http.Header{"Retry-After": {"Inf"}}, math.MaxInt64},
+		{http.Header{"Retry-After": {"NaN"}}, 0},
 	} {
 		if got := RetryAfter(tt.h); got != tt.want {
 			t.Errorf("%v: got %v", tt.h, got)

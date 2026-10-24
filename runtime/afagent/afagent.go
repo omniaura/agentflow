@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"sync"
@@ -131,16 +132,25 @@ func (e *ModelError) Error() string { return e.Err.Error() }
 
 func (e *ModelError) Unwrap() error { return e.Err }
 
+// duration is n units, saturating at the longest Duration instead of
+// overflowing into a negative one.
+func duration(n float64, unit time.Duration) time.Duration {
+	if ns := n * float64(unit); ns < float64(math.MaxInt64) {
+		return time.Duration(ns)
+	}
+	return math.MaxInt64
+}
+
 // RetryAfter reads how long a provider's response asks to wait before
 // trying again: retry-after-ms, or Retry-After in seconds or as a date.
 // It returns 0 when h says nothing usable.
 func RetryAfter(h http.Header) time.Duration {
 	if ms, err := strconv.ParseFloat(h.Get("Retry-After-Ms"), 64); err == nil && ms > 0 {
-		return time.Duration(ms * float64(time.Millisecond))
+		return duration(ms, time.Millisecond)
 	}
 	v := h.Get("Retry-After")
 	if secs, err := strconv.ParseFloat(v, 64); err == nil && secs > 0 {
-		return time.Duration(secs * float64(time.Second))
+		return duration(secs, time.Second)
 	}
 	if t, err := http.ParseTime(v); err == nil {
 		return max(0, time.Until(t))
