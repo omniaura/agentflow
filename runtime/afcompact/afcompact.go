@@ -4,6 +4,9 @@
 //   - Microcompact clears the bodies of older tool results down to a short
 //     head. The calls and their IDs stay, so the transcript stays well
 //     formed. It is deterministic and costs nothing.
+//   - Digest condenses large tool results in place: it splits each into
+//     chunks and has a model condense them in parallel, so a short
+//     conversation with huge results keeps what they said.
 //   - Fold has a model summarize the older rounds into one message, keeping
 //     the first request and the most recent rounds as they are.
 //
@@ -18,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -123,6 +127,153 @@ func Fold(ctx context.Context, msgs []afagent.Message, keep int, summarize Summa
 	return append(out, msgs[start:]...), nil
 }
 
+// ChunkSummarizer summarizes one chunk of a tool result: part of parts,
+// from the given call. SummarizeChunk turns a model into one.
+type ChunkSummarizer func(ctx context.Context, call afagent.ToolCall, part, parts int, chunk string) (string, error)
+
+// ChunkPrompt is the system prompt SummarizeChunk sends.
+const ChunkPrompt = `You condense one part of a large tool result so an AI agent can keep working with it. Keep every fact the agent may need: IDs, names, numbers, dates, errors, and anything that answers what the tool was called for. Drop repetition and boilerplate. Reply with the condensed text only.`
+
+// SummarizeChunk returns a ChunkSummarizer that asks model, without tools.
+func SummarizeChunk(model afagent.Model) ChunkSummarizer {
+	return func(ctx context.Context, call afagent.ToolCall, part, parts int, chunk string) (string, error) {
+		prompt := fmt.Sprintf("Tool: %s\nArguments: %s\nPart %d of %d of its result:\n\n%s", call.Name, call.Arguments, part, parts, chunk)
+		res, err := model.Complete(ctx, afagent.Request{System: ChunkPrompt, Messages: []afagent.Message{{Role: afagent.User, Content: prompt}}})
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(res.Message.Content) == "" {
+			return "", errors.New("afcompact: the chunk summary is empty")
+		}
+		return res.Message.Content, nil
+	}
+}
+
+// DigestPrefix starts a result Digest condensed.
+const DigestPrefix = "[Condensed from a %d-character result, in %d parts]\n"
+
+// Digest condenses each tool result longer than over characters in place:
+// it splits the result into chunks of at most chunk characters, at line
+// breaks where it can, summarizes the chunks concurrently, at most
+// concurrency at a time, and joins their summaries in order as the
+// result's content. Calls, IDs and every other message stay as they are,
+// so the agent keeps what the results said, unlike Microcompact. A chunk
+// that fails fails the whole digest.
+func Digest(ctx context.Context, msgs []afagent.Message, over, chunk, concurrency int, summarize ChunkSummarizer) ([]afagent.Message, error) {
+	if chunk <= 0 {
+		return nil, fmt.Errorf("afcompact: Digest needs a positive chunk size, got %d", chunk)
+	}
+	calls := map[string]afagent.ToolCall{}
+	type job struct {
+		msg, part int
+		text      string
+	}
+	var jobs []job
+	parts := map[int][]string{}
+	for i, m := range msgs {
+		for _, c := range m.ToolCalls {
+			calls[c.ID] = c
+		}
+		// Size alone decides: a condensed result is short, so it isn't
+		// condensed again unless it is still over.
+		if m.Role != afagent.Tool || utf8.RuneCountInString(m.Content) <= over {
+			continue
+		}
+		chunks := split(m.Content, chunk)
+		parts[i] = make([]string, len(chunks))
+		for p, text := range chunks {
+			jobs = append(jobs, job{msg: i, part: p, text: text})
+		}
+	}
+	if len(jobs) == 0 {
+		return msgs, nil
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// The first error wins and stops the rest.
+	var failed error
+	var once sync.Once
+	fail := func(err error) {
+		once.Do(func() {
+			failed = err
+			cancel()
+		})
+	}
+	// A fixed pool of workers, however many chunks there are.
+	queue := make(chan job)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for range min(max(1, concurrency), len(jobs)) {
+		wg.Go(func() {
+			for j := range queue {
+				if err := ctx.Err(); err != nil {
+					// Failed or canceled: drain without calling, and make
+					// sure a cancellation is the result.
+					fail(err)
+					continue
+				}
+				out, err := summarize(ctx, calls[msgs[j.msg].ToolCallID], j.part+1, len(parts[j.msg]), j.text)
+				if err != nil {
+					fail(err)
+					continue
+				}
+				mu.Lock()
+				parts[j.msg][j.part] = out
+				mu.Unlock()
+			}
+		})
+	}
+feed:
+	for _, j := range jobs {
+		if ctx.Err() != nil {
+			fail(ctx.Err())
+			break
+		}
+		select {
+		case queue <- j:
+		case <-ctx.Done():
+			fail(ctx.Err())
+			break feed
+		}
+	}
+	close(queue)
+	wg.Wait()
+	if failed != nil {
+		return nil, failed
+	}
+	// Canceled after the last chunk was taken: never a partial digest.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	out := append([]afagent.Message(nil), msgs...)
+	for i, ps := range parts {
+		out[i].Content = fmt.Sprintf(DigestPrefix, utf8.RuneCountInString(msgs[i].Content), len(ps)) + strings.Join(ps, "\n")
+	}
+	return out, nil
+}
+
+// split cuts s into pieces of at most n characters, at a line break in the
+// second half of a piece when there is one.
+func split(s string, n int) []string {
+	r := []rune(s)
+	var out []string
+	for len(r) > n {
+		cut := n
+		for i := n - 1; i >= n/2; i-- {
+			if r[i] == '\n' {
+				cut = i + 1
+				break
+			}
+		}
+		out = append(out, string(r[:cut]))
+		r = r[cut:]
+	}
+	if len(r) > 0 {
+		out = append(out, string(r))
+	}
+	return out
+}
+
 // Compactor keeps a conversation within Budget tokens, as an agent's
 // BeforeTurn.
 type Compactor struct {
@@ -140,6 +291,14 @@ type Compactor struct {
 	Head int
 	// Summarize writes Fold's summaries; nil skips Fold.
 	Summarize Summarizer
+	// SummarizeChunk condenses large tool results with Digest; nil skips
+	// it. DigestOver is the size, in characters, past which a result is
+	// condensed (0 means 8000), Chunk the size of its chunks (0 means
+	// 6000), and Concurrency how many chunks are condensed at once (0
+	// means 4).
+	SummarizeChunk    ChunkSummarizer
+	DigestOver, Chunk int
+	Concurrency       int
 	// OnCompact, when set, is told each stage that ran, as "microcompact"
 	// or "fold", with the estimate before and after.
 	OnCompact func(stage string, before, after int)
@@ -147,8 +306,9 @@ type Compactor struct {
 
 // BeforeTurn compacts msgs if they are past the threshold, in stages that
 // each run only if the ones before were not enough: Microcompact keeping
-// KeepResults results whole, then only the latest; Fold keeping
-// KeepMessages messages, then only the latest round. It returns
+// KeepResults results whole; Digest of the results still large; Microcompact
+// keeping only the latest; Fold keeping KeepMessages messages, then only
+// the latest round. It returns
 // ErrOverBudget when the result still exceeds Budget.
 func (c *Compactor) BeforeTurn(ctx context.Context, turn int, msgs []afagent.Message) ([]afagent.Message, error) {
 	at := c.At
@@ -172,10 +332,20 @@ func (c *Compactor) BeforeTurn(ctx context.Context, turn int, msgs []afagent.Mes
 			compacted, size = next, after
 		}
 	}
-	for _, keep := range []int{keepResults, 1} {
-		if size > limit {
-			try("microcompact", Microcompact(compacted, keep, head))
+	if size > limit {
+		try("microcompact", Microcompact(compacted, keepResults, head))
+	}
+	// Large results the agent still needs, the latest included: condense
+	// them in parallel chunks rather than clearing them.
+	if size > limit && c.SummarizeChunk != nil {
+		digested, err := Digest(ctx, compacted, or(c.DigestOver, 8000), or(c.Chunk, 6000), or(c.Concurrency, 4), c.SummarizeChunk)
+		if err != nil {
+			return nil, err
 		}
+		try("digest", digested)
+	}
+	if size > limit {
+		try("microcompact", Microcompact(compacted, 1, head))
 	}
 	if c.Summarize != nil {
 		for _, keep := range []int{keepMessages, 1} {

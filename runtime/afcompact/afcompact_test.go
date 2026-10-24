@@ -3,8 +3,12 @@ package afcompact_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
 	"github.com/omniaura/agentflow/runtime/afcompact"
@@ -210,5 +214,124 @@ func TestCompactorMicrocompactEscalates(t *testing.T) {
 	out, err := c.BeforeTurn(context.Background(), 1, msgs)
 	if err != nil || out[6].Content != long || out[2].Content == long || out[4].Content == long {
 		t.Fatalf("got %v, %v", err, stages)
+	}
+}
+
+func TestDigest(t *testing.T) {
+	ctx := context.Background()
+	var lines []string
+	for i := range 300 {
+		lines = append(lines, strings.Repeat("r", 40)+string(rune('a'+i%26)))
+	}
+	big := strings.Join(lines, "\n") // about 12,600 characters
+	msgs := []afagent.Message{user("go")}
+	msgs = append(msgs, round("1", "small result")...)
+	msgs = append(msgs, round("2", big)...)
+	var mu sync.Mutex
+	running, peak := 0, 0
+	var seen []string
+	summarize := func(ctx context.Context, call afagent.ToolCall, part, parts int, chunk string) (string, error) {
+		mu.Lock()
+		running++
+		peak = max(peak, running)
+		seen = append(seen, call.ID)
+		mu.Unlock()
+		time.Sleep(20 * time.Millisecond)
+		mu.Lock()
+		running--
+		mu.Unlock()
+		// Chunks end at a line break and stay within the size.
+		if utf8.RuneCountInString(chunk) > 3000 || !strings.HasSuffix(chunk, "\n") && part < parts {
+			t.Errorf("part %d of %d: %d characters", part, parts, utf8.RuneCountInString(chunk))
+		}
+		return fmt.Sprintf("<part %d/%d>", part, parts), nil
+	}
+	out, err := afcompact.Digest(ctx, msgs, 8000, 3000, 2, summarize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The big result is condensed in order; the small one, calls and IDs
+	// stay; the input isn't changed.
+	got := out[4].Content
+	if !strings.HasPrefix(got, "[Condensed from a 12599-character result, in 5 parts]\n<part 1/5>\n<part 2/5>") || !strings.HasSuffix(got, "<part 5/5>") {
+		t.Fatalf("digest = %q", got)
+	}
+	if out[2].Content != "small result" || out[4].ToolCallID != "2" || out[3].ToolCalls[0].ID != "2" || msgs[4].Content != big {
+		t.Fatal("changed more than the big result")
+	}
+	// Chunks ran concurrently, at most 2 at a time, knowing their call.
+	if peak != 2 || len(seen) != 5 || seen[0] != "2" {
+		t.Errorf("peak %d, calls %v", peak, seen)
+	}
+	// A condensed result is short: under the threshold, it isn't
+	// condensed again. A raw result that merely looks condensed is.
+	if again, _ := afcompact.Digest(ctx, out, 8000, 3000, 2, summarize); again[4].Content != got {
+		t.Error("condensed twice")
+	}
+	spoof := append([]afagent.Message(nil), msgs...)
+	spoof[4].Content = "[Condensed from a 1-character result, in 1 parts]\n" + big
+	if out, _ := afcompact.Digest(ctx, spoof, 8000, 3000, 2, summarize); !strings.Contains(out[4].Content, "<part 1/") {
+		t.Error("trusted the marker in a raw result")
+	}
+	// A chunk size that can't split is an error, not a hang.
+	for _, n := range []int{0, -1} {
+		if _, err := afcompact.Digest(ctx, msgs, 8000, n, 2, summarize); err == nil {
+			t.Errorf("chunk %d accepted", n)
+		}
+	}
+	// One failing chunk fails the digest.
+	failing := func(ctx context.Context, call afagent.ToolCall, part, parts int, chunk string) (string, error) {
+		if part == 3 {
+			return "", errors.New("chunk failed")
+		}
+		return "ok", nil
+	}
+	if _, err := afcompact.Digest(ctx, msgs, 8000, 3000, 4, failing); err == nil || err.Error() != "chunk failed" {
+		t.Fatalf("failing chunk: %v", err)
+	}
+	// After a failure, no further chunk is summarized, even by a
+	// summarizer that ignores cancellation.
+	var calls int
+	var cmu sync.Mutex
+	failFirst := func(ctx context.Context, call afagent.ToolCall, part, parts int, chunk string) (string, error) {
+		cmu.Lock()
+		calls++
+		cmu.Unlock()
+		return "", errors.New("down")
+	}
+	if _, err := afcompact.Digest(ctx, msgs, 8000, 3000, 1, failFirst); err == nil || calls != 1 {
+		t.Fatalf("after a failure: %v, %d calls", err, calls)
+	}
+	// Canceled midway: an error, never a digest with parts missing.
+	cctx, cancelRun := context.WithCancel(ctx)
+	cancelling := func(ctx context.Context, call afagent.ToolCall, part, parts int, chunk string) (string, error) {
+		cancelRun()
+		return "ok", nil
+	}
+	if out, err := afcompact.Digest(cctx, msgs, 8000, 3000, 1, cancelling); !errors.Is(err, context.Canceled) || out != nil {
+		t.Fatalf("canceled: %v, %v", err, out != nil)
+	}
+}
+
+// A short conversation with one huge result: the compactor condenses it
+// instead of clearing it.
+func TestCompactorDigests(t *testing.T) {
+	huge := strings.Repeat(strings.Repeat("d", 99)+"\n", 400) // 40,000 characters
+	msgs := append([]afagent.Message{user("summarize the logs")}, round("1", huge)...)
+	var stages []string
+	c := &afcompact.Compactor{
+		Budget: 4000,
+		SummarizeChunk: func(context.Context, afagent.ToolCall, int, int, string) (string, error) {
+			return "errors at 10:02 and 10:07", nil
+		},
+		OnCompact: func(stage string, _, _ int) { stages = append(stages, stage) },
+		Summarize: func(context.Context, []afagent.Message) (string, error) {
+			t.Fatal("folded")
+			return "", nil
+		},
+	}
+	out, err := c.BeforeTurn(context.Background(), 1, msgs)
+	if err != nil || strings.Join(stages, ",") != "digest" || !strings.Contains(out[2].Content, "errors at 10:02") {
+		t.Fatalf("got %v, %v, %q", err, stages, out[2].Content[:60])
 	}
 }
