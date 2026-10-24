@@ -329,7 +329,7 @@ func (s *Store) EndRun(ctx context.Context, owner, run string, end afthread.RunE
 	}
 	u, _ := uuidOf(r.ID)
 	return s.q.EndRun(ctx, db.EndRunParams{
-		Status: string(status), Turns: int32(end.Turns), ToolCalls: int32(end.ToolCalls),
+		Status: string(status), Turns: int64(end.Turns), ToolCalls: int64(end.ToolCalls),
 		InputTokens: int64(end.Usage.InputTokens), CachedInputTokens: int64(end.Usage.CachedInputTokens), OutputTokens: int64(end.Usage.OutputTokens),
 		Error: end.Error, ID: u,
 	})

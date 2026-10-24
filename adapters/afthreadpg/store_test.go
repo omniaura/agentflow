@@ -2,10 +2,13 @@ package afthreadpg_test
 
 import (
 	"context"
+	"fmt"
+	"math/rand/v2"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/omniaura/agentflow/adapters/afthreadpg"
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -13,8 +16,9 @@ import (
 	"github.com/omniaura/agentflow/runtime/afthread/afthreadtest"
 )
 
-// testPool connects to AF_TEST_DATABASE_URL and applies the migration on
-// fresh af_ tables, or skips without one.
+// testPool connects to AF_TEST_DATABASE_URL, in a schema of its own that
+// it drops after the test, and applies the migration there. It skips
+// without a URL.
 func testPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	url := os.Getenv("AF_TEST_DATABASE_URL")
@@ -22,16 +26,38 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Skip("set AF_TEST_DATABASE_URL to test against Postgres")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, url)
+	schema := fmt.Sprintf("afthreadpg_test_%d", rand.Int64())
+	admin, err := pgx.Connect(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close(ctx)
+	if _, err := admin.Exec(ctx, "CREATE SCHEMA "+schema); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		c, err := pgx.Connect(context.Background(), url)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer c.Close(context.Background())
+		if _, err := c.Exec(context.Background(), "DROP SCHEMA "+schema+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+	})
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ConnConfig.RuntimeParams["search_path"] = schema
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
 	migration, err := os.ReadFile("migrations/001_afthread.sql")
 	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS af_run_events, af_runs, af_inbox, af_messages, af_threads CASCADE"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, string(migration)); err != nil {

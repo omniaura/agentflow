@@ -32,8 +32,8 @@ type AfRun struct {
 	Status            string
 	StartedAt         pgtype.Timestamptz
 	EndedAt           pgtype.Timestamptz
-	Turns             int32
-	ToolCalls         int32
+	Turns             int64
+	ToolCalls         int64
 	InputTokens       int64
 	CachedInputTokens int64
 	OutputTokens      int64

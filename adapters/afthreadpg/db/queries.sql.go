@@ -164,8 +164,8 @@ WHERE id = $8
 
 type EndRunParams struct {
 	Status            string
-	Turns             int32
-	ToolCalls         int32
+	Turns             int64
+	ToolCalls         int64
 	InputTokens       int64
 	CachedInputTokens int64
 	OutputTokens      int64
