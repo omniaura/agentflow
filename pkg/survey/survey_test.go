@@ -24,6 +24,7 @@ func TestRun(t *testing.T) {
 		GenAgentflow: {"api/api_af.go:1 "},
 		GenSqlc:      {"db/q.sql.go:1 ", "audit/q.sql.go:1 "},
 		Agents:       {"api/agent.go:11 RunAgent"},
+		Gateway:      {"api/gateway.go:28 retry", "api/gateway.go:40 retry until valid", "api/gateway.go:64 fallback", "api/gateway.go:52 fallback", "api/gateway.go:75 usage"},
 	}
 	for c, w := range want {
 		if fmt.Sprint(got[c]) != fmt.Sprint(w) {

@@ -46,6 +46,10 @@ Each category has a `.af` replacement:
 | tool-calling loops | a loop that calls a model, runs its tool calls and sends results back, often ending in a tools-off final call when turns run out | `.agent` (+ `.returns`); the last turn already answers without tools |
 | prompt strings | long string constants with prompt text | `.title` prompts |
 | single-query handlers | decode request, call one sqlc query, write JSON (or build it from the rows in Go) | `.route` (+ `.sql`; `.map` for the rows-to-JSON part) |
+| gateway code: retry | a loop that calls a model again after waiting, or on a 429/529 | `afmodel.Retry(m, policy)` (see "Adapters and the gateway") |
+| gateway code: retry until valid | a loop that asks the model again until its answer passes a check | an `.agent` with `.returns`, the check in `Check` |
+| gateway code: fallback | trying a backup model, or each provider in turn, when a call fails | `afmodel.Fallback(primary, backup)` |
+| gateway code: usage | reading a response's token counts to record or bill them | `afmodel.Meter(m, record)` |
 | read-check-write handlers | call a sqlc read, check its result in Go, call a sqlc write | one `.route` + `.sql` holding the check, `.empty` for its failure (see below) |
 
 ### 2. Migrate one site at a time
