@@ -5,6 +5,7 @@ go 1.27
 require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/omniaura/agentflow v0.12.1
+	github.com/omniaura/go-kit/errs v0.0.0-20261024021028-d0a008fba30c
 )
 
 require (
@@ -21,7 +22,6 @@ require (
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
-	github.com/omniaura/go-kit/errs v0.0.0-20261024021028-d0a008fba30c // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/petermattis/goid v0.0.0-20240813172612-4fcff4a6cae7 // indirect
 	github.com/peyton-spencer/caseconv v0.2.0 // indirect
