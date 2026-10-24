@@ -164,7 +164,11 @@ func agentTools(f ast.File, a *decl.Agent) ([]*decl.Tool, error) {
 			for _, t := range f.Tools {
 				have = append(have, t.Name)
 			}
-			return nil, fmt.Errorf("agent %s: no tool %s in this file (have %s)", a.Name, name, strings.Join(have, ", "))
+			list := "it declares none"
+			if len(have) > 0 {
+				list = "have " + strings.Join(have, ", ")
+			}
+			return nil, fmt.Errorf("agent %s: no tool %s in this file (%s)", a.Name, name, list)
 		}
 		out = append(out, f.Tools[i])
 	}
