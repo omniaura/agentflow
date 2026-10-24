@@ -20,8 +20,9 @@ func CMD() *cobra.Command {
 schemas (.tool), structured-output schemas (.output), HTTP handlers that only
 serve one sqlc query (.route), handlers that run a sqlc read, check it, then run
 a sqlc write (.route + .empty, the check moved into the SQL), tool-calling loops
-(.agent) and long prompt strings (.title), next to the code agentflow and sqlc
-already generate.
+(.agent), long prompt strings (.title) and LLM gateway code that retries a model
+call, falls back to another model or reads token usage (runtime/afmodel), next
+to the code agentflow and sqlc already generate.
 
 The numbers come from syntactic heuristics: an estimate to steer migration,
 not a measurement.`,
@@ -62,7 +63,7 @@ func write(w io.Writer, r *survey.Report, top int) {
 	for _, c := range []survey.Category{survey.GenAgentflow, survey.GenSqlc, survey.GenOther} {
 		fmt.Fprintf(w, "  %-44s %7d %8d %s\n", c, len(r.Sites[c]), r.LinesOf(c), pct(r.LinesOf(c), r.Lines))
 	}
-	directive := map[survey.Category]string{survey.Tools: ".tool", survey.Outputs: ".output", survey.Routes: ".route", survey.Checks: ".route + .empty", survey.Prompts: ".title", survey.Agents: ".agent"}
+	directive := map[survey.Category]string{survey.Tools: ".tool", survey.Outputs: ".output", survey.Routes: ".route", survey.Checks: ".route + .empty", survey.Prompts: ".title", survey.Agents: ".agent", survey.Gateway: "afmodel"}
 	fmt.Fprintf(w, "\n%-46s %7s %8s %s\n", "candidates for .af", "sites", "lines", "of hand-written")
 	total := 0
 	for _, c := range survey.Candidates {
