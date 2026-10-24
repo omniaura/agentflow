@@ -449,6 +449,9 @@ With `.returns`, the agent ends with structured data instead of text. The model 
 
 ```go
 res, err := (&TriagerAgent{Model: model, Tools: impl}).Run(ctx, &Support{Shop: "Acme"}, msg)
+if err != nil {
+	return err // e.g. afagent.ErrMaxTurns: no valid triage within .maxturns
+}
 if res.Output.Urgent { ... } // res.Output is a TriageOutput
 ```
 
