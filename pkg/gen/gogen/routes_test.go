@@ -301,6 +301,11 @@ func TestSwagFailureRules(t *testing.T) {
 		"DELETE FROM t WHERE id = $1":                                                 {true, false},
 		"SELECT * FROM t WHERE id = $1":                                               {true, false},
 		"WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x":                          {true, true},
+		// Keywords in quoted identifiers, strings and comments don't count.
+		`INSERT INTO t ("select", note) VALUES ($1, 'where on conflict') RETURNING *`: {false, true},
+		"INSERT INTO t (a) VALUES ($1) /* WHERE */ RETURNING * -- SELECT":             {false, true},
+		"WITH x AS (SELECT 'update' AS \"insert\") SELECT * FROM x":                   {true, false},
+		`SELECT 'it''s' AS "a""b" FROM t`:                                             {true, false},
 	} {
 		if got := [2]bool{mayFindNone(sql), mayConflict(sql)}; got != want {
 			t.Errorf("%q: got %v, want %v", sql, got, want)

@@ -56,33 +56,81 @@ func swagType(goType string) string {
 	return "string"
 }
 
-// statement is sql in upper case, without comments, on one line.
-func statement(sql string) string {
-	var code []string
-	for _, l := range strings.Split(strings.ToUpper(sql), "\n") {
-		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "--") {
-			code = append(code, l)
+// sqlWords returns the keywords and identifiers of sql in upper case, in
+// order, without its comments, string literals and quoted identifiers, so
+// a column named "select" or a string 'update' isn't taken for a clause.
+func sqlWords(sql string) []string {
+	var words []string
+	var word strings.Builder
+	flush := func() {
+		if word.Len() > 0 {
+			words = append(words, strings.ToUpper(word.String()))
+			word.Reset()
 		}
 	}
-	return strings.Join(code, " ")
+	for i := 0; i < len(sql); i++ {
+		c := sql[i]
+		switch {
+		case c == '-' && i+1 < len(sql) && sql[i+1] == '-':
+			flush()
+			for i < len(sql) && sql[i] != '\n' {
+				i++
+			}
+		case c == '/' && i+1 < len(sql) && sql[i+1] == '*':
+			flush()
+			if end := strings.Index(sql[i+2:], "*/"); end >= 0 {
+				i += end + 3
+			} else {
+				i = len(sql)
+			}
+		case c == '\'' || c == '"':
+			flush()
+			// Skip to the closing quote; a doubled quote escapes one.
+			for i++; i < len(sql); i++ {
+				if sql[i] == c {
+					if i+1 < len(sql) && sql[i+1] == c {
+						i++
+						continue
+					}
+					break
+				}
+			}
+		case c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z':
+			word.WriteByte(c)
+		default:
+			flush()
+		}
+	}
+	flush()
+	return words
 }
 
 // mayFindNone reports whether a query may find or change no row: anything
 // but a plain INSERT ... VALUES, which always returns its row. One with a
 // WHERE, a SELECT or ON CONFLICT may insert nothing.
 func mayFindNone(sql string) bool {
-	stmt := statement(sql)
-	if !strings.HasPrefix(stmt, "INSERT") {
+	words := sqlWords(sql)
+	if len(words) == 0 || words[0] != "INSERT" {
 		return true
 	}
-	return strings.Contains(stmt, "WHERE") || strings.Contains(stmt, "SELECT") || strings.Contains(stmt, "ON CONFLICT")
+	return slices.Contains(words, "WHERE") || slices.Contains(words, "SELECT") || slices.Contains(words, "CONFLICT")
 }
 
 // mayConflict reports whether a query may violate a unique constraint,
-// which the handler reports as 409: an INSERT or UPDATE.
+// which the handler reports as 409: an INSERT or UPDATE, or a WITH query
+// holding one.
 func mayConflict(sql string) bool {
-	stmt := statement(sql)
-	return strings.HasPrefix(stmt, "INSERT") || strings.HasPrefix(stmt, "UPDATE") || strings.HasPrefix(stmt, "WITH") && (strings.Contains(stmt, "INSERT") || strings.Contains(stmt, "UPDATE"))
+	words := sqlWords(sql)
+	if len(words) == 0 {
+		return false
+	}
+	switch words[0] {
+	case "INSERT", "UPDATE":
+		return true
+	case "WITH":
+		return slices.Contains(words, "INSERT") || slices.Contains(words, "UPDATE")
+	}
+	return false
 }
 
 // writeSwag writes the swag annotations of b's handler, as lines of its
