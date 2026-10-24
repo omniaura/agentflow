@@ -119,6 +119,9 @@ func (m *Model) params(req afagent.Request) (openai.ChatCompletionNewParams, err
 		}
 		p.Tools = append(p.Tools, openai.ChatCompletionFunctionTool(fn))
 	}
+	if req.NoToolCalls && len(p.Tools) > 0 {
+		p.ToolChoice.OfAuto = openai.String(string(openai.ChatCompletionToolChoiceOptionAutoNone))
+	}
 	if req.Output != nil {
 		var schema map[string]any
 		if err := json.Unmarshal(req.Output.Schema, &schema); err != nil {

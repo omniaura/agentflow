@@ -246,3 +246,21 @@ func TestAPIErrorsCarryStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestNoToolCalls(t *testing.T) {
+	tools := []afagent.ToolSpec{{Name: "x", Schema: json.RawMessage(`{"type":"object","properties":{}}`)}}
+	answer := completion("stop", `{"role":"assistant","content":"a","refusal":null}`)
+	f := &fakeOpenAI{answers: []string{answer, answer}}
+	m := newModel(t, f)
+	for _, no := range []bool{true, false} {
+		if _, err := m.Complete(context.Background(), afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}, Tools: tools, NoToolCalls: no}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.bodies[0]["tool_choice"] != "none" || len(f.bodies[0]["tools"].([]any)) != 1 {
+		t.Errorf("forced answer: tool_choice = %v, tools = %v", f.bodies[0]["tool_choice"], f.bodies[0]["tools"])
+	}
+	if _, set := f.bodies[1]["tool_choice"]; set {
+		t.Errorf("tool_choice set on a normal turn: %v", f.bodies[1]["tool_choice"])
+	}
+}

@@ -336,3 +336,21 @@ func TestRetryOverloadedClaude(t *testing.T) {
 		t.Fatalf("got %q, %v after %d calls in %v", res.Final, err, calls.Load(), time.Since(start))
 	}
 }
+
+func TestNoToolCalls(t *testing.T) {
+	tools := []afagent.ToolSpec{{Name: "x", Schema: json.RawMessage(`{"type":"object","properties":{}}`)}}
+	f := &fakeClaude{answers: [][]string{answer("end_turn", `{"type":"text","text":"a"}`), answer("end_turn", `{"type":"text","text":"b"}`)}}
+	m := newModel(t, f)
+	for _, no := range []bool{true, false} {
+		if _, err := m.Complete(context.Background(), afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}, Tools: tools, NoToolCalls: no}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The tools stay defined, as the transcript may hold tool calls.
+	if choice, _ := f.bodies[0]["tool_choice"].(map[string]any); choice["type"] != "none" || len(f.bodies[0]["tools"].([]any)) != 1 {
+		t.Errorf("forced answer: tool_choice = %v, tools = %v", f.bodies[0]["tool_choice"], f.bodies[0]["tools"])
+	}
+	if _, set := f.bodies[1]["tool_choice"]; set {
+		t.Errorf("tool_choice set on a normal turn: %v", f.bodies[1]["tool_choice"])
+	}
+}

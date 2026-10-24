@@ -234,6 +234,37 @@ func TestLoopMaxTurnsAfterToolsForgetsRejection(t *testing.T) {
 	}
 }
 
+func TestLoopAnswerOnLastTurn(t *testing.T) {
+	dispatch := func(context.Context, ToolCall) (string, error) { return "ok", nil }
+	tools := []ToolSpec{{Name: "x"}}
+	model, reqs := script(t, calls("x"), Message{Content: "done"})
+	l := Loop{Model: model, MaxTurns: 2, Tools: tools, Dispatch: dispatch, AnswerOnLastTurn: true}
+	res, err := l.Run(context.Background(), nil)
+	if err != nil || res.Final != "done" || !res.OutOfTurns || (*reqs)[0].NoToolCalls || !(*reqs)[1].NoToolCalls {
+		t.Fatalf("got %v, %+v", err, res)
+	}
+	// An answer before the last turn isn't out of turns.
+	model, _ = script(t, Message{Content: "early"})
+	l.Model = model
+	if res, err := l.Run(context.Background(), nil); err != nil || res.OutOfTurns {
+		t.Fatalf("early answer: %v, %+v", err, res)
+	}
+	// The forced answer still goes through Check.
+	model, _ = script(t, calls("x"), Message{Content: "bad"})
+	l.Model, l.Check = model, func(string) error { return errors.New("no") }
+	if _, err := l.Run(context.Background(), nil); !errors.Is(err, ErrMaxTurns) || !strings.Contains(err.Error(), "rejected: no") {
+		t.Fatalf("rejected forced answer: %v", err)
+	}
+	// Off, and with no tools to withhold, nothing changes.
+	for _, l := range []Loop{{MaxTurns: 1, Tools: tools, Dispatch: dispatch}, {MaxTurns: 1, AnswerOnLastTurn: true}} {
+		model, reqs := script(t, Message{Content: "a"})
+		l.Model = model
+		if _, err := l.Run(context.Background(), nil); err != nil || (*reqs)[0].NoToolCalls {
+			t.Fatalf("%+v: NoToolCalls set (%v)", l, err)
+		}
+	}
+}
+
 func TestLoopStreamsText(t *testing.T) {
 	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
 		if req.OnText == nil {

@@ -233,13 +233,14 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 		maxTurns = 6
 	}
 	loop := afagent.Loop{
-		Model:       a.Model,
-		System:      system.String(),
-		Tools:       NotesAgentTools,
-		MaxTurns:    maxTurns,
-		Concurrency: a.Concurrency,
-		OnEvent:     a.OnEvent,
-		Dispatch:    a.dispatch,
+		Model:            a.Model,
+		System:           system.String(),
+		Tools:            NotesAgentTools,
+		MaxTurns:         maxTurns,
+		Concurrency:      a.Concurrency,
+		OnEvent:          a.OnEvent,
+		Dispatch:         a.dispatch,
+		AnswerOnLastTurn: true,
 	}
 	return loop.Run(ctx, messages)
 }

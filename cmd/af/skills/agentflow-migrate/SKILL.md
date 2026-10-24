@@ -43,7 +43,7 @@ Each category has a `.af` replacement:
 | --- | --- | --- |
 | tool schemas | JSON Schema maps or SDK tool params, args structs, argument checks | `.tool` |
 | structured outputs | response-format schemas and the structs they decode into; the call that sends one, validates the answer and asks again | `.output`; for the call, an `.agent` with `.returns` and no tools, with the validation in `Check` |
-| tool-calling loops | a loop that calls a model, runs its tool calls and sends results back | `.agent` (+ `.returns`) |
+| tool-calling loops | a loop that calls a model, runs its tool calls and sends results back, often ending in a tools-off final call when turns run out | `.agent` (+ `.returns`); the last turn already answers without tools |
 | prompt strings | long string constants with prompt text | `.title` prompts |
 | single-query handlers | decode request, call one sqlc query, write JSON (or build it from the rows in Go) | `.route` (+ `.sql`; `.map` for the rows-to-JSON part) |
 | read-check-write handlers | call a sqlc read, check its result in Go, call a sqlc write | one `.route` + `.sql` holding the check, `.empty` for its failure (see below) |

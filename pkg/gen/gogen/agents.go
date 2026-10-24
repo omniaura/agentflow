@@ -118,7 +118,9 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 		}
 		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %sAgentTools,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nOnEvent: a.OnEvent,\n", systemExpr, name)
 		if len(tools) > 0 {
-			buf.WriteString("Dispatch: a.dispatch,\n")
+			// The last turn answers with what the tools found, rather than
+			// failing with ErrMaxTurns.
+			buf.WriteString("Dispatch: a.dispatch,\nAnswerOnLastTurn: true,\n")
 		}
 		if returns == nil {
 			buf.WriteString("}\nreturn loop.Run(ctx, messages)\n}\n\n")

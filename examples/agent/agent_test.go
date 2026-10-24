@@ -102,13 +102,29 @@ func TestSupportAgentMaxTurns(t *testing.T) {
 	for i := range turns {
 		turns[i] = loop
 	}
-	model, _ := script(t, turns...)
+	// .maxturns 6 is the default. The last turn may not call tools, so the
+	// model answers with what it has.
+	turns[5] = afagent.Message{Content: "I couldn't find order nope."}
+	model, seen := script(t, turns...)
 	res, err := (&SupportAgent{Model: model, Tools: &shop{}}).Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "hi"})
-	// .maxturns 6 is the default.
-	if !errors.Is(err, afagent.ErrMaxTurns) || res.Turns != 6 {
+	if err != nil || res.Turns != 6 || res.Final != "I couldn't find order nope." || !res.OutOfTurns {
+		t.Fatalf("got %v after %d turns: %q (out of turns: %v)", err, res.Turns, res.Final, res.OutOfTurns)
+	}
+	for i, req := range *seen {
+		// Tools are still sent on the last turn; the adapter turns them off.
+		if req.NoToolCalls != (i == 5) || len(req.Tools) == 0 {
+			t.Errorf("turn %d: NoToolCalls = %v with %d tools", i+1, req.NoToolCalls, len(req.Tools))
+		}
+	}
+
+	// A model that calls tools anyway ends the run; the calls don't run.
+	turns[5] = loop
+	model, _ = script(t, turns...)
+	res, err = (&SupportAgent{Model: model, Tools: &shop{}}).Run(context.Background(), &Support{}, afagent.Message{Role: afagent.User, Content: "hi"})
+	if !errors.Is(err, afagent.ErrMaxTurns) || res.Turns != 6 || res.OutOfTurns {
 		t.Fatalf("got %v after %d turns", err, res.Turns)
 	}
-	if last := res.Messages[len(res.Messages)-1]; last.Content != "no order nope" || !last.IsError {
+	if last := res.Messages[len(res.Messages)-1]; last.Role != afagent.Assistant || len(last.ToolCalls) != 1 {
 		t.Fatalf("last message = %+v", last)
 	}
 }
