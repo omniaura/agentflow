@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -252,6 +253,44 @@ func (m *Memory) GetRun(ctx context.Context, owner, run string) (RunRecord, erro
 		return RunRecord{}, err
 	}
 	return r.r, nil
+}
+
+// AgentThread returns the owner's oldest thread whose Agent is agent.
+func (m *Memory) AgentThread(ctx context.Context, owner, agent string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var found *memThread
+	for _, t := range m.threads {
+		if t.t.Owner == owner && t.t.Agent == agent && (found == nil || t.t.Created.Before(found.t.Created) || t.t.Created.Equal(found.t.Created) && t.t.ID < found.t.ID) {
+			found = t
+		}
+	}
+	if found == nil {
+		return "", ErrNoAgent
+	}
+	return found.t.ID, nil
+}
+
+// Agents lists the owner's agents by their threads, described by the
+// oldest thread's title, in name order.
+func (m *Memory) Agents(ctx context.Context, owner string) ([]AgentInfo, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	oldest := map[string]*memThread{}
+	for _, t := range m.threads {
+		if t.t.Owner != owner || t.t.Agent == "" {
+			continue
+		}
+		if o := oldest[t.t.Agent]; o == nil || t.t.Created.Before(o.t.Created) {
+			oldest[t.t.Agent] = t
+		}
+	}
+	out := make([]AgentInfo, 0, len(oldest))
+	for name, t := range oldest {
+		out = append(out, AgentInfo{Name: name, Description: t.t.Title})
+	}
+	slices.SortFunc(out, func(a, b AgentInfo) int { return strings.Compare(a.Name, b.Name) })
+	return out, nil
 }
 
 // cloneMessages copies msgs, their tool calls and native payloads, so the
