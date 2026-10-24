@@ -1,0 +1,209 @@
+// Package afcompact keeps an agent's conversation within its model's
+// context window. It works in stages, cheapest first:
+//
+//   - Microcompact clears the bodies of older tool results down to a short
+//     head. The calls and their IDs stay, so the transcript stays well
+//     formed. It is deterministic and costs nothing.
+//   - Fold has a model summarize the older rounds into one message, keeping
+//     the first request and the most recent rounds as they are.
+//
+// Compactor runs them as an agent's BeforeTurn, only as far as the
+// conversation needs, and fails with ErrOverBudget when even that is not
+// enough. Sizes are estimated from characters (Estimate), conservatively:
+// they are not a provider's exact token count.
+package afcompact
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/omniaura/agentflow/runtime/afagent"
+)
+
+// ErrOverBudget means the conversation doesn't fit the budget even after
+// compacting.
+var ErrOverBudget = errors.New("afcompact: the conversation is over its context budget")
+
+// CharsPerToken is how Estimate turns characters into tokens.
+const CharsPerToken = 4
+
+// Estimate returns the approximate tokens of msgs: their text, or their
+// provider-native payload when that is larger (it holds the text, and may
+// hold more, such as thinking blocks), and tool call names and arguments,
+// by CharsPerToken.
+func Estimate(msgs []afagent.Message) int {
+	chars := 0
+	for _, m := range msgs {
+		text := utf8.RuneCountInString(m.Content)
+		if m.Native != nil {
+			text = max(text, utf8.RuneCount(m.Native.Data))
+		}
+		chars += text + 4
+		for _, c := range m.ToolCalls {
+			chars += utf8.RuneCountInString(c.Name) + utf8.RuneCountInString(c.Arguments) + 4
+		}
+	}
+	return (chars + CharsPerToken - 1) / CharsPerToken
+}
+
+// Microcompact returns msgs with the bodies of tool results cleared down to
+// their first head characters, except the last keep results, which stay
+// whole. It changes nothing else, and never the msgs passed in.
+func Microcompact(msgs []afagent.Message, keep, head int) []afagent.Message {
+	out := append([]afagent.Message(nil), msgs...)
+	seen := 0
+	for i := len(out) - 1; i >= 0; i-- {
+		if out[i].Role != afagent.Tool {
+			continue
+		}
+		if seen++; seen <= keep {
+			continue
+		}
+		if r := []rune(out[i].Content); len(r) > head {
+			out[i].Content = string(r[:head]) + fmt.Sprintf(" … [%d characters cleared to save context]", len(r)-head)
+		}
+	}
+	return out
+}
+
+// Summarizer writes the summary Fold folds older messages into. Summarize
+// turns a model into one.
+type Summarizer func(ctx context.Context, msgs []afagent.Message) (string, error)
+
+// SummaryPrompt is the system prompt Summarize sends with the messages to
+// summarize.
+const SummaryPrompt = `You compact an AI agent's working conversation so it can carry on. Summarize the messages: the user's goal, what has been done and found (keep IDs, names, numbers and errors exactly), what is still to do, and any constraints the user set. Write it for the agent, not the user. Leave out pleasantries.`
+
+// Summarize returns a Summarizer that asks model, without tools.
+func Summarize(model afagent.Model) Summarizer {
+	return func(ctx context.Context, msgs []afagent.Message) (string, error) {
+		var b strings.Builder
+		for _, m := range msgs {
+			fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
+			for _, c := range m.ToolCalls {
+				fmt.Fprintf(&b, "  called %s(%s)\n", c.Name, c.Arguments)
+			}
+		}
+		res, err := model.Complete(ctx, afagent.Request{System: SummaryPrompt, Messages: []afagent.Message{{Role: afagent.User, Content: b.String()}}})
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(res.Message.Content) == "" {
+			return "", errors.New("afcompact: the summary is empty")
+		}
+		return res.Message.Content, nil
+	}
+}
+
+// SummaryPrefix starts the message Fold puts in place of what it folded.
+const SummaryPrefix = "[Summary of the earlier conversation, compacted to save context]\n"
+
+// Fold replaces the messages between the first one, the request, and the
+// last keep messages with one user message holding their summary. The
+// tail starts at a round boundary, never between a tool call and its
+// result, so it may keep more than keep messages. It returns msgs as they
+// are when there is nothing to fold.
+func Fold(ctx context.Context, msgs []afagent.Message, keep int, summarize Summarizer) ([]afagent.Message, error) {
+	start := len(msgs) - keep
+	// Move the cut back to a message that doesn't answer a tool call.
+	for start > 1 && msgs[start].Role == afagent.Tool {
+		start--
+	}
+	if start <= 1 {
+		return msgs, nil
+	}
+	summary, err := summarize(ctx, msgs[1:start])
+	if err != nil {
+		return nil, err
+	}
+	out := []afagent.Message{msgs[0], {Role: afagent.User, Content: SummaryPrefix + summary}}
+	return append(out, msgs[start:]...), nil
+}
+
+// Compactor keeps a conversation within Budget tokens, as an agent's
+// BeforeTurn.
+type Compactor struct {
+	// Budget is the tokens the conversation may take, below the model's
+	// window by room for the system prompt, tools and answer.
+	Budget int
+	// At is the share of Budget past which it compacts; 0 means 0.8, and
+	// it is at most 1.
+	At float64
+	// KeepResults is how many tool results Microcompact leaves whole, and
+	// KeepMessages how many recent messages Fold keeps, at first; 0 means 4
+	// and 6. When that is not enough, they drop to the latest one.
+	KeepResults, KeepMessages int
+	// Head is how much of a cleared tool result stays; 0 means 200.
+	Head int
+	// Summarize writes Fold's summaries; nil skips Fold.
+	Summarize Summarizer
+	// OnCompact, when set, is told each stage that ran, as "microcompact"
+	// or "fold", with the estimate before and after.
+	OnCompact func(stage string, before, after int)
+}
+
+// BeforeTurn compacts msgs if they are past the threshold, in stages that
+// each run only if the ones before were not enough: Microcompact keeping
+// KeepResults results whole, then only the latest; Fold keeping
+// KeepMessages messages, then only the latest round. It returns
+// ErrOverBudget when the result still exceeds Budget.
+func (c *Compactor) BeforeTurn(ctx context.Context, turn int, msgs []afagent.Message) ([]afagent.Message, error) {
+	at := c.At
+	switch {
+	case at <= 0:
+		at = 0.8
+	case at > 1:
+		// Past Budget is over budget: compact by then at the latest.
+		at = 1
+	}
+	limit := int(float64(c.Budget) * at)
+	size := Estimate(msgs)
+	if size <= limit {
+		return msgs, nil
+	}
+	keepResults, keepMessages, head := or(c.KeepResults, 4), or(c.KeepMessages, 6), or(c.Head, 200)
+	compacted := msgs
+	try := func(stage string, next []afagent.Message) {
+		if after := Estimate(next); after < size {
+			c.report(stage, size, after)
+			compacted, size = next, after
+		}
+	}
+	for _, keep := range []int{keepResults, 1} {
+		if size > limit {
+			try("microcompact", Microcompact(compacted, keep, head))
+		}
+	}
+	if c.Summarize != nil {
+		for _, keep := range []int{keepMessages, 1} {
+			if size <= limit {
+				break
+			}
+			folded, err := Fold(ctx, compacted, keep, c.Summarize)
+			if err != nil {
+				return nil, err
+			}
+			try("fold", folded)
+		}
+	}
+	if size > c.Budget {
+		return nil, fmt.Errorf("%w: about %d tokens after compacting, budget %d", ErrOverBudget, size, c.Budget)
+	}
+	return compacted, nil
+}
+
+func (c *Compactor) report(stage string, before, after int) {
+	if c.OnCompact != nil {
+		c.OnCompact(stage, before, after)
+	}
+}
+
+func or(n, def int) int {
+	if n <= 0 {
+		return def
+	}
+	return n
+}

@@ -126,7 +126,9 @@ These stay hand-written:
 - **Loops that mix providers mid-run.** `.agent` runs one `afagent.Model`, so put the switch
   inside a `Model` (or `afmodel.Fallback`), or leave the loop as it is. Loops that rewrite the
   conversation between turns (compaction, context budgets) can migrate: that logic becomes
-  the agent's `BeforeTurn`.
+  the agent's `BeforeTurn`, usually an `afcompact.Compactor` (clearing old tool results, then
+  folding old rounds into a summary). Keep product-specific steps, such as retention or
+  moderation, in a `BeforeTurn` that calls the compactor.
 - **Schemas with features `.param` can't express:** `oneOf`, recursive types,
   patterns. Leave them, or add a comment saying why.
 

@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-//go:embed aftool/*.go afhttp/*.go afagent/*.go afanthropic/*.go afopenai/*.go afmodel/*.go afthread/*.go
+//go:embed aftool/*.go afhttp/*.go afagent/*.go afanthropic/*.go afopenai/*.go afmodel/*.go afthread/*.go afcompact/*.go
 var sources embed.FS
 
 // Packages are the runtime packages generated code imports, by name, as
@@ -20,10 +20,10 @@ var Packages = []string{"afagent", "afhttp", "aftool"}
 
 // Adapters are the packages generated code doesn't import, ejected only
 // when named: afanthropic and afopenai run agents on a provider's SDK,
-// afmodel adds retries, fallback and metering to any model, and afthread
-// keeps threads in a database. They import afagent, and the SDK or
-// go-kit's errs.
-var Adapters = []string{"afanthropic", "afopenai", "afmodel", "afthread"}
+// afmodel adds retries, fallback and metering to any model, afthread keeps
+// threads in a database, and afcompact keeps a conversation within its
+// context window. They import afagent, and the SDK or go-kit's errs.
+var Adapters = []string{"afanthropic", "afopenai", "afmodel", "afthread", "afcompact"}
 
 // ImportPrefix is the import path of this directory, plus a slash.
 const ImportPrefix = "github.com/omniaura/agentflow/runtime/"
