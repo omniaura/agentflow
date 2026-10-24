@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.13.0](https://github.com/omniaura/agentflow/compare/v0.12.1...v0.13.0) (2026-10-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **afhttp:** afhttp.Error, Errorf, NotFound and Internal are gone; Unauthorized and SendError take a context; error bodies are errs JSON instead of {"error": "..."}.
+
+### Features
+
+* .agent sections generate the tool-calling loop ([#118](https://github.com/omniaura/agentflow/issues/118)) ([b4492f0](https://github.com/omniaura/agentflow/commit/b4492f0b43f9ebb885e90aa62a708d407b3fe890))
+* .empty names what an empty query result means ([#129](https://github.com/omniaura/agentflow/issues/129)) ([b445ee1](https://github.com/omniaura/agentflow/commit/b445ee1248cc199c347f4c1cc4fe1803c4c6348c))
+* .returns gives agents a typed, checked final answer ([#122](https://github.com/omniaura/agentflow/issues/122)) ([56c7d36](https://github.com/omniaura/agentflow/commit/56c7d36c886736e63bde2493e39cf3f7759ad072))
+* .serve exposes an agent as an HTTP endpoint ([#124](https://github.com/omniaura/agentflow/issues/124)) ([bf3d0c7](https://github.com/omniaura/agentflow/commit/bf3d0c7ddb7ba351a542492131eb92462972529d))
+* .wrap puts a route's result in an object ([#131](https://github.com/omniaura/agentflow/issues/131)) ([de1c781](https://github.com/omniaura/agentflow/commit/de1c7813f345b968689c2c23fe1a8fe53968ff13))
+* af upgrade and the agentflow-migrate skill ([#123](https://github.com/omniaura/agentflow/issues/123)) ([fce78fd](https://github.com/omniaura/agentflow/commit/fce78fdb88dede55a45b02faba2cedbc0209af93))
+* **afhttp:** report errors with go-kit errs ([#128](https://github.com/omniaura/agentflow/issues/128)) ([0ca3bea](https://github.com/omniaura/agentflow/commit/0ca3bea63ee8da5b3d43bd083f14a04933adce15))
+* **agent:** answer on the last turn instead of failing at maxturns ([#136](https://github.com/omniaura/agentflow/issues/136)) ([f72ef37](https://github.com/omniaura/agentflow/commit/f72ef37dafd9a448dd48aa0327c1ac2e6108c345))
+* **agent:** Check vets a .returns answer beyond its schema ([#133](https://github.com/omniaura/agentflow/issues/133)) ([67f24b8](https://github.com/omniaura/agentflow/commit/67f24b82126452ff2fe88edc7054b67640708673))
+* Claude and OpenAI adapters for agents, ejectable as your gateway ([#119](https://github.com/omniaura/agentflow/issues/119)) ([ebf38f8](https://github.com/omniaura/agentflow/commit/ebf38f85034911bb90f5835ce8058780016388fe))
+* **eject:** pop the runtime packages out into the repository, and upgrade them ([#113](https://github.com/omniaura/agentflow/issues/113)) ([9190ba4](https://github.com/omniaura/agentflow/commit/9190ba488d5942f9fbc51d7fe0e1ad7abc125457))
+* **gen:** declare LLM tools with .tool sections ([#109](https://github.com/omniaura/agentflow/issues/109)) ([e46f420](https://github.com/omniaura/agentflow/commit/e46f420fcf25492b4a96fa21c519fb9d5e925ee4))
+* **gen:** declare structured LLM outputs with .output sections ([#115](https://github.com/omniaura/agentflow/issues/115)) ([b4aebe1](https://github.com/omniaura/agentflow/commit/b4aebe15367d81e0747d62cbdd7a890f29774934))
+* **gen:** serve sqlc queries as HTTP routes with .route sections ([#112](https://github.com/omniaura/agentflow/issues/112)) ([2d9123b](https://github.com/omniaura/agentflow/commit/2d9123b6cf82ea7eec5d226df8ee785ed7035639))
+* **gen:** write a route's SQL in the .af file and hand it to sqlc ([#116](https://github.com/omniaura/agentflow/issues/116)) ([0131c3f](https://github.com/omniaura/agentflow/commit/0131c3f33ff3af894fca48554dae8bbba8bdaed1))
+* link sqlc query files to tools with .sqlc ([#127](https://github.com/omniaura/agentflow/issues/127)) ([13c127c](https://github.com/omniaura/agentflow/commit/13c127cecc36710c8dc5a9c0bda94ea0bad6c0b0))
+* **lint:** check .agent references live ([#120](https://github.com/omniaura/agentflow/issues/120)) ([0b61af4](https://github.com/omniaura/agentflow/commit/0b61af4c2b6469675826442365444d19af9f6102))
+* **lsp:** lint diagnostics, formatting, definition, rename and section support ([#114](https://github.com/omniaura/agentflow/issues/114)) ([d0556c4](https://github.com/omniaura/agentflow/commit/d0556c41fabc12b3b6a1ff58304fa72ea57859b7)), closes [#92](https://github.com/omniaura/agentflow/issues/92)
+* **route:** .map shapes a route's response with a Go func ([#135](https://github.com/omniaura/agentflow/issues/135)) ([fa36a5b](https://github.com/omniaura/agentflow/commit/fa36a5b2ed8b3bc51dcbaca57660c54b594964d2))
+* **route:** Cache-Control for route results, no-store by default ([#134](https://github.com/omniaura/agentflow/issues/134)) ([f75c08d](https://github.com/omniaura/agentflow/commit/f75c08d98c5095c0a074a6f4d4eb8f8bbef184a0))
+* **runtime:** afmodel wraps models with retries, fallback and metering ([#132](https://github.com/omniaura/agentflow/issues/132)) ([610752f](https://github.com/omniaura/agentflow/commit/610752f0e6eb206de60197ec14b7f683c6ba69a3))
+* **skills:** ship an agent skill for writing .af files ([#111](https://github.com/omniaura/agentflow/issues/111)) ([87f9a63](https://github.com/omniaura/agentflow/commit/87f9a63175abfaacbfe18cd7d9a80847a6ba4102))
+* stream .serve agent runs as server-sent events ([#126](https://github.com/omniaura/agentflow/issues/126)) ([1f83048](https://github.com/omniaura/agentflow/commit/1f8304890953c7d480d417b5dff0c457010a834d))
+* **survey:** count hand-written tool-calling loops as .agent candidates ([#121](https://github.com/omniaura/agentflow/issues/121)) ([1821663](https://github.com/omniaura/agentflow/commit/1821663efb932f2cf8edbf9460eb738b3f8e1e18))
+* **survey:** count read-check-write handlers ([#130](https://github.com/omniaura/agentflow/issues/130)) ([a62c561](https://github.com/omniaura/agentflow/commit/a62c561963b09fc8d4a2487292a19a729d2af20f))
+* **survey:** estimate how much of a Go module could be defined in .af ([#117](https://github.com/omniaura/agentflow/issues/117)) ([026f194](https://github.com/omniaura/agentflow/commit/026f1948b93550019c01768e4a68155416bc5850))
+* tools written in SQL, implemented by generated code ([#125](https://github.com/omniaura/agentflow/issues/125)) ([ff6f493](https://github.com/omniaura/agentflow/commit/ff6f4935fe0788a0ec92a07fe202db902e545387))
+
 ## [0.12.1](https://github.com/omniaura/agentflow/compare/v0.12.0...v0.12.1) (2026-10-23)
 
 
