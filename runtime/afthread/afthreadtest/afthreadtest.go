@@ -8,8 +8,10 @@ package afthreadtest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -189,7 +191,7 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 			}
 		}
 		all, err := runs.Events(ctx, "ann", r.ID, 0)
-		if err != nil || len(all) != 3 || all[0].Seq >= all[1].Seq || all[2].Kind != "compacted" || string(all[0].Data) != `{"turn":1}` {
+		if err != nil || len(all) != 3 || all[0].Seq >= all[1].Seq || all[2].Kind != "compacted" || !sameJSON(all[0].Data, `{"turn":1}`) {
 			t.Fatalf("Events = %+v, %v", all, err)
 		}
 		// Resume after a seen event, as a client following the run would.
@@ -249,4 +251,11 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 			t.Fatalf("claimed %d messages, %d distinct", len(ids), len(slices.Compact(ids)))
 		}
 	})
+}
+
+// sameJSON reports whether data holds the JSON value want, however a
+// database formatted it (jsonb drops and adds spaces).
+func sameJSON(data []byte, want string) bool {
+	var a, b any
+	return json.Unmarshal(data, &a) == nil && json.Unmarshal([]byte(want), &b) == nil && reflect.DeepEqual(a, b)
 }

@@ -715,6 +715,14 @@ res, err := afthread.Run(ctx, store, userID, threadID, func(ctx context.Context,
 ```
 
 It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time. A worker that crashes mid-run leaves its messages started: call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run, to queue them again.
+**Postgres.** For a new backend, [`adapters/afthreadpg`](adapters/afthreadpg) is a ready `afthread.Store` and `afthread.Runs`, built the agentflow way: the tables are in `migrations/`, the queries in `queries.sql`, and the code sqlc generated in `db/`. Apply the migration with your migration tool and call `afthreadpg.New(pool)`.
+- Claims use `FOR UPDATE SKIP LOCKED`, so workers on many servers can share a queue.
+- `Send` is idempotent through a unique index on the thread and key.
+- Transcript writes and event numbering take row locks.
+- Every query is scoped by owner.
+
+To make the schema your own, copy the package, change the migration and queries, run `sqlc generate`, and keep `afthreadtest.Run` passing. An existing backend writes its own adapter over its tables instead.
+
 **Runs and their events.** A store that also implements `afthread.Runs` records each run in the database, like a jobs table with an events table. `Run` starts a run record, and ends it with its outcome, turns, tool calls and token usage. Inside the agent func, `afthread.Recorder(ctx)` is an `OnEvent` that records model responses (with usage), tool calls, tool results and rejected answers. Streamed text is left out, since the answer lands in the transcript. `afthread.Record(ctx, kind, data)` records anything else, such as a compactor's stages:
 
 ```go
