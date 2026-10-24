@@ -222,7 +222,7 @@ func isSectionLine(line string) bool {
 }
 
 func isSectionDirectiveLine(line string) bool {
-	for _, d := range slices.Concat(decl.ToolDirectives, decl.OutputDirectives, decl.RouteDirectives) {
+	for _, d := range slices.Concat(decl.ToolDirectives, decl.OutputDirectives, decl.RouteDirectives, decl.AgentDirectives) {
 		if line == d || strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
 			return true
 		}

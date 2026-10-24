@@ -85,7 +85,7 @@ in a normal `.go` file in the same package. Fields that aren't strings need a ty
 Show the customer a refund offer they must accept.
 ```
 
-- `.tool name` starts a section that lasts until the next `.title` or `.tool`. Its text
+- `.tool name` starts a section that lasts until the next `.title`, `.tool`, `.output`, `.route` or `.agent`. Its text
   that isn't a directive is the description the model reads. Write that description
   for the model.
 - `.param name [type] [description]`: the type defaults to `string`. A `?` on the name
@@ -141,6 +141,36 @@ Decide whether this task is worth saving as a workflow. Answer with:
 - The schema is strict: optional fields become nullable. `any` and free-form objects
   are rejected.
 
+### Agents: the tool-calling loop
+
+```af
+.title Support
+
+You are a support agent for <!shop>. Look orders up before answering.
+
+.tool lookup_order
+.param order_id The order ID.
+
+Load one order by ID.
+
+.agent support
+.maxturns 6
+
+Answers customer questions about their orders.
+```
+
+- `.agent name` generates `SupportAgent`, a `SupportTools` interface with one method per
+  tool (`LookupOrder(ctx, LookupOrderArgs) (string, error)`) and `Run`, which loops
+  until the model answers without calling a tool.
+- `.system Title` picks the system prompt; it is optional when the file has one prompt.
+  `.tools a, b` limits the tools; the default is every tool in the file.
+- Run it with `(&SupportAgent{Model: m, Tools: impl}).Run(ctx, &Support{Shop: "Acme"},
+  afagent.Message{Role: afagent.User, Content: q})`. `res.Final` is the answer.
+- `Model` is `afagent.Model`: wrap the provider call in `afagent.ModelFunc`. Don't
+  hand-write tool-calling loops, dispatch switches or argument decoding for an agent
+  that an `.agent` section can declare. Bad arguments and tool errors already go back
+  to the model as failed tool results.
+
 ### HTTP routes over sqlc queries
 
 ```af
@@ -178,7 +208,7 @@ Creates a todo for the caller.
 
 ## Ejected runtime
 
-If the repository has `agentflow.json`, the runtime packages (`aftool`, `afhttp`) have
+If the repository has `agentflow.json`, the runtime packages (`aftool`, `afhttp`, `afagent`) have
 been copied into it with `af eject`, and generated code imports those copies. Editing the
 copies is fine. Keep their `agentflow-vendored:` comment, and run `af eject` after upgrading
 af to merge in the new version. Fix any conflict markers it leaves.

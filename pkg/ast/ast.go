@@ -39,6 +39,8 @@ type File struct {
 	Routes []*decl.Route
 	// Outputs are the file's .output sections.
 	Outputs []*decl.Tool
+	// Agents are the file's .agent sections.
+	Agents []*decl.Agent
 }
 
 func (f File) String() string {
@@ -362,7 +364,7 @@ func NewFile(name string, content []byte) (f File, err error) {
 		return
 	}
 	d, err := decl.Parse(content)
-	f.Tools, f.Routes, f.Outputs = d.Tools, d.Routes, d.Outputs
+	f.Tools, f.Routes, f.Outputs, f.Agents = d.Tools, d.Routes, d.Outputs, d.Agents
 	return
 }
 

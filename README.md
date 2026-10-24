@@ -19,6 +19,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
   - [Tools](#tools)
   - [Routes](#routes)
   - [Structured Outputs](#structured-outputs)
+  - [Agents](#agents)
 - [Examples](#examples)
   - [Basic Variables](#basic-variables)
   - [Typed Variables](#typed-variables)
@@ -383,6 +384,55 @@ verdict, err := TaskValueCheckSchema.Decode(answer) // TaskValueCheckOutput
     - "repeatable" (true or false): Would the person want this exact task done again?
     - "cadence" (one of "daily", "weekly", "monthly", or null): How often it would run.
 
+### Agents
+
+An `.agent` section turns a prompt and the file's tools into a tool-calling agent. AgentFlow generates the loop: send the conversation, decode each tool call with its `.tool` decoder, run your method, send the results back, and stop when the model answers.
+
+```af
+.title Support
+
+You are a support agent for <!shop>. Look orders up before answering
+questions about them. Offer a refund only for damaged or late orders.
+
+.tool lookup_order
+.param order_id The order ID, as printed on the receipt.
+
+Load one order by ID. Returns its status and total.
+
+.tool offer_refund
+.param order_id The order to refund.
+.param reason enum(damaged, late) Why the order qualifies.
+
+Show the customer a refund offer they must accept.
+
+.agent support
+.maxturns 6
+
+Answers customer questions about their orders.
+```
+
+| Directive | Meaning |
+| --- | --- |
+| `.system Title` | The prompt to use as the system prompt. Optional when the file has one prompt. |
+| `.tools a, b` | The tools the agent may call. All the file's tools when omitted. |
+| `.maxturns n` | The most model calls a run may make (default 10). |
+
+You implement the tools as methods and bring a model:
+
+```go
+type shop struct{ db *db.Queries }
+
+func (s *shop) LookupOrder(ctx context.Context, args LookupOrderArgs) (string, error) { ... }
+func (s *shop) OfferRefund(ctx context.Context, args OfferRefundArgs) (string, error) { ... }
+
+agent := &SupportAgent{Model: model, Tools: &shop{q}, Concurrency: 4}
+res, err := agent.Run(ctx, &Support{Shop: "Acme"},
+	afagent.Message{Role: afagent.User, Content: "My order A-1 was late."})
+// res.Final is the answer; res.Messages the conversation to store.
+```
+
+Arguments that fail validation, unknown tools, tool errors and panics go back to the model as failed tool results, so it can correct itself. `OnEvent` sees every model response and tool call for logging and streaming. The model is the `afagent.Model` interface, one method that takes the system prompt, messages and tools and returns the next assistant message, so any provider or gateway plugs in. `afagent` has no dependencies and can be ejected like the other runtime packages.
+
 ## Examples
 
 ### Basic Variables
@@ -590,7 +640,7 @@ Run it again after upgrading af to upgrade the skill. Each installed file carrie
 
 ## Ejecting the Runtime
 
-Code generated for `.tool` and `.route` imports small runtime packages, `aftool` and `afhttp`, from `github.com/omniaura/agentflow/runtime`. Like shadcn/ui, you can pop them out into your own repository and own them:
+Code generated for `.tool`, `.route` and `.agent` imports small runtime packages, `aftool`, `afhttp` and `afagent`, from `github.com/omniaura/agentflow/runtime`. Like shadcn/ui, you can pop them out into your own repository and own them:
 
     go tool af eject          # or: af eject aftool
     go tool af gen prompts ./...

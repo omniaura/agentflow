@@ -26,7 +26,7 @@ import (
 )
 
 // SectionDirectives are the directives that start a declaration section.
-var SectionDirectives = []string{".tool", ".route", ".output"}
+var SectionDirectives = []string{".tool", ".route", ".output", ".agent"}
 
 // ToolDirectives are the directives allowed inside a tool section.
 var ToolDirectives = []string{".param", ".maxbytes"}
@@ -91,6 +91,7 @@ type File struct {
 	// Outputs are .output sections: structured outputs, parsed like tools
 	// with .field for .param.
 	Outputs []*Tool
+	Agents  []*Agent
 }
 
 // Error is a declaration error at a byte offset in the source.
@@ -149,6 +150,20 @@ func Parse(src []byte) (File, error) {
 			continue
 		}
 		end := SectionEnd(src, i)
+		if hasDirective(src[i:], ".agent") {
+			a, err := ParseAgent(src, i, end)
+			if err != nil {
+				return f, err
+			}
+			for _, prev := range f.Agents {
+				if prev.Name == a.Name {
+					return f, &Error{Offset: i, Msg: fmt.Sprintf("agent %q is declared twice", a.Name)}
+				}
+			}
+			f.Agents = append(f.Agents, a)
+			i = end
+			continue
+		}
 		if hasDirective(src[i:], ".route") {
 			r, err := ParseRoute(src, i, end)
 			if err != nil {
@@ -186,8 +201,11 @@ func Parse(src []byte) (File, error) {
 }
 
 // ParseSection parses the declaration section src[start:end] and returns a
-// *Tool or a *Route.
+// *Tool, a *Route or an *Agent.
 func ParseSection(src []byte, start, end int) (any, error) {
+	if hasDirective(src[start:], ".agent") {
+		return ParseAgent(src, start, end)
+	}
 	if hasDirective(src[start:], ".route") {
 		return ParseRoute(src, start, end)
 	}

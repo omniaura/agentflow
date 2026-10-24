@@ -145,6 +145,8 @@ func (l *linter) checkSection(tok token.T) {
 		}
 	case *decl.Route:
 		key = "route " + s.Method + " " + s.Path
+	case *decl.Agent:
+		key = fmt.Sprintf("agent %q", s.Name)
 	}
 	if l.sections[key] {
 		l.add(tok, SeverityError, "AF011", key+" is declared twice")
