@@ -457,8 +457,30 @@ func exclusive(a, b queryCall) bool {
 	return false
 }
 
+// leaves reports whether a block ends by leaving its function or loop.
+func leaves(b *ast.BlockStmt) bool {
+	if len(b.List) == 0 {
+		return false
+	}
+	switch st := b.List[len(b.List)-1].(type) {
+	case *ast.ReturnStmt:
+		return true
+	case *ast.BranchStmt:
+		return st.Tok != token.FALLTHROUGH
+	case *ast.ExprStmt:
+		if call, ok := st.X.(*ast.CallExpr); ok {
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "panic" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // checked reports whether an if between a read and a write tests what
-// the read returned, so the write depends on a check that SQL can hold.
+// the read returned and gates the write, so the write depends on a check
+// that SQL can hold: the write is inside the if, or the if leaves the
+// handler or loop.
 func checked(body *ast.BlockStmt, read, write queryCall) bool {
 	call := read.path[len(read.path)-1]
 	var names []string
@@ -482,12 +504,14 @@ func checked(body *ast.BlockStmt, read, write queryCall) bool {
 		if !ok || found || ifs.Cond.Pos() < call.End() || ifs.Cond.Pos() > at {
 			return !found
 		}
+		tests := false
 		ast.Inspect(ifs.Cond, func(c ast.Node) bool {
 			if id, ok := c.(*ast.Ident); ok && slices.Contains(names, id.Name) {
-				found = true
+				tests = true
 			}
-			return !found
+			return !tests
 		})
+		found = tests && (slices.Contains(write.path, ast.Node(ifs)) || leaves(ifs.Body))
 		return !found
 	})
 	return found

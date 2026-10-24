@@ -88,6 +88,31 @@ var (
 	sqlCTEWriteRE = regexp.MustCompile(`(?i)[()]\s*(insert|update|delete|merge)\b`)
 )
 
+// dollarTagRE matches the delimiter of a PostgreSQL dollar-quoted string:
+// $$ or $tag$.
+var dollarTagRE = regexp.MustCompile(`\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$`)
+
+// skipDollarQuotes blanks dollar-quoted strings, each up to the same
+// delimiter that opened it.
+func skipDollarQuotes(sql string) string {
+	var b strings.Builder
+	for {
+		loc := dollarTagRE.FindStringIndex(sql)
+		if loc == nil {
+			b.WriteString(sql)
+			return b.String()
+		}
+		tag := sql[loc[0]:loc[1]]
+		end := strings.Index(sql[loc[1]:], tag)
+		b.WriteString(sql[:loc[0]])
+		b.WriteByte(' ')
+		if end < 0 {
+			return b.String()
+		}
+		sql = sql[loc[1]+end+len(tag):]
+	}
+}
+
 // Writes reports whether q changes rows: an :exec-style query, or one
 // that returns rows from SQL that is, or whose WITH clause holds, an
 // INSERT, UPDATE, DELETE or MERGE.
@@ -97,7 +122,7 @@ func (q *Query) Writes() bool {
 	default:
 		return true
 	}
-	sql := sqlSkipRE.ReplaceAllString(q.SQL, " ")
+	sql := sqlSkipRE.ReplaceAllString(skipDollarQuotes(q.SQL), " ")
 	fields := strings.Fields(sql)
 	if len(fields) == 0 {
 		return false

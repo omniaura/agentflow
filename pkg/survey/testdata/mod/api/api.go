@@ -78,6 +78,22 @@ func (s *Server) Unchecked(w http.ResponseWriter, r *http.Request) {
 	s.q.BanUser(r.Context(), n)
 }
 
+// Logged tests the read, but writes either way: not a check.
+func (s *Server) Logged(w http.ResponseWriter, r *http.Request) {
+	n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	if err != nil {
+		println(err.Error())
+	}
+	s.q.BanUser(r.Context(), n)
+}
+
+// Guarded writes inside the check: a check.
+func (s *Server) Guarded(w http.ResponseWriter, r *http.Request) {
+	if n, err := s.q.GetUser(r.Context(), db.GetUserParams{ID: 1}); err == nil && n > 0 {
+		s.q.BanUser(r.Context(), n)
+	}
+}
+
 // Fallthrough runs the read's case into the write's: a check.
 func (s *Server) Fallthrough(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {

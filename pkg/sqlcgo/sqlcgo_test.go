@@ -176,6 +176,10 @@ func TestQueryWrites(t *testing.T) {
 		{One, "-- name: Quoted :one\nWITH x AS (SELECT \"(insert\" FROM t) SELECT 1 FROM x", false},
 		{One, "-- name: Commented :one\nWITH x AS (/* (delete */ SELECT 1) SELECT 1 FROM x", false},
 		{One, "-- name: Escaped :one\nWITH x AS (SELECT 'it''s (update' AS s) SELECT s FROM x", false},
+		{One, "-- name: Dollar :one\nWITH x AS (SELECT $$) DELETE$$) SELECT 1 FROM x", false},
+		{One, "-- name: Tagged :one\nWITH x AS (SELECT $t$ $$ ) DELETE $t$) SELECT 1 FROM x", false},
+		// $1 parameters are not dollar quotes.
+		{One, "-- name: Param :one\nWITH x AS (SELECT $1::int AS v)\nUPDATE t SET v = $2 FROM x RETURNING id", true},
 		// An unquoted column that is a keyword elsewhere.
 		{One, "-- name: Col :one\nWITH x AS (SELECT update FROM t) SELECT 1 FROM x", false},
 		// The statement after the CTEs.
