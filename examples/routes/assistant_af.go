@@ -292,8 +292,8 @@ type NotesAgentServer struct {
 	Agent *NotesAgent
 	// Prepare authenticates the request and returns the system prompt and the
 	// conversation so far, which the new message continues. An error
-	// fails the request with its *afhttp.Error status, or 500; wrap
-	// authentication failures with afhttp.Unauthorized.
+	// fails the request as it is when it is an *errs.Error, or with 500;
+	// wrap authentication failures with afhttp.Unauthorized.
 	Prepare func(r *http.Request) (*NotesAssistant, []afagent.Message, error)
 	// Done, when set, runs after a successful run, to store the
 	// conversation (res.Messages) for the next request.
@@ -333,7 +333,7 @@ func (s *NotesAgentServer) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Message == "" {
-		s.fail(w, r, afhttp.Errorf(http.StatusBadRequest, "message is required"))
+		s.fail(w, r, afhttp.ErrInvalidRequest.New(r.Context()).Field("message", "is required"))
 		return
 	}
 	messages := append(history[:len(history):len(history)], afagent.Message{Role: afagent.User, Content: body.Message})
@@ -358,12 +358,12 @@ func (s *NotesAgentServer) serve(w http.ResponseWriter, r *http.Request) {
 		err = s.Done(r, res)
 	} else if errors.Is(err, afagent.ErrMaxTurns) || errors.Is(err, afagent.ErrTruncated) || errors.Is(err, afagent.ErrRefused) {
 		// The model, not the server, failed.
-		err = &afhttp.Error{Status: http.StatusBadGateway, Msg: "the model could not answer", Err: err}
+		err = afhttp.ErrModelFailed.New(r.Context()).AddError(err)
 	}
 	if err != nil {
 		if stream != nil {
 			// The status is sent: report the error as an event.
-			stream.SendError(err)
+			stream.SendError(r.Context(), err)
 			return
 		}
 		s.fail(w, r, err)
@@ -374,7 +374,7 @@ func (s *NotesAgentServer) serve(w http.ResponseWriter, r *http.Request) {
 		stream.Send("done", resp)
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, resp)
+	afhttp.WriteJSON(w, r, http.StatusOK, resp)
 }
 
 type NotesAssistant struct {

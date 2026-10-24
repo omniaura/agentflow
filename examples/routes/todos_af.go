@@ -30,9 +30,9 @@ type TodosQueries interface {
 type TodosRoutes struct {
 	Queries TodosQueries
 	// Auth authenticates the caller of every route that is not .public.
-	// An error fails the request with 401, or with the status of an
-	// *afhttp.Error. Declare Caller in this package; .auth names read its
-	// fields.
+	// An error fails the request with afhttp.ErrUnauthorized, or as it
+	// is when it is an *errs.Error. Declare Caller in this package; .auth
+	// names read its fields.
 	Auth func(r *http.Request) (Caller, error)
 	// OnError writes a failed request's error; nil means afhttp.WriteError.
 	OnError func(w http.ResponseWriter, r *http.Request, err error)
@@ -62,12 +62,12 @@ func (rt *TodosRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
 // Creates a todo for the caller.
 func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg db.CreateTodoParams
@@ -84,25 +84,25 @@ func (rt *TodosRoutes) CreateTodo(w http.ResponseWriter, r *http.Request) {
 	arg.Meta = []byte(body.Meta)
 	row, err := rt.Queries.CreateTodo(r.Context(), arg)
 	if errors.Is(err, pgx.ErrNoRows) {
-		rt.fail(w, r, afhttp.NotFound(err))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))
 		return
 	}
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusCreated, row)
+	afhttp.WriteJSON(w, r, http.StatusCreated, row)
 }
 
 // GetTodo serves GET /todos/{id} with the GetTodo query.
 func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg db.GetTodoParams
@@ -113,14 +113,14 @@ func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
 	arg.OwnerID = caller.OwnerID
 	row, err := rt.Queries.GetTodo(r.Context(), arg)
 	if errors.Is(err, pgx.ErrNoRows) {
-		rt.fail(w, r, afhttp.NotFound(err))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))
 		return
 	}
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, row)
+	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }
 
 // ListTodos serves GET /todos with the ListTodos query.
@@ -128,12 +128,12 @@ func (rt *TodosRoutes) GetTodo(w http.ResponseWriter, r *http.Request) {
 // Lists the caller's todos. Filter with ?done=true or ?done=false.
 func (rt *TodosRoutes) ListTodos(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg db.ListTodosParams
@@ -144,24 +144,24 @@ func (rt *TodosRoutes) ListTodos(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := rt.Queries.ListTodos(r.Context(), arg)
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
 	if rows == nil {
 		rows = []db.Todo{}
 	}
-	afhttp.WriteJSON(w, http.StatusOK, rows)
+	afhttp.WriteJSON(w, r, http.StatusOK, rows)
 }
 
 // SetTodoDone serves PUT /todos/{id}/done with the SetTodoDone query.
 func (rt *TodosRoutes) SetTodoDone(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg db.SetTodoDoneParams
@@ -180,11 +180,11 @@ func (rt *TodosRoutes) SetTodoDone(w http.ResponseWriter, r *http.Request) {
 	arg.Done = body.Done
 	n, err := rt.Queries.SetTodoDone(r.Context(), arg)
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
 	if n == 0 {
-		rt.fail(w, r, afhttp.NotFound(nil))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -193,12 +193,12 @@ func (rt *TodosRoutes) SetTodoDone(w http.ResponseWriter, r *http.Request) {
 // DeleteTodo serves DELETE /todos/{id} with the DeleteTodo query.
 func (rt *TodosRoutes) DeleteTodo(w http.ResponseWriter, r *http.Request) {
 	if rt.Auth == nil {
-		rt.fail(w, r, afhttp.Internal(errors.New("afhttp: Auth is not set")))
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
 		return
 	}
 	caller, err := rt.Auth(r)
 	if err != nil {
-		rt.fail(w, r, afhttp.Unauthorized(err))
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
 		return
 	}
 	var arg db.DeleteTodoParams
@@ -209,11 +209,11 @@ func (rt *TodosRoutes) DeleteTodo(w http.ResponseWriter, r *http.Request) {
 	arg.OwnerID = caller.OwnerID
 	n, err := rt.Queries.DeleteTodo(r.Context(), arg)
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
 	if n == 0 {
-		rt.fail(w, r, afhttp.NotFound(nil))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()))
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -223,14 +223,14 @@ func (rt *TodosRoutes) DeleteTodo(w http.ResponseWriter, r *http.Request) {
 func (rt *TodosRoutes) CountTodos(w http.ResponseWriter, r *http.Request) {
 	row, err := rt.Queries.CountTodos(r.Context())
 	if errors.Is(err, pgx.ErrNoRows) {
-		rt.fail(w, r, afhttp.NotFound(err))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))
 		return
 	}
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, row)
+	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }
 
 // GetTodoTitle serves GET /todos/{id}/title with the GetTodoTitle query.
@@ -242,12 +242,12 @@ func (rt *TodosRoutes) GetTodoTitle(w http.ResponseWriter, r *http.Request) {
 	}
 	row, err := rt.Queries.GetTodoTitle(r.Context(), arg)
 	if errors.Is(err, pgx.ErrNoRows) {
-		rt.fail(w, r, afhttp.NotFound(err))
+		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()).AddError(err))
 		return
 	}
 	if err != nil {
-		rt.fail(w, r, afhttp.Internal(err))
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
 		return
 	}
-	afhttp.WriteJSON(w, http.StatusOK, row)
+	afhttp.WriteJSON(w, r, http.StatusOK, row)
 }

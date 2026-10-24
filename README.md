@@ -420,7 +420,13 @@ routes := &TodosRoutes{
 routes.Register(mux)
 ```
 
-Errors are written as `{"error": "..."}` with their status: 400 for bad input, 401 when `Auth` fails (or the status of an `*afhttp.Error` it returns), 404, 413, and 500 for query failures. The client never sees the cause of a 500. The runtime is `github.com/omniaura/agentflow/runtime/afhttp`, which has no dependencies. See [`examples/routes`](examples/routes), which is tested against Postgres in CI.
+Errors are [go-kit errs](https://github.com/omniaura/go-kit/tree/main/errs) errors, written as its JSON:
+
+```json
+{"fields":{"id":"invalid value \"abc\""},"message":"invalid request","code":"invalid_request","ref":"d3f1...","action":"fix_input","status":400}
+```
+
+The runtime declares a factory for each failure: `ErrInvalidRequest` (400, with a field for each bad input), `ErrTooLarge` (413), `ErrUnauthorized` (401, when `Auth` fails), `ErrNotFound` (404), `ErrConflict` (409, for a unique violation) and `ErrModelFailed` (502). Any other query failure is `errs.Unknown`, a 500 whose message says nothing of the cause. `Auth` and `Prepare` can return your own errs factories, and they are written as they are. The cause goes to errs's log and sinks with the `ref`, never to the client. The runtime is `github.com/omniaura/agentflow/runtime/afhttp`, which depends only on `go-kit/errs`. See [`examples/routes`](examples/routes), which is tested against Postgres in CI.
 
 ### Structured Outputs
 
@@ -557,11 +563,11 @@ event: done
 data: {"answer":"Your order A-1 ...","usage":{...}}
 ```
 
-`text` events stream the answer as the model writes it. `afanthropic` streams always; `afopenai` switches to streaming when someone listens. With `.returns`, the text is the JSON answer, sent once it passes the schema check, so a rejected answer never reaches the client. `tool_called`/`tool_returned` carry only the tool's name and whether it failed, never its arguments or results, and `answer_rejected` means the model is asked again. The stream ends with `done`, which has the same body as the JSON response, or with `error` (`{"error": "..."}`, a client-safe message) once the 200 has been sent. Errors before the run starts, such as a bad body or failed authentication, are still plain HTTP errors. `afagent.ClientEvent` gives the same projection for your own servers.
+`text` events stream the answer as the model writes it. `afanthropic` streams always; `afopenai` switches to streaming when someone listens. With `.returns`, the text is the JSON answer, sent once it passes the schema check, so a rejected answer never reaches the client. `tool_called`/`tool_returned` carry only the tool's name and whether it failed, never its arguments or results, and `answer_rejected` means the model is asked again. The stream ends with `done`, which has the same body as the JSON response, or with `error` (the same errs JSON as an HTTP error) once the 200 has been sent. Errors before the run starts, such as a bad body or failed authentication, are still plain HTTP errors. `afagent.ClientEvent` gives the same projection for your own servers.
 
 The client sends only its new message, `{"message": "..."}`. It gets back `{"output": {...}, "usage": {...}}`, or `{"answer": "..."}` without `.returns`. The history comes from `Prepare` on the server, so a client can't forge the model's or a tool's earlier messages. Errors follow the `.route` conventions:
 - the body is strict and capped (`MaxBytes`, 1 MiB by default)
-- `Prepare` errors carry their `*afhttp.Error` status
+- `Prepare` errors are written as they are when they are `*errs.Error`; wrap authentication failures with `afhttp.Unauthorized(ctx, err)`
 - a model that refuses, runs out of turns or is cut off returns 502
 - causes are never sent to the client
 
@@ -794,7 +800,7 @@ Code generated for `.tool`, `.route` and `.agent` imports small runtime packages
 
 The model adapters `afanthropic` and `afopenai` are ejected only when named: `af eject afanthropic`. An ejected adapter is your LLM gateway, and you can add retries, routing or logging to it. Ejected packages import each other's copies. If you eject a package after something that imports it, `af eject` updates the earlier copy and keeps your edits.
 
-`af eject` copies the packages to `internal/agentflow/<package>` (choose another place with `--dir`) and records them in `agentflow.json` at the module root. From then on, `af gen` makes generated code import your copies. They have no dependencies, so a module that ejects everything doesn't need agentflow as a library at all.
+`af eject` copies the packages to `internal/agentflow/<package>` (choose another place with `--dir`) and records them in `agentflow.json` at the module root. From then on, `af gen` makes generated code import your copies. Their only dependencies are the model SDKs (for the adapters) and `go-kit/errs` (for `afhttp`), so a module that ejects everything doesn't need agentflow as a library at all.
 
 Edit the copies freely. To upgrade them after upgrading af, run `af eject` again:
 

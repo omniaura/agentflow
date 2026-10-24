@@ -1,14 +1,19 @@
 package afhttp_test
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/omniaura/agentflow/runtime/afhttp"
+	"github.com/omniaura/go-kit/errs"
 )
 
 type scanned struct{ v string }
@@ -56,8 +61,8 @@ func TestParse(t *testing.T) {
 		v  any
 	}{{"300", &i8}, {"-1", &u}, {"x", &b}, {"1.5", &i}, {"bad", &sc}, {"::x", &ip}} {
 		err := afhttp.Parse("p", tt.in, tt.v)
-		var e *afhttp.Error
-		if !errors.As(err, &e) || e.Status != 400 || e.Msg != `invalid p "`+tt.in+`"` {
+		var e *afhttp.ParseError
+		if !errors.As(err, &e) || e.Error() != `invalid p "`+tt.in+`"` || e.Err == nil {
 			t.Fatalf("Parse(%q, %T) = %v", tt.in, tt.v, err)
 		}
 	}
@@ -87,17 +92,17 @@ func TestDecodeBody(t *testing.T) {
 		A string `json:"a"`
 	}
 	for _, tt := range []struct {
-		in     string
-		max    int64
-		status int
-		msg    string
+		in      string
+		max     int64
+		status  int
+		problem string
 	}{
 		{`{"a":"x"}`, 0, 0, ""},
-		{`{"a":"x","b":1}`, 0, 400, `invalid request body: unknown field "b"`},
-		{`{"a":"x"} []`, 0, 400, "unexpected data after the JSON object"},
-		{``, 0, 400, "request body is empty"},
-		{`{"a":`, 0, 400, "invalid request body"},
-		{`{"a":"` + strings.Repeat("x", 100) + `"}`, 50, 413, "request body is over 50 bytes"},
+		{`{"a":"x","b":1}`, 0, 400, `unknown field "b"`},
+		{`{"a":"x"} []`, 0, 400, "has unexpected data after the JSON object"},
+		{``, 0, 400, "is empty; send a JSON object"},
+		{`{"a":`, 0, 400, "unexpected EOF"},
+		{`{"a":"` + strings.Repeat("x", 100) + `"}`, 50, 413, ""},
 	} {
 		var v body
 		err := afhttp.DecodeBody(httptest.NewRecorder(), httptest.NewRequest("POST", "/", strings.NewReader(tt.in)), tt.max, &v)
@@ -107,40 +112,106 @@ func TestDecodeBody(t *testing.T) {
 			}
 			continue
 		}
-		var e *afhttp.Error
-		if !errors.As(err, &e) || e.Status != tt.status || !strings.Contains(e.Msg, tt.msg) {
-			t.Fatalf("%s: got %v, want %d %s", tt.in, err, tt.status, tt.msg)
+		var e *errs.Error
+		if !errors.As(err, &e) {
+			t.Fatalf("%s: got %v", tt.in, err)
+		}
+		pub := e.Public()
+		if pub.Status != tt.status || pub.Fields["body"] != tt.problem || pub.Action != errs.ActionFixInput {
+			t.Fatalf("%s: got %+v, want %d %q", tt.in, pub, tt.status, tt.problem)
+		}
+		if tt.status == 413 && pub.Params["max_bytes"] != int64(50) {
+			t.Fatalf("413 params = %v", pub.Params)
 		}
 	}
 }
 
+// failingBody returns data, then fails like a dropped connection.
+type failingBody struct{ data string }
+
+func (b *failingBody) Read(p []byte) (int, error) {
+	if b.data == "" {
+		return 0, errors.New("read tcp: connection reset by peer")
+	}
+	n := copy(p, b.data)
+	b.data = b.data[n:]
+	return n, nil
+}
+
+func TestDecodeBodyReadFailures(t *testing.T) {
+	type body struct {
+		A string `json:"a"`
+	}
+	for _, in := range []string{`{"a":"x"}`, `{"a":`, ``} {
+		r := httptest.NewRequest("POST", "/", &failingBody{in})
+		var e *errs.Error
+		err := afhttp.DecodeBody(httptest.NewRecorder(), r, 0, &body{})
+		if !errors.As(err, &e) || e.Public().Status != 500 {
+			t.Errorf("%q then a read failure: got %v", in, err)
+		}
+	}
+	// Trailing data past the limit is too large, not unexpected.
+	err := afhttp.DecodeBody(httptest.NewRecorder(), httptest.NewRequest("POST", "/", strings.NewReader(`{"a":"x"} `+strings.Repeat("1", 100))), 20, &body{})
+	var e *errs.Error
+	if !errors.As(err, &e) || e.Public().Status != 413 {
+		t.Errorf("trailing data past the limit: got %v", err)
+	}
+}
+
+type pgError struct{ code string }
+
+func (e *pgError) Error() string    { return "ERROR: duplicate key (SQLSTATE " + e.code + ")" }
+func (e *pgError) SQLState() string { return e.code }
+
 func TestErrors(t *testing.T) {
+	ctx := context.Background()
 	cause := errors.New("db down")
+	banned := errs.NewFactory(403, "banned", errs.WithCode("banned"))
 	for _, tt := range []struct {
-		err    error
-		status int
-		body   string
+		err  error
+		want errs.Public
 	}{
-		{afhttp.Internal(cause), 500, `{"error":"internal error"}`},
-		{afhttp.NotFound(nil), 404, `{"error":"not found"}`},
-		{afhttp.Unauthorized(cause), 401, `{"error":"unauthorized"}`},
-		// An authenticator's own *Error keeps its status.
-		{afhttp.Unauthorized(afhttp.Errorf(403, "banned")), 403, `{"error":"banned"}`},
-		{afhttp.Internal(afhttp.Errorf(409, "taken")), 409, `{"error":"taken"}`},
-		{cause, 500, `{"error":"internal error"}`},
+		{afhttp.QueryFailed(ctx, cause), errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
+		{afhttp.QueryFailed(ctx, fmt.Errorf("insert: %w", &pgError{"23505"})), errs.Public{Status: 409, Code: "already_exists", Message: "already exists"}},
+		{afhttp.QueryFailed(ctx, &pgError{"23503"}), errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
+		// A wrapper around the queries can fail with its own errs factory.
+		{afhttp.QueryFailed(ctx, fmt.Errorf("list: %w", banned.New(ctx))), errs.Public{Status: 403, Code: "banned", Message: "banned"}},
+		// Even when the cause it wraps is a unique violation.
+		{afhttp.QueryFailed(ctx, banned.New(ctx).AddError(&pgError{"23505"})), errs.Public{Status: 403, Code: "banned", Message: "banned"}},
+		{afhttp.ErrNotFound.New(ctx), errs.Public{Status: 404, Code: "not_found", Message: "not found"}},
+		{afhttp.Unauthorized(ctx, cause), errs.Public{Status: 401, Code: "unauthorized", Message: "unauthorized", Action: errs.ActionSignIn}},
+		// An authenticator's own *errs.Error keeps its status.
+		{afhttp.Unauthorized(ctx, fmt.Errorf("check: %w", banned.New(ctx))), errs.Public{Status: 403, Code: "banned", Message: "banned"}},
+		{&afhttp.ParseError{Name: "id", Value: "x", Err: cause}, errs.Public{Status: 400, Code: "invalid_request", Message: "invalid request", Action: errs.ActionFixInput, Fields: map[string]string{"id": `invalid value "x"`}}},
+		{afhttp.ErrModelFailed.New(ctx).AddError(cause), errs.Public{Status: 502, Code: "model_failed", Message: "the model could not answer", Action: errs.ActionRetry, Retryable: true}},
+		{cause, errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
+		{nil, errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
 	} {
 		w := httptest.NewRecorder()
 		afhttp.WriteError(w, httptest.NewRequest("GET", "/", nil), tt.err)
-		if w.Code != tt.status || strings.TrimSpace(w.Body.String()) != tt.body || w.Header().Get("Content-Type") != "application/json" {
-			t.Fatalf("%v: got %d %s", tt.err, w.Code, w.Body)
+		var got errs.Public
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Ref == "" {
+			t.Errorf("%v: no ref", tt.err)
+		}
+		got.Ref = ""
+		if w.Code != tt.want.Status || !reflect.DeepEqual(got, tt.want) || w.Header().Get("Content-Type") != "application/json" {
+			t.Errorf("%v: got %d %+v, want %+v", tt.err, w.Code, got, tt.want)
+		}
+		if strings.Contains(w.Body.String(), "db down") || strings.Contains(w.Body.String(), "SQLSTATE") {
+			t.Errorf("%v: the cause reached the client: %s", tt.err, w.Body)
 		}
 	}
-	if !errors.Is(afhttp.Internal(cause), cause) {
-		t.Fatal("Internal does not wrap its cause")
+	if !errors.Is(afhttp.QueryFailed(ctx, cause), cause) {
+		t.Fatal("QueryFailed does not wrap its cause")
 	}
 	w := httptest.NewRecorder()
-	afhttp.WriteJSON(w, 200, func() {})
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("unencodable value: %d", w.Code)
+	r := httptest.NewRequest("GET", "/", nil)
+	r = r.WithContext(errs.WithRef(r.Context(), "req-1"))
+	afhttp.WriteJSON(w, r, 200, func() {})
+	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), `"ref":"req-1"`) {
+		t.Fatalf("unencodable value: %d %s", w.Code, w.Body)
 	}
 }

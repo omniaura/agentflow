@@ -1,10 +1,12 @@
 // Package afhttp is the runtime for routes declared with .route in .af
 // files: strict request decoding, argument parsing, and JSON responses and
-// errors. It has no dependencies, so it is safe to import from generated
-// code and to eject into a repository.
+// errors. Errors are go-kit errs errors (github.com/omniaura/go-kit/errs):
+// the client sees a factory's fixed message, code and fields, and the cause
+// stays in the logs.
 package afhttp
 
 import (
+	"context"
 	"encoding"
 	"encoding/json"
 	"errors"
@@ -14,76 +16,89 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/omniaura/go-kit/errs"
 )
 
 // DefaultMaxBytes caps a request body when its .route section sets no
 // .maxbytes.
 const DefaultMaxBytes = 1 << 20
 
-// Error is an error with the HTTP status it should be reported with.
-type Error struct {
-	Status int
-	// Msg is safe to show to the client.
-	Msg string
-	// Err is the cause, for logs.
-	Err error
-}
+// The errors generated handlers fail with. Return them, or your own errs
+// factories, from Auth and Prepare: WriteError writes any *errs.Error as it
+// is.
+var (
+	ErrInvalidRequest = errs.NewFactory(http.StatusBadRequest, "invalid request", errs.WithCode("invalid_request"), errs.WithAction(errs.ActionFixInput))
+	ErrTooLarge       = errs.NewFactory(http.StatusRequestEntityTooLarge, "request body is too large", errs.WithAction(errs.ActionFixInput))
+	ErrUnauthorized   = errs.NewFactory(http.StatusUnauthorized, "unauthorized", errs.WithAction(errs.ActionSignIn))
+	ErrNotFound       = errs.NewFactory(http.StatusNotFound, "not found")
+	ErrConflict       = errs.NewFactory(http.StatusConflict, "already exists", errs.WithCode("already_exists"))
+	ErrModelFailed    = errs.NewFactory(http.StatusBadGateway, "the model could not answer", errs.WithCode("model_failed"), errs.WithAction(errs.ActionRetry))
+)
 
-func (e *Error) Error() string {
-	if e.Err == nil {
-		return e.Msg
-	}
-	return e.Msg + ": " + e.Err.Error()
-}
-
-func (e *Error) Unwrap() error { return e.Err }
-
-// Errorf returns an *Error with status and a client-safe message.
-func Errorf(status int, format string, args ...any) *Error {
-	return &Error{Status: status, Msg: fmt.Sprintf(format, args...)}
-}
-
-// Unauthorized wraps an authentication failure. An *Error from the
-// authenticator keeps its own status.
-func Unauthorized(err error) error {
-	var e *Error
+// Unauthorized wraps an authentication failure in ErrUnauthorized. An
+// *errs.Error from the authenticator keeps its own status.
+func Unauthorized(ctx context.Context, err error) *errs.Error {
+	var e *errs.Error
 	if errors.As(err, &e) {
-		return err
+		return errs.AsError(ctx, err)
 	}
-	return &Error{Status: http.StatusUnauthorized, Msg: "unauthorized", Err: err}
+	return ErrUnauthorized.New(ctx).AddError(err)
 }
 
-// NotFound is the error for a query that found nothing.
-func NotFound(err error) error {
-	return &Error{Status: http.StatusNotFound, Msg: "not found", Err: err}
-}
-
-// Internal wraps a query failure. The client sees only a generic message.
-func Internal(err error) error {
-	var e *Error
+// QueryFailed wraps a failed query: ErrConflict for a unique violation.
+// An *errs.Error the queries return, such as a permission check in a
+// wrapper around them, keeps its status; anything else is errs.Unknown,
+// whose message says nothing of the cause.
+func QueryFailed(ctx context.Context, err error) *errs.Error {
+	var e *errs.Error
 	if errors.As(err, &e) {
-		return err
+		return errs.AsError(ctx, err)
 	}
-	return &Error{Status: http.StatusInternalServerError, Msg: "internal error", Err: err}
+	var state interface{ SQLState() string }
+	if errors.As(err, &state) && state.SQLState() == "23505" {
+		return ErrConflict.New(ctx).AddError(err)
+	}
+	return errs.AsError(ctx, err)
 }
 
-// WriteError writes err as {"error": msg} with its status: the status of an
-// *Error, or 500.
+// ParseError reports a path, query or tool argument that does not parse.
+// Its message names the argument and value, and not the cause, so it is
+// safe to show a client or a model.
+type ParseError struct {
+	Name, Value string
+	Err         error
+}
+
+func (e *ParseError) Error() string { return fmt.Sprintf("invalid %s %q", e.Name, e.Value) }
+
+func (e *ParseError) Unwrap() error { return e.Err }
+
+// AsError returns err as an *errs.Error: a *ParseError becomes
+// ErrInvalidRequest with a field for the argument, and any other error is
+// errs.AsError's.
+func AsError(ctx context.Context, err error) *errs.Error {
+	var pe *ParseError
+	if errors.As(err, &pe) {
+		return ErrInvalidRequest.New(ctx).Field(pe.Name, fmt.Sprintf("invalid value %q", pe.Value)).AddError(err)
+	}
+	return errs.AsError(ctx, err)
+}
+
+// WriteError writes err with errs: its status, message, code and fields.
+// An error that is not an *errs.Error is errs.Unknown, a 500.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
-	var e *Error
-	if !errors.As(err, &e) {
-		e = &Error{Status: http.StatusInternalServerError, Msg: "internal error", Err: err}
+	if err == nil {
+		err = errors.New("afhttp: WriteError called with a nil error")
 	}
-	WriteJSON(w, e.Status, map[string]string{"error": e.Msg})
+	AsError(r.Context(), err).Abort(w)
 }
 
-// WriteJSON writes v as JSON with status.
-func WriteJSON(w http.ResponseWriter, status int, v any) {
+// WriteJSON writes v as JSON with status, the response to r.
+func WriteJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = io.WriteString(w, `{"error":"internal error"}`)
+		errs.Unknown.New(r.Context()).AddError(err).Abort(w)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -93,27 +108,63 @@ func WriteJSON(w http.ResponseWriter, status int, v any) {
 
 // DecodeBody strictly decodes the JSON body of r into v: at most maxBytes
 // (DefaultMaxBytes when 0), no unknown fields, no trailing data. Errors are
-// *Error with status 400 or 413.
+// ErrInvalidRequest, with the problem in the "body" field, or ErrTooLarge.
 func DecodeBody(w http.ResponseWriter, r *http.Request, maxBytes int64, v any) error {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxBytes
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBytes))
+	ctx := r.Context()
+	invalid := func(problem string, err error) error {
+		return ErrInvalidRequest.New(ctx).Field("body", problem).AddError(err)
+	}
+	body := &bodyReader{r: http.MaxBytesReader(w, r.Body, maxBytes)}
+	// failed classifies the errors reading the body can cause, before the
+	// JSON is blamed.
+	failed := func(err error) error {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			return ErrTooLarge.New(ctx).Param("max_bytes", maxBytes).AddError(err)
+		}
+		if body.err != nil {
+			// The connection, not the JSON, failed.
+			return errs.AsError(ctx, body.err)
+		}
+		return nil
+	}
+	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		var tooLarge *http.MaxBytesError
-		switch {
-		case errors.As(err, &tooLarge):
-			return &Error{Status: http.StatusRequestEntityTooLarge, Msg: fmt.Sprintf("request body is over %d bytes", maxBytes), Err: err}
-		case errors.Is(err, io.EOF):
-			return &Error{Status: http.StatusBadRequest, Msg: "request body is empty; send a JSON object", Err: err}
+		if e := failed(err); e != nil {
+			return e
 		}
-		return &Error{Status: http.StatusBadRequest, Msg: "invalid request body: " + strings.TrimPrefix(err.Error(), "json: "), Err: err}
+		if errors.Is(err, io.EOF) {
+			return invalid("is empty; send a JSON object", err)
+		}
+		return invalid(strings.TrimPrefix(err.Error(), "json: "), err)
 	}
 	if _, err := dec.Token(); err != io.EOF {
-		return &Error{Status: http.StatusBadRequest, Msg: "invalid request body: unexpected data after the JSON object"}
+		if e := failed(err); e != nil {
+			return e
+		}
+		return invalid("has unexpected data after the JSON object", err)
 	}
 	return nil
+}
+
+// bodyReader records the error reading a request body fails with, other
+// than its end or its size limit.
+type bodyReader struct {
+	r   io.Reader
+	err error
+}
+
+func (b *bodyReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	var tooLarge *http.MaxBytesError
+	if err != nil && err != io.EOF && !errors.As(err, &tooLarge) {
+		b.err = err
+	}
+	return n, err
 }
 
 // Scanner is implemented by database types such as pgtype.Text and
@@ -124,8 +175,8 @@ type Scanner interface {
 
 // Parse parses s, the value of the path or query parameter name, into v,
 // which must be a pointer. It supports strings, booleans, numbers, and types
-// implementing encoding.TextUnmarshaler or Scanner. Errors are *Error with
-// status 400.
+// implementing encoding.TextUnmarshaler or Scanner. Errors are
+// *ParseError, except for a v it can't parse into.
 func Parse(name, s string, v any) error {
 	var err error
 	switch v := v.(type) {
@@ -164,10 +215,10 @@ func Parse(name, s string, v any) error {
 	case Scanner:
 		err = v.Scan(s)
 	default:
-		return &Error{Status: http.StatusInternalServerError, Msg: "internal error", Err: fmt.Errorf("afhttp: cannot parse parameter %s into %T", name, v)}
+		return fmt.Errorf("afhttp: cannot parse parameter %s into %T", name, v)
 	}
 	if err != nil {
-		return &Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("invalid %s %q", name, s), Err: err}
+		return &ParseError{Name: name, Value: s, Err: err}
 	}
 	return nil
 }
@@ -263,12 +314,8 @@ func (s *EventStream) Send(event string, data any) error {
 	return nil
 }
 
-// SendError writes an error event with err's client-safe message: an
-// *Error's Msg, or "internal error".
-func (s *EventStream) SendError(err error) error {
-	var e *Error
-	if !errors.As(err, &e) {
-		e = &Error{Msg: "internal error"}
-	}
-	return s.Send("error", map[string]string{"error": e.Msg})
+// SendError writes an error event whose data is the client view of err,
+// as WriteError would write it, and logs err with errs.
+func (s *EventStream) SendError(ctx context.Context, err error) error {
+	return s.Send("error", AsError(ctx, err).Emit("sse"))
 }

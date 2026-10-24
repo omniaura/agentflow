@@ -4,7 +4,8 @@ CREATE TABLE todos (
     title      text        NOT NULL,
     done       boolean     NOT NULL DEFAULT false,
     meta       jsonb,
-    created_at timestamptz NOT NULL DEFAULT now()
+    created_at timestamptz NOT NULL DEFAULT now(),
+    UNIQUE (owner_id, title)
 );
 
 CREATE TABLE notes (

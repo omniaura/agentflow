@@ -38,7 +38,7 @@ func TestGenRoutes(t *testing.T) {
 		// Names match whatever their case: {ID} is the ID field.
 		`afhttp.Parse("ID", r.PathValue("ID"), &arg.ID)`,
 		"arg.OwnerID = caller.OwnerID",
-		"afhttp.WriteJSON(w, http.StatusOK, row)",
+		"afhttp.WriteJSON(w, r, http.StatusOK, row)",
 		"type Hello struct",
 	} {
 		if !strings.Contains(code, want) {
