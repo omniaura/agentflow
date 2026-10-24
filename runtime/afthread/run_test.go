@@ -134,3 +134,28 @@ func TestRunCompaction(t *testing.T) {
 		t.Errorf("transcript = %+v", got)
 	}
 }
+
+// A compactor that rewrites a message's provider payload replaces the
+// transcript rather than appending to stale data.
+func TestRunNativeChange(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	s.Append(ctx, "ann", th.ID, afagent.Message{Role: afagent.Assistant, Content: "a", Native: &afagent.Native{Provider: "anthropic", Data: []byte(`"old blocks"`)}})
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: "m1", Content: "q"})
+	model, _ := scripted(t, afagent.Message{Content: "answer"})
+	agent := func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+		l := afagent.Loop{Model: model, BeforeTurn: func(ctx context.Context, turn int, msgs []afagent.Message) ([]afagent.Message, error) {
+			msgs = append([]afagent.Message(nil), msgs...)
+			msgs[0].Native = &afagent.Native{Provider: "anthropic", Data: []byte(`"new blocks"`)}
+			return before(ctx, turn, msgs)
+		}}
+		return l.Run(ctx, msgs)
+	}
+	if _, err := afthread.Run(ctx, s, "ann", th.ID, agent); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Transcript(ctx, "ann", th.ID); len(got) != 3 || string(got[0].Native.Data) != `"new blocks"` {
+		t.Fatalf("transcript = %+v", got)
+	}
+}

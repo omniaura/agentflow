@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
 	"github.com/omniaura/agentflow/runtime/afthread"
@@ -57,6 +58,7 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 		_, checks["Send"] = s.Send(ctx, "bob", th.ID, afthread.Incoming{Content: "x"})
 		_, checks["Claim"] = s.Claim(ctx, "bob", th.ID)
 		checks["Finish"] = s.Finish(ctx, "bob", th.ID, []int64{1}, nil)
+		_, checks["Reclaim"] = s.Reclaim(ctx, "bob", th.ID, time.Now())
 		for name, err := range checks {
 			if !errors.Is(err, afthread.ErrNotFound) {
 				t.Errorf("%s by another owner: %v", name, err)
@@ -127,6 +129,46 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 		}
 		if done, _ := s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: "k1"}); done.Status != afthread.Done {
 			t.Fatalf("done message = %+v", done)
+		}
+	})
+
+	t.Run("reclaim", func(t *testing.T) {
+		s := newStore()
+		th := create(t, s, "ann")
+		s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: "a", Content: "a"})
+		s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: "b", Content: "b"})
+		claimed, _ := s.Claim(ctx, "ann", th.ID)
+		if len(claimed) != 2 || claimed[0].Claimed.IsZero() {
+			t.Fatalf("Claim = %+v", claimed)
+		}
+		s.Finish(ctx, "ann", th.ID, []int64{claimed[0].ID}, nil)
+		// A lease that hasn't expired reclaims nothing.
+		if n, err := s.Reclaim(ctx, "ann", th.ID, claimed[1].Claimed.Add(-time.Hour)); err != nil || n != 0 {
+			t.Fatalf("early Reclaim = %d, %v", n, err)
+		}
+		// Past it, the unfinished message is queued again; the finished one
+		// stays done.
+		if n, err := s.Reclaim(ctx, "ann", th.ID, time.Now().Add(time.Second)); err != nil || n != 1 {
+			t.Fatalf("Reclaim = %d, %v", n, err)
+		}
+		again, _ := s.Claim(ctx, "ann", th.ID)
+		if len(again) != 1 || again[0].Key != "b" {
+			t.Fatalf("Claim after Reclaim = %+v", again)
+		}
+	})
+
+	t.Run("copies", func(t *testing.T) {
+		s := newStore()
+		th, _ := s.Create(ctx, afthread.Thread{Owner: "ann", Metadata: map[string]string{"k": "v"}})
+		th.Metadata["k"] = "changed"
+		in := []afagent.Message{{Role: afagent.Assistant, ToolCalls: []afagent.ToolCall{{ID: "1", Name: "look"}}}}
+		s.Append(ctx, "ann", th.ID, in...)
+		in[0].ToolCalls[0].Name = "changed"
+		got, _ := s.Transcript(ctx, "ann", th.ID)
+		got[0].ToolCalls[0].ID = "changed"
+		again, _ := s.Transcript(ctx, "ann", th.ID)
+		if stored, _ := s.Get(ctx, "ann", th.ID); stored.Metadata["k"] != "v" || again[0].ToolCalls[0] != (afagent.ToolCall{ID: "1", Name: "look"}) {
+			t.Fatalf("the store shares data with callers: %+v, %+v", stored.Metadata, again)
 		}
 	})
 

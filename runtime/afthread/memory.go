@@ -50,6 +50,8 @@ func (m *Memory) Create(ctx context.Context, t Thread) (Thread, error) {
 	t.Created, t.Updated = now, now
 	t.Metadata = maps.Clone(t.Metadata)
 	m.threads[t.ID] = &memThread{t: t}
+	// The caller's copy shares nothing with the stored one.
+	t.Metadata = maps.Clone(t.Metadata)
 	return t, nil
 }
 
@@ -72,7 +74,7 @@ func (m *Memory) Transcript(ctx context.Context, owner, id string) ([]afagent.Me
 	if err != nil {
 		return nil, err
 	}
-	return slices.Clone(t.transcript), nil
+	return cloneMessages(t.transcript), nil
 }
 
 func (m *Memory) Append(ctx context.Context, owner, id string, msgs ...afagent.Message) error {
@@ -82,7 +84,7 @@ func (m *Memory) Append(ctx context.Context, owner, id string, msgs ...afagent.M
 	if err != nil {
 		return err
 	}
-	t.transcript = append(t.transcript, msgs...)
+	t.transcript = append(t.transcript, cloneMessages(msgs)...)
 	t.t.Updated = time.Now()
 	return nil
 }
@@ -94,7 +96,7 @@ func (m *Memory) Replace(ctx context.Context, owner, id string, msgs []afagent.M
 	if err != nil {
 		return err
 	}
-	t.transcript = slices.Clone(msgs)
+	t.transcript = cloneMessages(msgs)
 	t.t.Updated = time.Now()
 	return nil
 }
@@ -127,7 +129,7 @@ func (m *Memory) Claim(ctx context.Context, owner, id string) ([]Incoming, error
 	var out []Incoming
 	for i := range t.inbox {
 		if t.inbox[i].Status == Queued {
-			t.inbox[i].Status = Started
+			t.inbox[i].Status, t.inbox[i].Claimed = Started, time.Now()
 			out = append(out, t.inbox[i])
 		}
 	}
@@ -150,6 +152,36 @@ func (m *Memory) Finish(ctx context.Context, owner, id string, ids []int64, fail
 		}
 	}
 	return nil
+}
+
+func (m *Memory) Reclaim(ctx context.Context, owner, id string, before time.Time) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, err := m.thread(owner, id)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for i := range t.inbox {
+		if t.inbox[i].Status == Started && t.inbox[i].Claimed.Before(before) {
+			t.inbox[i].Status = Queued
+			n++
+		}
+	}
+	return n, nil
+}
+
+// cloneMessages copies msgs, their tool calls and native payloads, so the
+// store and its callers share nothing they could change.
+func cloneMessages(msgs []afagent.Message) []afagent.Message {
+	out := slices.Clone(msgs)
+	for i := range out {
+		out[i].ToolCalls = slices.Clone(out[i].ToolCalls)
+		if n := out[i].Native; n != nil {
+			out[i].Native = &afagent.Native{Provider: n.Provider, Data: slices.Clone(n.Data)}
+		}
+	}
+	return out
 }
 
 // Inbox returns the thread's incoming messages, for tests.

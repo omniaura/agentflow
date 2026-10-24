@@ -714,7 +714,7 @@ res, err := afthread.Run(ctx, store, userID, threadID, func(ctx context.Context,
 })
 ```
 
-It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time.
+It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time. A worker that crashes mid-run leaves its messages started: call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run, to queue them again.
 
 ## Examples
 

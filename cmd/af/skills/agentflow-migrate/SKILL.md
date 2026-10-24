@@ -137,7 +137,8 @@ a worker that claims queued messages, runs the agent and saves the transcript, m
 `runtime/afthread`. Write an adapter: implement `afthread.Store` over the existing tables, with
 no data migration. The thread table's transcript backs `Transcript`, `Append` and `Replace`. The
 queue table's client message ID, status (queued, started, done, failed) and sequence back
-`Send`, `Claim` and `Finish`. Scope every query by the owner column. Run
+`Send`, `Claim`, `Finish` and `Reclaim` (a claimed-at column lets a restarted worker requeue
+what a crashed one left started). Scope every query by the owner column. Run
 `afthreadtest.Run` against a test database until it passes, then replace the worker's
 claim-run-save code with `afthread.Run`. Keep the queue's existing consumers working: the
 statuses map one to one.

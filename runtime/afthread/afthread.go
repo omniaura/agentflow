@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -66,6 +67,8 @@ type Incoming struct {
 	// Error is why a Failed message failed.
 	Error string
 	At    time.Time
+	// Claimed is when Claim last started it.
+	Claimed time.Time
 }
 
 // Store keeps threads in a database. Methods take the owner, and must not
@@ -90,6 +93,11 @@ type Store interface {
 	Claim(ctx context.Context, owner, id string) ([]Incoming, error)
 	// Finish marks started messages done, or failed with err.
 	Finish(ctx context.Context, owner, id string, ids []int64, err error) error
+	// Reclaim puts back in the queue the thread's messages claimed before
+	// before and never finished, as a worker that crashed mid-run leaves
+	// them, and returns how many. Call it with a lease longer than any run,
+	// such as when a worker starts.
+	Reclaim(ctx context.Context, owner, id string, before time.Time) (int, error)
 }
 
 // Message is what the agent sees of an incoming message: its text, marked
@@ -192,17 +200,12 @@ func finish(ctx context.Context, s Store, owner, id string, claimed []Incoming, 
 	return s.Finish(context.WithoutCancel(ctx), owner, id, ids, failure)
 }
 
-// sameStart reports whether msgs begins with prefix.
+// sameStart reports whether msgs begins with prefix, provider-native
+// payloads included.
 func sameStart(msgs, prefix []afagent.Message) bool {
 	for i := range prefix {
-		a, b := msgs[i], prefix[i]
-		if a.Role != b.Role || a.Content != b.Content || a.ToolCallID != b.ToolCallID || a.IsError != b.IsError || len(a.ToolCalls) != len(b.ToolCalls) {
+		if !reflect.DeepEqual(msgs[i], prefix[i]) {
 			return false
-		}
-		for j := range a.ToolCalls {
-			if a.ToolCalls[j] != b.ToolCalls[j] {
-				return false
-			}
 		}
 	}
 	return true
