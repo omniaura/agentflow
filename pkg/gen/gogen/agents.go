@@ -82,6 +82,9 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 		buf.WriteString("MaxTurns int\n")
 		buf.WriteString("// Concurrency is how many tool calls of a turn run at once.\nConcurrency int\n")
 		buf.WriteString("// OnEvent, when set, sees each model response and tool call. With\n// Concurrency above 1 it is called concurrently.\nOnEvent func(afagent.Event)\n")
+		if returns != nil {
+			fmt.Fprintf(buf, "// Check, when set, vets a decoded answer beyond its schema, such as\n// that it covers every input. Its error goes back to the model as\n// written, and the model answers again within MaxTurns.\nCheck func(ctx context.Context, out %sOutput) error\n", camel(returns.Name))
+		}
 		buf.WriteString("}\n\n")
 
 		fmt.Fprintf(buf, "// %sAgentTools describes the tools of the %s agent to the model.\n", name, a.Name)
@@ -122,7 +125,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 		} else {
 			schema := camel(returns.Name) + "Schema"
 			fmt.Fprintf(buf, "Output: &afagent.OutputSpec{Name: %s.Name, Description: %s.Description, Schema: %s.Schema},\n", schema, schema, schema)
-			fmt.Fprintf(buf, "Check: func(answer string) error {\n_, err := %s.Decode(answer)\nreturn err\n},\n", schema)
+			fmt.Fprintf(buf, "Check: func(answer string) error {\nout, err := %s.Decode(answer)\nif err == nil && a.Check != nil {\nerr = a.Check(ctx, out)\n}\nreturn err\n},\n", schema)
 			fmt.Fprintf(buf, "}\nres, err := loop.Run(ctx, messages)\nout := %s{Result: res}\nif err != nil {\nreturn out, err\n}\nout.Output, err = %s.Decode(res.Final)\nreturn out, err\n}\n\n", result, schema)
 		}
 

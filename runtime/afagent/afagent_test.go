@@ -212,7 +212,19 @@ func TestLoopCheckRejectsAnswer(t *testing.T) {
 func TestLoopCheckGivesUpAtMaxTurns(t *testing.T) {
 	model, _ := script(t, Message{Content: "no"}, Message{Content: "no"})
 	l := Loop{Model: model, MaxTurns: 2, Check: func(string) error { return errors.New("bad") }}
-	if _, err := l.Run(context.Background(), nil); !errors.Is(err, ErrMaxTurns) {
+	_, err := l.Run(context.Background(), nil)
+	if !errors.Is(err, ErrMaxTurns) || !strings.Contains(err.Error(), "the last answer was rejected: bad") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+// A run that ends on tool calls says nothing of an earlier rejection.
+func TestLoopMaxTurnsAfterToolsForgetsRejection(t *testing.T) {
+	model, _ := script(t, Message{Content: "no"}, Message{ToolCalls: []ToolCall{{ID: "1", Name: "x"}}})
+	l := Loop{Model: model, MaxTurns: 2, Check: func(string) error { return errors.New("bad") },
+		Dispatch: func(context.Context, ToolCall) (string, error) { return "ok", nil }}
+	_, err := l.Run(context.Background(), nil)
+	if !errors.Is(err, ErrMaxTurns) || strings.Contains(err.Error(), "rejected") {
 		t.Fatalf("got %v", err)
 	}
 }

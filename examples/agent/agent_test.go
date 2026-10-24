@@ -151,3 +151,43 @@ func TestTriagerGivesUpOnInvalidAnswers(t *testing.T) {
 		t.Fatalf("got %v after %d turns", err, res.Turns)
 	}
 }
+
+// Check vets what the schema can't: here, that a refund names its order.
+// The model sees the rejection in Check's words and answers again.
+func TestTriagerCheck(t *testing.T) {
+	model, seen := script(t,
+		afagent.Message{Content: `{"category":"refund","order_id":null,"urgent":false}`},
+		afagent.Message{Content: `{"category":"refund","order_id":"A-1","urgent":false}`},
+	)
+	var ctxs int
+	type key struct{}
+	agent := &TriagerAgent{Model: model, Tools: &shop{}, Check: func(ctx context.Context, out TriageOutput) error {
+		if ctx.Value(key{}) == "run" {
+			ctxs++
+		}
+		if out.Category == TriageCategoryRefund && out.OrderId == "" {
+			return errors.New("a refund needs the order_id")
+		}
+		return nil
+	}}
+	ctx := context.WithValue(context.Background(), key{}, "run")
+	res, err := agent.Run(ctx, &Support{Shop: "Acme"}, afagent.Message{Role: afagent.User, Content: "refund please"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Output.OrderId != "A-1" || res.Turns != 2 || ctxs != 2 {
+		t.Errorf("output %+v after %d turns, %d checks with the run's context", res.Output, res.Turns, ctxs)
+	}
+	if last := (*seen)[1].Messages; !strings.Contains(last[len(last)-1].Content, "a refund needs the order_id") {
+		t.Errorf("model was told %q", last[len(last)-1].Content)
+	}
+
+	// Answers Check keeps rejecting end the run with its reason.
+	model, _ = script(t, afagent.Message{Content: `{"category":"refund","order_id":null,"urgent":false}`},
+		afagent.Message{Content: `{"category":"refund","order_id":null,"urgent":false}`},
+		afagent.Message{Content: `{"category":"refund","order_id":null,"urgent":false}`})
+	agent.Model = model
+	if _, err := agent.Run(ctx, &Support{Shop: "Acme"}); !errors.Is(err, afagent.ErrMaxTurns) || !strings.Contains(err.Error(), "a refund needs the order_id") {
+		t.Fatalf("got %v", err)
+	}
+}

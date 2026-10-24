@@ -180,6 +180,10 @@ type TriagerAgent struct {
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
+	// Check, when set, vets a decoded answer beyond its schema, such as
+	// that it covers every input. Its error goes back to the model as
+	// written, and the model answers again within MaxTurns.
+	Check func(ctx context.Context, out TriageOutput) error
 }
 
 // TriagerAgentTools describes the tools of the triager agent to the model.
@@ -211,7 +215,10 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		Dispatch:    a.dispatch,
 		Output:      &afagent.OutputSpec{Name: TriageSchema.Name, Description: TriageSchema.Description, Schema: TriageSchema.Schema},
 		Check: func(answer string) error {
-			_, err := TriageSchema.Decode(answer)
+			out, err := TriageSchema.Decode(answer)
+			if err == nil && a.Check != nil {
+				err = a.Check(ctx, out)
+			}
 			return err
 		},
 	}
