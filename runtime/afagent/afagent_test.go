@@ -292,6 +292,12 @@ func TestLoopMaxToolCalls(t *testing.T) {
 	if res, err := l.Run(context.Background(), nil); !errors.Is(err, ErrMaxToolCalls) || res.ToolCalls != 1 {
 		t.Fatalf("calls after the budget: %v, %+v", err, res)
 	}
+	// Spent on the last turn: both limits report.
+	model, _ = script(t, calls("x"), Message{Content: "a"})
+	l = Loop{Model: model, MaxTurns: 2, Tools: tools, Dispatch: dispatch, MaxToolCalls: 1, AnswerOnLastTurn: true}
+	if res, err := l.Run(context.Background(), nil); err != nil || !res.OutOfToolCalls || !res.OutOfTurns {
+		t.Fatalf("both limits: %v, %+v", err, res)
+	}
 	// An answer within the budget isn't out of tool calls.
 	model, _ = script(t, calls("x"), Message{Content: "a"})
 	l = Loop{Model: model, Tools: tools, Dispatch: dispatch, MaxToolCalls: 5}

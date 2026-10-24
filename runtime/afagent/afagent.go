@@ -289,7 +289,8 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		res.Turns++
 		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
 		spent := l.MaxToolCalls > 0 && res.ToolCalls >= l.MaxToolCalls
-		req.NoToolCalls = len(l.Tools) > 0 && (spent || l.AnswerOnLastTurn && res.Turns == maxTurns)
+		last := l.AnswerOnLastTurn && res.Turns == maxTurns
+		req.NoToolCalls = len(l.Tools) > 0 && (spent || last)
 		// held is the turn's text while Check may still reject it. The
 		// mutex keeps a Model that breaks OnText's contract from racing.
 		var (
@@ -344,8 +345,9 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 				continue
 			}
 			res.Final = resp.Message.Content
+			// Both limits may hold on the last turn; each reports itself.
 			res.OutOfToolCalls = req.NoToolCalls && spent
-			res.OutOfTurns = req.NoToolCalls && !spent
+			res.OutOfTurns = req.NoToolCalls && last
 			return res, nil
 		}
 		if req.NoToolCalls && spent {
