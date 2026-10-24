@@ -696,6 +696,26 @@ agent := &SupportAgent{Model: model, Tools: impl}
 
 A call that already streamed text is never retried or sent to another model, so a client never sees an answer start twice. The SDKs also retry on their own; pass `option.WithMaxRetries(0)` when `Retry` should own the policy.
 
+### Threads in your database
+
+`runtime/afthread` keeps agents' conversations in a database, so any server can pick a thread up after a restart. That covers the threads, their transcripts, and an inbox of messages waiting for a thread's agent, sent by users or by other agents.
+
+`afthread.Store` is the interface to the database. agentflow assumes no schema: an adapter maps the store onto yours, such as a threads table with a transcript and a queue table of incoming messages. Send is idempotent by key, claims are race-safe, and every method is scoped by the thread's owner. `afthread.Memory` is a store for tests, and `afthreadtest.Run(t, newStore)` checks that an adapter behaves the same.
+
+`afthread.Run` is one step of a worker:
+
+```go
+store.Send(ctx, userID, threadID, afthread.Incoming{Key: clientMessageID, Content: text})
+
+res, err := afthread.Run(ctx, store, userID, threadID, func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+	agent := *support // a copy, so concurrent runs don't share BeforeTurn
+	agent.BeforeTurn = before
+	return agent.Run(ctx, system, msgs...)
+})
+```
+
+It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time. A worker that crashes mid-run leaves its messages started: call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run, to queue them again.
+
 ## Examples
 
 ### Basic Variables
