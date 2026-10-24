@@ -715,6 +715,25 @@ res, err := afthread.Run(ctx, store, userID, threadID, func(ctx context.Context,
 ```
 
 It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time. A worker that crashes mid-run leaves its messages started: call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run, to queue them again.
+### Compaction
+
+`runtime/afcompact` keeps an agent's conversation within its model's context window, with stages that run cheapest first:
+
+1. **`Microcompact`** clears older tool results down to a short head. Calls and their IDs stay, so the transcript stays well-formed. It's free and deterministic.
+2. **`Fold`** has a model summarize the older rounds into one message, keeping the first request and the latest rounds. It never cuts between a tool call and its result.
+
+`Compactor` runs these as an agent's `BeforeTurn`, only as far as needed:
+
+```go
+c := &afcompact.Compactor{
+	Budget:    150_000, // the model's window, less room for the system prompt, tools and answer
+	Summarize: afcompact.Summarize(cheapModel),
+	OnCompact: func(stage string, before, after int) { log.Printf("%s: %d -> %d tokens", stage, before, after) },
+}
+agent := &SupportAgent{Model: model, Tools: tools, BeforeTurn: c.BeforeTurn}
+```
+
+Past 80% of the budget, the compactor microcompacts, first keeping the 4 latest tool results whole, then only the latest. If that isn't enough, it folds, first keeping the 6 latest messages, then only the latest round. When even that leaves the conversation over budget, the turn fails with `afcompact.ErrOverBudget`. Sizes are estimated at four characters per token, so leave headroom. With threads, compact first and call `afthread.Run`'s `before` last, so the compacted conversation is what gets saved.
 
 ## Examples
 
