@@ -83,6 +83,16 @@ func sqlWords(sql string) []string {
 			} else {
 				i = len(sql)
 			}
+		case c == '$' && dollarTag(sql[i:]) != "":
+			// A dollar-quoted string, $$...$$ or $tag$...$tag$; $1 is a
+			// parameter.
+			flush()
+			delim := dollarTag(sql[i:])
+			if end := strings.Index(sql[i+len(delim):], delim); end >= 0 {
+				i += len(delim) + end + len(delim) - 1
+			} else {
+				i = len(sql)
+			}
 		case c == '\'' || c == '"':
 			flush()
 			// Skip to the closing quote; a doubled quote escapes one.
@@ -105,6 +115,22 @@ func sqlWords(sql string) []string {
 	return words
 }
 
+// dollarTag returns the opening delimiter of a dollar-quoted string at the
+// start of s, such as $$ or $body$, or "".
+func dollarTag(s string) string {
+	for j := 1; j < len(s); j++ {
+		c := s[j]
+		switch {
+		case c == '$':
+			return s[:j+1]
+		case c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= 0x80 || j > 1 && c >= '0' && c <= '9':
+		default:
+			return ""
+		}
+	}
+	return ""
+}
+
 // mayFindNone reports whether a query may find or change no row: anything
 // but a plain INSERT ... VALUES, which always returns its row. One with a
 // WHERE, a SELECT or ON CONFLICT may insert nothing.
@@ -113,7 +139,12 @@ func mayFindNone(sql string) bool {
 	if len(words) == 0 || words[0] != "INSERT" {
 		return true
 	}
-	return slices.Contains(words, "WHERE") || slices.Contains(words, "SELECT") || slices.Contains(words, "CONFLICT")
+	for i := 1; i < len(words); i++ {
+		if words[i-1] == "ON" && words[i] == "CONFLICT" {
+			return true
+		}
+	}
+	return slices.Contains(words, "WHERE") || slices.Contains(words, "SELECT")
 }
 
 // mayConflict reports whether a query may violate a unique constraint,

@@ -438,7 +438,7 @@ Ownership and state checks in the `WHERE` of an `UPDATE` or `DELETE` hold under 
 - the error responses `errs.Error` can return;
 - `@Security`, on authenticated routes, using the nearest `@securityDefinitions` above the file, or the module's only one.
 
-There's nothing to declare: annotations appear when the module uses swag.
+There's nothing to declare: annotations appear when the module uses swag. Error responses refer to go-kit's `errs.Error`, an external package, so run `swag init` with `--parseDependency`.
 
 **Writing the query in the route.** End a route with `.sql` and its sqlc command, and write the query below it. The endpoint and its SQL then live in one place:
 
