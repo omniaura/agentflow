@@ -8,12 +8,12 @@ import (
 )
 
 func TestParseAgent(t *testing.T) {
-	src := ".agent support\n.system Support Agent\n.tools lookup_order, offer_refund\n.maxturns 8\n.returns verdict\nAnswers questions.\n\n.agent bare\n"
+	src := ".agent support\n.system Support Agent\n.tools lookup_order, offer_refund\n.maxturns 8\n.returns verdict\n.serve POST /support/chat\nAnswers questions.\n\n.agent bare\n"
 	f, err := Parse([]byte(src))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Agent{Name: "support", System: "Support Agent", Tools: []string{"lookup_order", "offer_refund"}, MaxTurns: 8, Returns: "verdict", Description: "Answers questions.", End: strings.Index(src, ".agent bare")}
+	want := Agent{Name: "support", System: "Support Agent", Tools: []string{"lookup_order", "offer_refund"}, MaxTurns: 8, Returns: "verdict", ServeMethod: "POST", ServePath: "/support/chat", Description: "Answers questions.", End: strings.Index(src, ".agent bare")}
 	if len(f.Agents) != 2 || !reflect.DeepEqual(*f.Agents[0], want) {
 		t.Fatalf("got %+v\nwant %+v", f.Agents[0], want)
 	}
@@ -34,6 +34,8 @@ func TestParseAgentErrors(t *testing.T) {
 		{".agent a\n.tools x, x\n", ".tools lists x twice"},
 		{".agent a\n.maxturns 0\n", ".maxturns needs a positive integer"},
 		{".agent a\n.returns\n", ".returns needs the name of an .output"},
+		{".agent a\n.serve GET /x\n", ".serve needs POST or PUT and a path"},
+		{".agent a\n.serve POST x\n", ".serve needs POST or PUT and a path"},
 		{".agent a\n.returns two words\n", ".returns needs the name of an .output"},
 		{".agent a\n.agent a\n", `agent "a" is declared twice`},
 	} {

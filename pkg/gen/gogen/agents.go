@@ -136,6 +136,9 @@ func genAgents(buf *bytes.Buffer, f ast.File, imports map[string]bool) error {
 			}
 			buf.WriteString("}\nreturn \"\", fmt.Errorf(\"there is no tool named %q\", call.Name)\n}\n\n")
 		}
+		if a.ServePath != "" {
+			genAgentServer(buf, a, name, system, returns, imports)
+		}
 	}
 	return nil
 }
@@ -212,4 +215,76 @@ func agentTools(f ast.File, a *decl.Agent) ([]*decl.Tool, error) {
 		out = append(out, f.Tools[i])
 	}
 	return out, nil
+}
+
+// genAgentServer writes <Name>AgentServer, which serves an agent with
+// .serve over HTTP. The client sends only its new message: the system
+// prompt's values and the conversation so far come from Prepare, on the
+// server, so a client can't forge the model's or a tool's messages.
+func genAgentServer(buf *bytes.Buffer, a *decl.Agent, name, system string, returns *decl.Tool, imports map[string]bool) {
+	imports["net/http"] = true
+	imports["errors"] = true
+	imports[AfhttpImport] = true
+	route := a.ServeMethod + " " + a.ServePath
+	server := name + "AgentServer"
+
+	fmt.Fprintf(buf, "// %sAgentRequest is the body of %s.\n", name, route)
+	fmt.Fprintf(buf, "type %sAgentRequest struct {\n// Message is the user's new message.\nMessage string `json:\"message\"`\n}\n\n", name)
+	fmt.Fprintf(buf, "// %sAgentResponse is the answer to %s.\n", name, route)
+	fmt.Fprintf(buf, "type %sAgentResponse struct {\n", name)
+	if returns != nil {
+		fmt.Fprintf(buf, "Output %sOutput `json:\"output\"`\n", camel(returns.Name))
+	} else {
+		buf.WriteString("Answer string `json:\"answer\"`\n")
+	}
+	buf.WriteString("Usage afagent.Usage `json:\"usage\"`\n}\n\n")
+
+	result := "afagent.Result"
+	if returns != nil {
+		result = name + "AgentResult"
+	}
+	fmt.Fprintf(buf, "// %s serves the %s agent at %s. Set its fields, then call\n// Register.\n", server, a.Name, route)
+	fmt.Fprintf(buf, "type %s struct {\nAgent *%sAgent\n", server, name)
+	buf.WriteString("// Prepare authenticates the request and returns ")
+	if system != "" {
+		buf.WriteString("the system prompt and ")
+	}
+	buf.WriteString("the\n// conversation so far, which the new message continues. An error\n// fails the request with its *afhttp.Error status, or 500; wrap\n// authentication failures with afhttp.Unauthorized.\n")
+	if system != "" {
+		fmt.Fprintf(buf, "Prepare func(r *http.Request) (*%s, []afagent.Message, error)\n", system)
+	} else {
+		buf.WriteString("Prepare func(r *http.Request) ([]afagent.Message, error)\n")
+	}
+	fmt.Fprintf(buf, "// Done, when set, runs after a successful run, to store the\n// conversation (res.Messages) for the next request.\nDone func(r *http.Request, res %s) error\n", result)
+	buf.WriteString("// MaxBytes caps the request body; 0 means 1 MiB.\nMaxBytes int64\n")
+	buf.WriteString("// OnError writes a failed request's error; nil means afhttp.WriteError.\nOnError func(w http.ResponseWriter, r *http.Request, err error)\n}\n\n")
+
+	fmt.Fprintf(buf, "// Register adds %s to mux.\nfunc (s *%s) Register(mux *http.ServeMux) {\nmux.HandleFunc(%q, s.serve)\n}\n\n", route, server, route)
+
+	fmt.Fprintf(buf, "func (s *%s) fail(w http.ResponseWriter, r *http.Request, err error) {\nif s.OnError != nil {\ns.OnError(w, r, err)\nreturn\n}\nafhttp.WriteError(w, r, err)\n}\n\n", server)
+
+	fmt.Fprintf(buf, "func (s *%s) serve(w http.ResponseWriter, r *http.Request) {\n", server)
+	if system != "" {
+		buf.WriteString("system, history, err := s.Prepare(r)\n")
+	} else {
+		buf.WriteString("history, err := s.Prepare(r)\n")
+	}
+	buf.WriteString("if err != nil {\ns.fail(w, r, err)\nreturn\n}\n")
+	fmt.Fprintf(buf, "maxBytes := s.MaxBytes\nif maxBytes <= 0 {\nmaxBytes = 1 << 20\n}\nvar body %sAgentRequest\nif err := afhttp.DecodeBody(w, r, maxBytes, &body); err != nil {\ns.fail(w, r, err)\nreturn\n}\n", name)
+	buf.WriteString("if body.Message == \"\" {\ns.fail(w, r, afhttp.Errorf(http.StatusBadRequest, \"message is required\"))\nreturn\n}\n")
+	buf.WriteString("messages := append(history[:len(history):len(history)], afagent.Message{Role: afagent.User, Content: body.Message})\n")
+	if system != "" {
+		buf.WriteString("res, err := s.Agent.Run(r.Context(), system, messages...)\n")
+	} else {
+		buf.WriteString("res, err := s.Agent.Run(r.Context(), messages...)\n")
+	}
+	buf.WriteString("if err != nil {\n")
+	buf.WriteString("if errors.Is(err, afagent.ErrMaxTurns) || errors.Is(err, afagent.ErrTruncated) || errors.Is(err, afagent.ErrRefused) {\n")
+	buf.WriteString("// The model, not the server, failed.\nerr = &afhttp.Error{Status: http.StatusBadGateway, Msg: \"the model could not answer\", Err: err}\n}\ns.fail(w, r, err)\nreturn\n}\n")
+	buf.WriteString("if s.Done != nil {\nif err := s.Done(r, res); err != nil {\ns.fail(w, r, err)\nreturn\n}\n}\n")
+	if returns != nil {
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, http.StatusOK, %sAgentResponse{Output: res.Output, Usage: res.Usage})\n}\n\n", name)
+	} else {
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, http.StatusOK, %sAgentResponse{Answer: res.Final, Usage: res.Usage})\n}\n\n", name)
+	}
 }
