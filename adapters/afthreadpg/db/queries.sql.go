@@ -37,6 +37,56 @@ func (q *Queries) AddEvent(ctx context.Context, arg AddEventParams) (AfRunEvent,
 	return i, err
 }
 
+const agentThread = `-- name: AgentThread :one
+SELECT id FROM af_threads
+WHERE owner = $1 AND agent = $2
+ORDER BY created_at, id
+LIMIT 1
+`
+
+type AgentThreadParams struct {
+	Owner string
+	Agent string
+}
+
+func (q *Queries) AgentThread(ctx context.Context, arg AgentThreadParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, agentThread, arg.Owner, arg.Agent)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const agents = `-- name: Agents :many
+SELECT DISTINCT ON (agent) agent, title FROM af_threads
+WHERE owner = $1 AND agent <> ''
+ORDER BY agent, created_at, id
+`
+
+type AgentsRow struct {
+	Agent string
+	Title string
+}
+
+func (q *Queries) Agents(ctx context.Context, owner string) ([]AgentsRow, error) {
+	rows, err := q.db.Query(ctx, agents, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgentsRow
+	for rows.Next() {
+		var i AgentsRow
+		if err := rows.Scan(&i.Agent, &i.Title); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const claim = `-- name: Claim :many
 UPDATE af_inbox SET status = 'started', claimed_at = now()
 WHERE id IN (

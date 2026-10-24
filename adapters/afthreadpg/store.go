@@ -28,15 +28,17 @@ import (
 	"github.com/omniaura/agentflow/runtime/afthread"
 )
 
-// Store is an afthread.Store, and afthread.Runs, over Postgres.
+// Store is an afthread.Store, afthread.Runs and afthread.Directory over
+// Postgres. An agent's messages go to the owner's oldest thread for it.
 type Store struct {
 	pool *pgxpool.Pool
 	q    *db.Queries
 }
 
 var (
-	_ afthread.Store = (*Store)(nil)
-	_ afthread.Runs  = (*Store)(nil)
+	_ afthread.Store     = (*Store)(nil)
+	_ afthread.Runs      = (*Store)(nil)
+	_ afthread.Directory = (*Store)(nil)
 )
 
 // New returns a Store on pool, whose database has the migrations applied.
@@ -333,4 +335,27 @@ func (s *Store) EndRun(ctx context.Context, owner, run string, end afthread.RunE
 		InputTokens: int64(end.Usage.InputTokens), CachedInputTokens: int64(end.Usage.CachedInputTokens), OutputTokens: int64(end.Usage.OutputTokens),
 		Error: end.Error, ID: u,
 	})
+}
+
+func (s *Store) AgentThread(ctx context.Context, owner, agent string) (string, error) {
+	id, err := s.q.AgentThread(ctx, db.AgentThreadParams{Owner: owner, Agent: agent})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", afthread.ErrNoAgent
+	}
+	if err != nil {
+		return "", err
+	}
+	return id.String(), nil
+}
+
+func (s *Store) Agents(ctx context.Context, owner string) ([]afthread.AgentInfo, error) {
+	rows, err := s.q.Agents(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]afthread.AgentInfo, len(rows))
+	for i, r := range rows {
+		out[i] = afthread.AgentInfo{Name: r.Agent, Description: r.Title}
+	}
+	return out, nil
 }

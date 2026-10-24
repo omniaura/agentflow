@@ -82,3 +82,14 @@ UPDATE af_runs SET status = @status, ended_at = now(), turns = @turns, tool_call
     input_tokens = @input_tokens, cached_input_tokens = @cached_input_tokens,
     output_tokens = @output_tokens, error = @error
 WHERE id = @id;
+
+-- name: AgentThread :one
+SELECT id FROM af_threads
+WHERE owner = @owner AND agent = @agent
+ORDER BY created_at, id
+LIMIT 1;
+
+-- name: Agents :many
+SELECT DISTINCT ON (agent) agent, title FROM af_threads
+WHERE owner = @owner AND agent <> ''
+ORDER BY agent, created_at, id;
