@@ -28,6 +28,30 @@ func TestEstimate(t *testing.T) {
 	}
 }
 
+// A native payload, such as Claude's content blocks with thinking, counts
+// when it is larger than the text.
+func TestEstimateNative(t *testing.T) {
+	plain := afagent.Message{Role: afagent.Assistant, Content: "ok"}
+	native := plain
+	native.Native = &afagent.Native{Provider: "anthropic", Data: []byte(`[{"type":"thinking","thinking":"` + strings.Repeat("t", 4000) + `"}]`)}
+	if a, b := afcompact.Estimate([]afagent.Message{plain}), afcompact.Estimate([]afagent.Message{native}); b < a+900 {
+		t.Fatalf("plain %d, native %d", a, b)
+	}
+}
+
+// At above 1 still compacts before declaring the conversation over budget.
+func TestCompactorAtAboveOne(t *testing.T) {
+	long := strings.Repeat("x", 2000)
+	msgs := []afagent.Message{user("go")}
+	for _, id := range []string{"1", "2", "3"} {
+		msgs = append(msgs, round(id, long)...)
+	}
+	c := &afcompact.Compactor{Budget: afcompact.Estimate(msgs) - 10, At: 1.5}
+	if _, err := c.BeforeTurn(context.Background(), 1, msgs); err != nil {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestMicrocompact(t *testing.T) {
 	long := strings.Repeat("é", 500)
 	msgs := []afagent.Message{user("go")}

@@ -30,12 +30,18 @@ var ErrOverBudget = errors.New("afcompact: the conversation is over its context 
 // CharsPerToken is how Estimate turns characters into tokens.
 const CharsPerToken = 4
 
-// Estimate returns the approximate tokens of msgs: their text, tool call
-// arguments and names, by CharsPerToken.
+// Estimate returns the approximate tokens of msgs: their text, or their
+// provider-native payload when that is larger (it holds the text, and may
+// hold more, such as thinking blocks), and tool call names and arguments,
+// by CharsPerToken.
 func Estimate(msgs []afagent.Message) int {
 	chars := 0
 	for _, m := range msgs {
-		chars += utf8.RuneCountInString(m.Content) + 4
+		text := utf8.RuneCountInString(m.Content)
+		if m.Native != nil {
+			text = max(text, utf8.RuneCount(m.Native.Data))
+		}
+		chars += text + 4
 		for _, c := range m.ToolCalls {
 			chars += utf8.RuneCountInString(c.Name) + utf8.RuneCountInString(c.Arguments) + 4
 		}
@@ -123,7 +129,8 @@ type Compactor struct {
 	// Budget is the tokens the conversation may take, below the model's
 	// window by room for the system prompt, tools and answer.
 	Budget int
-	// At is the share of Budget past which it compacts; 0 means 0.8.
+	// At is the share of Budget past which it compacts; 0 means 0.8, and
+	// it is at most 1.
 	At float64
 	// KeepResults is how many tool results Microcompact leaves whole, and
 	// KeepMessages how many recent messages Fold keeps, at first; 0 means 4
@@ -145,8 +152,12 @@ type Compactor struct {
 // ErrOverBudget when the result still exceeds Budget.
 func (c *Compactor) BeforeTurn(ctx context.Context, turn int, msgs []afagent.Message) ([]afagent.Message, error) {
 	at := c.At
-	if at == 0 {
+	switch {
+	case at <= 0:
 		at = 0.8
+	case at > 1:
+		// Past Budget is over budget: compact by then at the latest.
+		at = 1
 	}
 	limit := int(float64(c.Budget) * at)
 	size := Estimate(msgs)
