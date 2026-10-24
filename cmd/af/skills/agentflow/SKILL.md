@@ -200,6 +200,7 @@ Answers customer questions about their orders.
   returns the prompt values and the stored history, and `Done` stores `res.Messages`.
   Never accept history from the client. Clients sending `Accept: text/event-stream` get
   `text`, `tool_called`, `tool_returned`, `answer_rejected`, then `done` or `error` events.
+  With `.returns`, `text` carries the JSON answer only after it passes the schema check.
   Don't hand-write SSE plumbing for an agent endpoint.
 - Run it with `(&SupportAgent{Model: m, Tools: impl}).Run(ctx, &Support{Shop: "Acme"},
   afagent.Message{Role: afagent.User, Content: q})`. `res.Final` is the answer.

@@ -130,6 +130,8 @@ const (
 	AnswerRejected EventKind = "answer_rejected"
 	// TextDelta carries text as the model writes it, in Text, when the
 	// model streams. ModelResponded still follows with the whole message.
+	// With Check set, a final answer's text is held until it passes, and
+	// dropped if it fails: clients never see a rejected answer.
 	TextDelta EventKind = "text_delta"
 )
 
@@ -144,7 +146,7 @@ type Event struct {
 	Result string
 	// Text is a TextDelta's text.
 	Text string
-	Err    error
+	Err  error
 }
 
 // Result is a finished run.
@@ -211,9 +213,18 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		}
 		res.Turns++
 		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
+		// held is the turn's text while Check may still reject it.
+		var held []Event
 		if l.OnEvent != nil {
 			turn := res.Turns
-			req.OnText = func(text string) { l.emit(Event{Kind: TextDelta, Turn: turn, Text: text}) }
+			req.OnText = func(text string) {
+				e := Event{Kind: TextDelta, Turn: turn, Text: text}
+				if l.Check != nil {
+					held = append(held, e)
+					return
+				}
+				l.emit(e)
+			}
 		}
 		resp, err := l.Model.Complete(ctx, req)
 		if err != nil {
@@ -222,14 +233,22 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		resp.Message.Role = Assistant
 		res.Usage.add(resp.Usage)
 		res.Messages = append(res.Messages, resp.Message)
+		final := len(resp.Message.ToolCalls) == 0
+		var rejected error
+		if final && l.Check != nil {
+			rejected = l.Check(resp.Message.Content)
+		}
+		if rejected == nil {
+			for _, e := range held {
+				l.emit(e)
+			}
+		}
 		l.emit(Event{Kind: ModelResponded, Turn: res.Turns, Response: &resp})
-		if len(resp.Message.ToolCalls) == 0 {
-			if l.Check != nil {
-				if err := l.Check(resp.Message.Content); err != nil {
-					l.emit(Event{Kind: AnswerRejected, Turn: res.Turns, Err: err})
-					res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", err)})
-					continue
-				}
+		if final {
+			if rejected != nil {
+				l.emit(Event{Kind: AnswerRejected, Turn: res.Turns, Err: rejected})
+				res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected)})
+				continue
 			}
 			res.Final = resp.Message.Content
 			return res, nil
@@ -308,8 +327,14 @@ func ClientEvent(e Event) (name string, data any, ok bool) {
 	case TextDelta:
 		return "text", map[string]string{"text": e.Text}, true
 	case ToolCalled:
+		if e.Call == nil {
+			return "", nil, false
+		}
 		return "tool_called", map[string]string{"name": e.Call.Name}, true
 	case ToolReturned:
+		if e.Call == nil {
+			return "", nil, false
+		}
 		return "tool_returned", map[string]any{"name": e.Call.Name, "failed": e.Err != nil}, true
 	case AnswerRejected:
 		return "answer_rejected", struct{}{}, true

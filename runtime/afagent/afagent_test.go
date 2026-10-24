@@ -267,4 +267,59 @@ func TestClientEventKeepsToolDataOnTheServer(t *testing.T) {
 	if _, _, ok := ClientEvent(Event{Kind: ModelResponded}); ok {
 		t.Error("model responses are not client events")
 	}
+	for _, k := range []EventKind{ToolCalled, ToolReturned} {
+		if _, _, ok := ClientEvent(Event{Kind: k}); ok {
+			t.Errorf("%s without a call is a client event", k)
+		}
+	}
+}
+
+// With Check set, an answer's text reaches OnEvent only once it passes:
+// a rejected answer is never shown. Text beside tool calls isn't an
+// answer, so it isn't held back by Check.
+func TestLoopHoldsTextUntilCheckPasses(t *testing.T) {
+	turns := []struct {
+		deltas []string
+		msg    Message
+	}{
+		{[]string{"Looking"}, Message{Content: "Looking", ToolCalls: []ToolCall{{ID: "1", Name: "noop", Arguments: "{}"}}}},
+		{[]string{"bad ", "answer"}, Message{Content: "bad answer"}},
+		{[]string{"good"}, Message{Content: "good"}},
+	}
+	n := 0
+	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		tt := turns[n]
+		n++
+		for _, d := range tt.deltas {
+			req.OnText(d)
+		}
+		return Response{Message: tt.msg}, nil
+	})
+	var got []string
+	l := Loop{
+		Model:    model,
+		Dispatch: func(context.Context, ToolCall) (string, error) { return "ok", nil },
+		Check: func(answer string) error {
+			if answer != "good" {
+				return errors.New("not good")
+			}
+			return nil
+		},
+		OnEvent: func(e Event) {
+			switch e.Kind {
+			case TextDelta:
+				got = append(got, fmt.Sprintf("%d:%s", e.Turn, e.Text))
+			case ModelResponded, AnswerRejected:
+				got = append(got, fmt.Sprintf("%d:%s", e.Turn, e.Kind))
+			}
+		},
+	}
+	res, err := l.Run(context.Background(), nil)
+	if err != nil || res.Final != "good" {
+		t.Fatalf("final %q, err %v", res.Final, err)
+	}
+	want := "1:Looking,1:model_responded,2:model_responded,2:answer_rejected,3:good,3:model_responded"
+	if strings.Join(got, ",") != want {
+		t.Errorf("events\n got %s\nwant %s", strings.Join(got, ","), want)
+	}
 }

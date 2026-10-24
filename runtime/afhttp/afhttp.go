@@ -195,17 +195,34 @@ func ParseQuery(r *http.Request, name string, v any) error {
 }
 
 // WantsEventStream reports whether the client asked for a server-sent
-// event stream with Accept: text/event-stream.
+// event stream with Accept: text/event-stream, and didn't refuse it with
+// q=0.
 func WantsEventStream(r *http.Request) bool {
 	for _, v := range r.Header.Values("Accept") {
 		for _, part := range strings.Split(v, ",") {
-			mt, _, _ := strings.Cut(strings.TrimSpace(part), ";")
-			if strings.EqualFold(strings.TrimSpace(mt), "text/event-stream") {
+			mt, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+			if strings.EqualFold(strings.TrimSpace(mt), "text/event-stream") && quality(params) > 0 {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// quality is the q parameter of a media range's params: 1 when absent, 0
+// when malformed.
+func quality(params string) float64 {
+	for _, p := range strings.Split(params, ";") {
+		name, value, _ := strings.Cut(strings.TrimSpace(p), "=")
+		if strings.EqualFold(strings.TrimSpace(name), "q") {
+			q, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+			if err != nil || q < 0 || q > 1 {
+				return 0
+			}
+			return q
+		}
+	}
+	return 1
 }
 
 // EventStream writes server-sent events. Its methods are safe to call from

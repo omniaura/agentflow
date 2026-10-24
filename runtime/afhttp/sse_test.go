@@ -12,10 +12,15 @@ import (
 
 func TestWantsEventStream(t *testing.T) {
 	for accept, want := range map[string]bool{
-		"text/event-stream":                         true,
-		"application/json, Text/Event-Stream;q=0.9": true,
-		"application/json":                          false,
-		"":                                          false,
+		"text/event-stream":                          true,
+		"application/json, Text/Event-Stream;q=0.9":  true,
+		"text/event-stream; charset=utf-8":           true,
+		"text/event-stream;q=0":                      false,
+		"text/event-stream; Q=0.0, application/json": false,
+		"text/event-stream;q=x":                      false,
+		"text/event-stream;q=0, text/event-stream":   true,
+		"application/json":                           false,
+		"":                                           false,
 	} {
 		r := httptest.NewRequest("POST", "/", nil)
 		if accept != "" {

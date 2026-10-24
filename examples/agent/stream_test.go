@@ -51,21 +51,28 @@ func postStream(t *testing.T, url, body string) *http.Response {
 }
 
 func TestServeStreams(t *testing.T) {
-	// The model writes its answer in two pieces and waits in between until
-	// the client has seen the first: events must reach it as they happen.
+	// The model's second turn waits until the client has seen the tool
+	// events: events must reach it as they happen. That turn streams an
+	// answer .returns rejects, whose text the client must never see; the
+	// third streams the accepted answer.
 	seen := make(chan struct{})
 	turn := 0
 	model := afagent.ModelFunc(func(ctx context.Context, req afagent.Request) (afagent.Response, error) {
 		turn++
-		if turn == 1 {
+		switch turn {
+		case 1:
 			return afagent.Response{Message: afagent.Message{ToolCalls: []afagent.ToolCall{call("1", "lookup_order", `{"order_id":"A-1"}`)}}}, nil
+		case 2:
+			select {
+			case <-seen:
+			case <-time.After(5 * time.Second):
+				return afagent.Response{}, fmt.Errorf("the client never saw the tool events: the stream is buffered")
+			}
+			req.OnText(`{"category":"bogus",`)
+			req.OnText(`"order_id":"A-1","urgent":true}`)
+			return afagent.Response{Message: afagent.Message{Content: `{"category":"bogus","order_id":"A-1","urgent":true}`}}, nil
 		}
 		req.OnText(`{"category":"refund",`)
-		select {
-		case <-seen:
-		case <-time.After(5 * time.Second):
-			return afagent.Response{}, fmt.Errorf("the client never saw the first text event: the stream is buffered")
-		}
 		req.OnText(`"order_id":"A-1","urgent":true}`)
 		return afagent.Response{Message: afagent.Message{Content: `{"category":"refund","order_id":"A-1","urgent":true}`}, Usage: afagent.Usage{InputTokens: 7}}, nil
 	})
@@ -86,7 +93,7 @@ func TestServeStreams(t *testing.T) {
 	var got []string
 	for e := range readEvents(t, resp) {
 		got = append(got, e.name+" "+e.data)
-		if e.name == "text" && len(got) > 0 && strings.Contains(e.data, "category") {
+		if e.name == "tool_returned" {
 			close(seen)
 		}
 		if e.name == "done" {
@@ -99,10 +106,11 @@ func TestServeStreams(t *testing.T) {
 	want := []string{
 		`tool_called {"name":"lookup_order"}`,
 		`tool_returned {"failed":false,"name":"lookup_order"}`,
+		`answer_rejected {}`,
 		`text {"text":"{\"category\":\"refund\","}`,
 		`text {"text":"\"order_id\":\"A-1\",\"urgent\":true}"}`,
 	}
-	if len(got) != 5 || strings.Join(got[:4], "\n") != strings.Join(want, "\n") || !strings.HasPrefix(got[4], "done ") {
+	if len(got) != 6 || strings.Join(got[:5], "\n") != strings.Join(want, "\n") || !strings.HasPrefix(got[5], "done ") {
 		t.Errorf("events:\n%s", strings.Join(got, "\n"))
 	}
 	// The agent's own OnEvent still ran, and the shared agent is untouched.
