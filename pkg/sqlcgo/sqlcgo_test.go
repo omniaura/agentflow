@@ -150,3 +150,28 @@ func TestFindErrors(t *testing.T) {
 		t.Fatalf("Lookup = %v", err)
 	}
 }
+
+func TestQueryWrites(t *testing.T) {
+	for _, tt := range []struct {
+		kind Kind
+		sql  string
+		want bool
+	}{
+		{One, "-- name: GetUser :one\nSELECT * FROM users WHERE id = $1", false},
+		{Many, "-- name: ListUsers :many\n/* all */ select id, updated_at, deleted FROM users", false},
+		{One, "-- name: BanUser :one\nUPDATE users SET banned = true RETURNING id", true},
+		{One, "-- name: CreateUser :one\n-- a comment\n  insert INTO users DEFAULT VALUES RETURNING id", true},
+		{Many, "-- name: Purge :many\nDELETE FROM users RETURNING id", true},
+		{One, "-- name: Move :one\nWITH moved AS (DELETE FROM a RETURNING *) INSERT INTO b SELECT * FROM moved RETURNING id", true},
+		{One, "-- name: Recent :one\nWITH r AS (SELECT * FROM users ORDER BY id DESC LIMIT 1) SELECT id FROM r", false},
+		// Locking rows is not writing them.
+		{One, "-- name: Lock :one\nWITH r AS (SELECT id FROM users WHERE id = $1 FOR UPDATE) SELECT id FROM r", false},
+		{One, "-- name: LockNoKey :one\nWITH r AS (SELECT id FROM users FOR NO KEY UPDATE) SELECT id FROM r", false},
+		{Exec, "-- name: Touch :exec\nSELECT touch($1)", true},
+		{ExecRows, "-- name: Count :execrows\nSELECT 1", true},
+	} {
+		if got := (&Query{Kind: tt.kind, SQL: tt.sql}).Writes(); got != tt.want {
+			t.Errorf("%q: got %v", tt.sql, got)
+		}
+	}
+}

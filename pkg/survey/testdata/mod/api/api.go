@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"example.com/mod/audit"
 	"example.com/mod/db"
 	"github.com/openai/openai-go"
 )
@@ -40,6 +41,33 @@ func (s *Server) Ban(w http.ResponseWriter, r *http.Request) {
 func (s *Server) CreateThenRead(w http.ResponseWriter, r *http.Request) {
 	s.q.CreateUser(r.Context())
 	s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+}
+
+// Either reads or writes, never both: not a check.
+func (s *Server) Either(w http.ResponseWriter, r *http.Request) {
+	if r.Method == "GET" {
+		s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	} else {
+		s.q.BanUser(r.Context(), 1)
+	}
+}
+
+// EitherCase reads or writes by case: not a check either.
+func (s *Server) EitherCase(w http.ResponseWriter, r *http.Request) {
+	switch r.URL.Path {
+	case "/a":
+		s.q.GetUser(r.Context(), db.GetUserParams{ID: 2})
+	default:
+		s.q.BanUser(r.Context(), 2)
+	}
+}
+
+// Audited reads db.GetUser, then writes audit.GetUser: the Params type
+// says which package each call is.
+func (s *Server) Audited(w http.ResponseWriter, r *http.Request) {
+	var a *audit.Queries
+	s.q.GetUser(r.Context(), db.GetUserParams{ID: 1})
+	a.GetUser(r.Context(), audit.GetUserParams{ID: 1})
 }
 
 // Transfer needs its transaction: not one statement.

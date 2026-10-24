@@ -18,8 +18,10 @@ INSERT INTO users DEFAULT VALUES RETURNING id`
 
 func (q *Queries) CreateUser(ctx context.Context) (int64, error) { return 0, nil }
 
-const banUser = `-- name: BanUser :execrows
-UPDATE users SET banned = true WHERE id = $1`
+// BanUser writes with :one, under a name no verb list would know.
+const banUser = `-- name: BanUser :one
+-- Bans a user.
+UPDATE users SET banned = true WHERE id = $1 RETURNING id`
 
 func (q *Queries) BanUser(ctx context.Context, id int64) (int64, error) { return 0, nil }
 

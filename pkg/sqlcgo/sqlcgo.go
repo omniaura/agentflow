@@ -75,6 +75,33 @@ type Query struct {
 	// File and Line locate the query's method in sqlc's output.
 	File string
 	Line int
+	// SQL is the query's text, as sqlc's output holds it.
+	SQL string
+}
+
+var (
+	sqlCommentRE = regexp.MustCompile(`(?s)--[^\n]*|/\*.*?\*/`)
+	sqlWordRE    = regexp.MustCompile(`(?i)\b(insert|update|delete|merge)\b`)
+	sqlLockRE    = regexp.MustCompile(`(?i)\bfor\s+(no\s+key\s+)?update\b`)
+)
+
+// Writes reports whether q changes rows: an :exec or :execrows query, or
+// SQL that is, or whose WITH clause holds, an INSERT, UPDATE, DELETE or
+// MERGE.
+func (q *Query) Writes() bool {
+	if q.Kind != One && q.Kind != Many {
+		return true
+	}
+	sql := strings.TrimSpace(sqlCommentRE.ReplaceAllString(q.SQL, " "))
+	first, _, _ := strings.Cut(sql, " ")
+	switch strings.ToUpper(strings.TrimSpace(first)) {
+	case "INSERT", "UPDATE", "DELETE", "MERGE":
+		return true
+	case "WITH":
+		// A data-modifying CTE; FOR UPDATE only locks rows.
+		return sqlWordRE.MatchString(sqlLockRE.ReplaceAllString(sql, " "))
+	}
+	return false
 }
 
 // Package is one sqlc-generated Go package.
@@ -323,6 +350,7 @@ func LoadPackage(dir string) (*Package, error) {
 	}
 	p := &Package{Dir: dir, ImportPath: importPath, Queries: map[string]*Query{}}
 	kinds := map[string]Kind{}
+	sqls := map[string]string{}
 	structs := map[string]*ast.StructType{}
 	type method struct {
 		decl *ast.FuncDecl
@@ -358,6 +386,7 @@ func LoadPackage(dir string) (*Package, error) {
 							if lit, ok := v.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 								if m := nameRE.FindStringSubmatch(lit.Value); m != nil {
 									kinds[m[1]] = Kind(m[2])
+									sqls[m[1]], _ = strconv.Unquote(lit.Value)
 								}
 							}
 						}
@@ -381,7 +410,7 @@ func LoadPackage(dir string) (*Package, error) {
 			continue
 		}
 		pos := fset.Position(m.decl.Name.Pos())
-		query := &Query{Name: name, Kind: kind, File: pos.Filename, Line: pos.Line}
+		query := &Query{Name: name, Kind: kind, File: pos.Filename, Line: pos.Line, SQL: sqls[name]}
 		params := m.decl.Type.Params.List[1:]
 		switch {
 		case len(params) == 0:
