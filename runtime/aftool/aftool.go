@@ -70,8 +70,11 @@ type Shape struct {
 	// Items is the element shape of an Array.
 	Items *Shape
 	// Fields are the properties of an Object. An Object with no Fields
-	// accepts any properties.
+	// accepts any properties, unless it is Closed.
 	Fields []Field
+	// Closed makes an Object with no Fields accept no properties, as a
+	// tool that takes no arguments.
+	Closed bool
 }
 
 // Task is the argument of an agent called as another agent's tool: the
@@ -106,7 +109,7 @@ var (
 		Name:        "list_agents",
 		Description: "List the agents you can message, with what each does.",
 		Schema:      []byte(`{"type":"object","properties":{},"additionalProperties":false}`),
-		Shape:       Shape{Kind: Object, Fields: []Field{}},
+		Shape:       Shape{Kind: Object, Closed: true},
 	}
 )
 
@@ -289,7 +292,7 @@ func (d checker) check(raw json.RawMessage, s Shape, path string) error {
 		if raw[0] != '{' || json.Unmarshal(raw, &props) != nil {
 			return d.fail(path, "expected an object, got "+jsonType(raw))
 		}
-		if len(s.Fields) == 0 {
+		if len(s.Fields) == 0 && !s.Closed {
 			return nil
 		}
 		for name := range props {
