@@ -4,10 +4,13 @@ package agentdeclarations
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
+	"github.com/omniaura/agentflow/runtime/afhttp"
 	"github.com/omniaura/agentflow/runtime/aftool"
 )
 
@@ -231,6 +234,87 @@ func (a *TriagerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (str
 		return a.Tools.LookupOrder(ctx, args)
 	}
 	return "", fmt.Errorf("there is no tool named %q", call.Name)
+}
+
+// TriagerAgentRequest is the body of POST /triage.
+type TriagerAgentRequest struct {
+	// Message is the user's new message.
+	Message string `json:"message"`
+}
+
+// TriagerAgentResponse is the answer to POST /triage.
+type TriagerAgentResponse struct {
+	Output TriageOutput  `json:"output"`
+	Usage  afagent.Usage `json:"usage"`
+}
+
+// TriagerAgentServer serves the triager agent at POST /triage. Set its fields, then call
+// Register.
+type TriagerAgentServer struct {
+	Agent *TriagerAgent
+	// Prepare authenticates the request and returns the system prompt and the
+	// conversation so far, which the new message continues. An error
+	// fails the request with its *afhttp.Error status, or 500; wrap
+	// authentication failures with afhttp.Unauthorized.
+	Prepare func(r *http.Request) (*Support, []afagent.Message, error)
+	// Done, when set, runs after a successful run, to store the
+	// conversation (res.Messages) for the next request.
+	Done func(r *http.Request, res TriagerAgentResult) error
+	// MaxBytes caps the request body; 0 means 1 MiB.
+	MaxBytes int64
+	// OnError writes a failed request's error; nil means afhttp.WriteError.
+	OnError func(w http.ResponseWriter, r *http.Request, err error)
+}
+
+// Register adds POST /triage to mux.
+func (s *TriagerAgentServer) Register(mux *http.ServeMux) {
+	mux.HandleFunc("POST /triage", s.serve)
+}
+
+func (s *TriagerAgentServer) fail(w http.ResponseWriter, r *http.Request, err error) {
+	if s.OnError != nil {
+		s.OnError(w, r, err)
+		return
+	}
+	afhttp.WriteError(w, r, err)
+}
+
+func (s *TriagerAgentServer) serve(w http.ResponseWriter, r *http.Request) {
+	system, history, err := s.Prepare(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	maxBytes := s.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 1 << 20
+	}
+	var body TriagerAgentRequest
+	if err := afhttp.DecodeBody(w, r, maxBytes, &body); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if body.Message == "" {
+		s.fail(w, r, afhttp.Errorf(http.StatusBadRequest, "message is required"))
+		return
+	}
+	messages := append(history[:len(history):len(history)], afagent.Message{Role: afagent.User, Content: body.Message})
+	res, err := s.Agent.Run(r.Context(), system, messages...)
+	if err != nil {
+		if errors.Is(err, afagent.ErrMaxTurns) || errors.Is(err, afagent.ErrTruncated) || errors.Is(err, afagent.ErrRefused) {
+			// The model, not the server, failed.
+			err = &afhttp.Error{Status: http.StatusBadGateway, Msg: "the model could not answer", Err: err}
+		}
+		s.fail(w, r, err)
+		return
+	}
+	if s.Done != nil {
+		if err := s.Done(r, res); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	afhttp.WriteJSON(w, http.StatusOK, TriagerAgentResponse{Output: res.Output, Usage: res.Usage})
 }
 
 type Support struct {

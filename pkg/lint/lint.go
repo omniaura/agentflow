@@ -213,6 +213,15 @@ func (l *linter) checkSection(tok token.T) {
 	case *decl.Agent:
 		key = fmt.Sprintf("agent %q", s.Name)
 		l.agents = append(l.agents, s)
+		if s.ServePath != "" {
+			// An agent's route shares the mux with .route sections.
+			route := "route " + s.ServeMethod + " " + s.ServePath
+			if l.sections[route] {
+				off := l.directiveOffset(s, ".serve")
+				l.add(token.T{Start: off, End: off}, SeverityError, "AF011", route+" is declared twice")
+			}
+			l.sections[route] = true
+		}
 	}
 	if l.sections[key] {
 		l.add(tok, SeverityError, "AF011", key+" is declared twice")

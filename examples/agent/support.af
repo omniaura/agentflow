@@ -29,6 +29,7 @@ Sorts one customer message.
 .agent triager
 .tools lookup_order
 .returns triage
+.serve POST /triage
 .maxturns 3
 
 Sorts customer messages, looking orders up when it helps.

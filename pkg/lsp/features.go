@@ -437,6 +437,9 @@ func (d *Document) SectionSymbols() []protocol.DocumentSymbol {
 			if s.Returns != "" {
 				detail += " ⇒ " + s.Returns
 			}
+			if s.ServePath != "" {
+				detail += " @ " + s.ServeMethod + " " + s.ServePath
+			}
 			sym.Detail = &detail
 		}
 		out = append(out, sym)
@@ -511,6 +514,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".tools", "the tools it may call (default: every tool in the file)")
 		add(".maxturns", "bound the model calls of a run")
 		add(".returns", "the .output its final answer must be (default: text)")
+		add(".serve", "serve it over HTTP: .serve POST /path")
 	case ".output":
 		add(".field", "output field: .field name [type] [description]")
 		add(".maxbytes", "cap the output's size")

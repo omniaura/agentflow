@@ -418,6 +418,7 @@ Answers customer questions about their orders.
 | `.tools a, b` | The tools the agent may call. All the file's tools when omitted. |
 | `.maxturns n` | The most model calls a run may make (default 10). |
 | `.returns name` | The `.output` its final answer must be. `Run` then returns it decoded. |
+| `.serve POST /path` | Also serve the agent over HTTP (`POST` or `PUT`). |
 
 You implement the tools as methods and bring a model:
 
@@ -457,6 +458,25 @@ if res.Output.Urgent { ... } // res.Output is a TriageOutput
 ```
 
 The adapters send the output's strict schema as the provider's structured output format. `Run` checks each final answer with the output's decoder. An answer that doesn't decode goes back to the model with the error, so it can try again within `.maxturns`.
+
+With `.serve POST /triage`, the agent is also an HTTP endpoint:
+
+```go
+srv := &TriagerAgentServer{
+	Agent: &TriagerAgent{Model: model, Tools: impl},
+	// Authenticate, then load the prompt's values and the conversation so far.
+	Prepare: func(r *http.Request) (*Support, []afagent.Message, error) { ... },
+	// Store the conversation for the next request.
+	Done: func(r *http.Request, res TriagerAgentResult) error { ... },
+}
+srv.Register(mux)
+```
+
+The client sends only its new message, `{"message": "..."}`. It gets back `{"output": {...}, "usage": {...}}`, or `{"answer": "..."}` without `.returns`. The history comes from `Prepare` on the server, so a client can't forge the model's or a tool's earlier messages. Errors follow the `.route` conventions:
+- the body is strict and capped (`MaxBytes`, 1 MiB by default)
+- `Prepare` errors carry their `*afhttp.Error` status
+- a model that refuses, runs out of turns or is cut off returns 502
+- causes are never sent to the client
 
 Two adapters implement `afagent.Model` on the official SDKs:
 

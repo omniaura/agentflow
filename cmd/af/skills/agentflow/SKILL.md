@@ -167,6 +167,10 @@ Answers customer questions about their orders.
 - `.returns name` makes the final answer an `.output` of the file. `Run` then returns
   `<Name>AgentResult`, whose `Output` field is decoded and checked. Answers that don't
   decode go back to the model to retry. Use it whenever code reads the agent's answer.
+- `.serve POST /path` also generates `<Name>AgentServer{Agent, Prepare, Done}` with
+  `Register(mux)`. The client posts `{"message": "..."}`. `Prepare` authenticates and
+  returns the prompt values and the stored history, and `Done` stores `res.Messages`.
+  Never accept history from the client.
 - Run it with `(&SupportAgent{Model: m, Tools: impl}).Run(ctx, &Support{Shop: "Acme"},
   afagent.Message{Role: afagent.User, Content: q})`. `res.Final` is the answer.
 - `Model` is `afagent.Model`. Use `&afanthropic.Model{}` (Claude) or

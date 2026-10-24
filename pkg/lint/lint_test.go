@@ -138,6 +138,7 @@ func TestLintAgentReferences(t *testing.T) {
 		{"ambiguous system", ".title A\nHi.\n\n.title B\nYo.\n\n.agent x\n", "the file has 2 prompts", 7},
 		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, find\n", "no tool find in this file (have look)", 8},
 		{"unknown output", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.returns look\n", "no output look in this file (it declares none)", 8},
+		{"route served twice", ".title A\nHi.\n\n.agent x\n.serve POST /chat\n\n.agent y\n.serve POST /chat\n", "route POST /chat is declared twice", 8},
 		{"output is not a tool", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.tools o\n", "no tool o in this file (it declares none)", 8},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
