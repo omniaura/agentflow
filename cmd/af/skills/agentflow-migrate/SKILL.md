@@ -130,6 +130,18 @@ These stay hand-written:
 - **Schemas with features `.param` can't express:** `oneOf`, recursive types,
   patterns. Leave them, or add a comment saying why.
 
+### Threads, queues and workers
+
+A backend that keeps chat threads and a queue of incoming messages in its database, served by
+a worker that claims queued messages, runs the agent and saves the transcript, maps onto
+`runtime/afthread`. Write an adapter: implement `afthread.Store` over the existing tables, with
+no data migration. The thread table's transcript backs `Transcript`, `Append` and `Replace`. The
+queue table's client message ID, status (queued, started, done, failed) and sequence back
+`Send`, `Claim` and `Finish`. Scope every query by the owner column. Run
+`afthreadtest.Run` against a test database until it passes, then replace the worker's
+claim-run-save code with `afthread.Run`. Keep the queue's existing consumers working: the
+statuses map one to one.
+
 ### Adapters and the gateway
 
 If the backend has its own LLM gateway, implement `afagent.Model` over it with
