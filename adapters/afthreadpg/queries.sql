@@ -56,6 +56,10 @@ WHERE thread_id = @thread_id AND status = 'started' AND id = ANY(@ids::bigint[])
 UPDATE af_inbox SET status = 'queued'
 WHERE thread_id = @thread_id AND status = 'started' AND claimed_at < @before;
 
+-- name: AbandonRuns :execrows
+UPDATE af_runs SET status = 'failed', ended_at = now(), error = @error
+WHERE thread_id = @thread_id AND status = 'running' AND started_at < @before;
+
 -- name: StartRun :one
 INSERT INTO af_runs (thread_id) VALUES (@thread_id) RETURNING *;
 
@@ -81,7 +85,7 @@ SELECT * FROM af_run_events WHERE run_id = @run_id AND seq > @after ORDER BY seq
 UPDATE af_runs SET status = @status, ended_at = now(), turns = @turns, tool_calls = @tool_calls,
     input_tokens = @input_tokens, cached_input_tokens = @cached_input_tokens,
     output_tokens = @output_tokens, error = @error
-WHERE id = @id;
+WHERE id = @id AND status = 'running';
 
 -- name: AgentThread :one
 SELECT id FROM af_threads
@@ -106,3 +110,9 @@ WHERE id = @id AND owner = @owner AND lease_holder = @worker;
 
 -- name: HasQueued :one
 SELECT EXISTS (SELECT 1 FROM af_inbox WHERE thread_id = @thread_id AND status = 'queued');
+
+-- name: ThreadRuns :many
+SELECT r.* FROM af_runs r JOIN af_threads t ON t.id = r.thread_id
+WHERE r.thread_id = @thread_id AND t.owner = @owner
+ORDER BY r.started_at DESC, r.id DESC
+LIMIT @lim;

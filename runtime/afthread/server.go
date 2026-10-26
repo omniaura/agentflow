@@ -3,9 +3,11 @@ package afthread
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +43,13 @@ type Server struct {
 	// OnDrainError, when set, gets the error of a background Drain: a run
 	// that failed, or a store that did.
 	OnDrainError func(ctx context.Context, owner, thread string, err error)
+	// PollInterval is how often a client following a run checks for its
+	// new events. 0 means half a second.
+	PollInterval time.Duration
+	// FollowTimeout bounds how long one request follows a run, so a run
+	// left running by a crashed worker can't hold it forever. 0 means 30
+	// minutes.
+	FollowTimeout time.Duration
 	// WriteTimeout bounds each event's write to a streaming client, so one
 	// that stops reading can't hold up the run: past it, the client gets
 	// no more events and the run goes on. 0 means 10 seconds.
@@ -88,10 +97,44 @@ type ThreadMessages struct {
 	Messages []ThreadMessage `json:"messages"`
 }
 
+// RunView is a run of a thread's agent, as a client sees it. Why a failed
+// run failed stays on the server.
+type RunView struct {
+	ID        string        `json:"id"`
+	Status    RunStatus     `json:"status"`
+	Started   time.Time     `json:"started"`
+	Ended     *time.Time    `json:"ended,omitempty"`
+	Turns     int           `json:"turns"`
+	ToolCalls int           `json:"tool_calls"`
+	Usage     afagent.Usage `json:"usage"`
+}
+
+// ThreadRunList is the answer to GET {prefix}/{thread}/runs.
+type ThreadRunList struct {
+	Runs []RunView `json:"runs"`
+}
+
+// RunEventView is a recorded event of a run, as a client sees it: what
+// afagent.ClientEvent would show of it. Seq numbers it, to resume after.
+type RunEventView struct {
+	Seq  int64          `json:"seq"`
+	Kind string         `json:"kind"`
+	Data map[string]any `json:"data"`
+}
+
+// RunEvents is the answer to GET {prefix}/{thread}/runs/{run}/events
+// without Accept: text/event-stream.
+type RunEvents struct {
+	Run    RunView        `json:"run"`
+	Events []RunEventView `json:"events"`
+}
+
 // Register adds to mux, under prefix such as "/threads":
 //
-//	POST {prefix}/{thread}/messages  queues a SendRequest for the thread's agent: 202 and the SentMessage
-//	GET  {prefix}/{thread}/messages  the conversation: 200 and ThreadMessages
+//	POST {prefix}/{thread}/messages           queues a SendRequest for the thread's agent: 202 and the SentMessage
+//	GET  {prefix}/{thread}/messages           the conversation: 200 and ThreadMessages
+//	GET  {prefix}/{thread}/runs               the thread's latest runs, newest first: ThreadRunList
+//	GET  {prefix}/{thread}/runs/{run}/events  a run's events after ?after=seq: RunEvents
 //
 // With a Worker, the agent answers in the background. A client sending
 // Accept: text/event-stream instead gets the run as server-sent events:
@@ -100,6 +143,15 @@ type ThreadMessages struct {
 // SentMessage as it ended. When another worker holds the thread, "done"
 // comes at once with the message still queued: that worker answers it.
 // A key sent before, for a message already answered, gets only "done".
+//
+// The run endpoints follow a run from the database, as a client that got
+// a 202, or lost its stream, does; they need a Store that implements Runs
+// and ThreadRuns. With Accept: text/event-stream, the events endpoint
+// streams the run's events, each with its seq as the event ID, until the
+// run ends, then "done" with the RunView (a crashed worker's run ends
+// when the next worker reclaims the thread). A client that reconnects with
+// Last-Event-ID resumes after it. Text isn't recorded, so read the answer
+// from the messages once the run is done.
 func (s *Server) Register(mux *http.ServeMux, prefix string) {
 	if s.Owner == nil {
 		panic("afthread: Server.Owner is not set")
@@ -107,6 +159,8 @@ func (s *Server) Register(mux *http.ServeMux, prefix string) {
 	prefix = strings.TrimSuffix(prefix, "/")
 	mux.HandleFunc("POST "+prefix+"/{thread}/messages", s.send)
 	mux.HandleFunc("GET "+prefix+"/{thread}/messages", s.messages)
+	mux.HandleFunc("GET "+prefix+"/{thread}/runs", s.runs)
+	mux.HandleFunc("GET "+prefix+"/{thread}/runs/{run}/events", s.events)
 }
 
 // Shutdown waits for the runs the server started to finish, like
@@ -150,6 +204,13 @@ func (s *Server) enter() bool {
 	}
 	s.wg.Add(1)
 	return true
+}
+
+func (s *Server) writeTimeout() time.Duration {
+	if s.WriteTimeout > 0 {
+		return s.WriteTimeout
+	}
+	return 10 * time.Second
 }
 
 func (s *Server) init() {
@@ -227,10 +288,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	stream := afhttp.NewEventStream(w)
-	stream.WriteTimeout = s.WriteTimeout
-	if stream.WriteTimeout <= 0 {
-		stream.WriteTimeout = 10 * time.Second
-	}
+	stream.WriteTimeout = s.writeTimeout()
 	// The run goes on in the background when the client goes away or stops
 	// reading; this request then ends, and the stream writes no more.
 	var gone sync.Once
@@ -341,4 +399,182 @@ func clientView(msgs []afagent.Message) []ThreadMessage {
 		}
 	}
 	return out
+}
+
+// runStores returns the Store as Runs and ThreadRuns, if it is both.
+func (s *Server) runStores() (Runs, ThreadRuns, bool) {
+	runs, ok := s.Store.(Runs)
+	list, ok2 := s.Store.(ThreadRuns)
+	return runs, list, ok && ok2
+}
+
+func runView(r RunRecord) RunView {
+	v := RunView{ID: r.ID, Status: r.Status, Started: r.Started, Turns: r.Turns, ToolCalls: r.ToolCalls, Usage: r.Usage}
+	if !r.Ended.IsZero() {
+		ended := r.Ended
+		v.Ended = &ended
+	}
+	return v
+}
+
+func (s *Server) runs(w http.ResponseWriter, r *http.Request) {
+	_, list, ok := s.runStores()
+	if !ok {
+		s.fail(w, r, afhttp.ErrNotFound.New(r.Context()))
+		return
+	}
+	owner, err := s.Owner(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	recs, err := list.ThreadRuns(r.Context(), owner, r.PathValue("thread"), 20)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	out := ThreadRunList{Runs: []RunView{}}
+	for _, rec := range recs {
+		out.Runs = append(out.Runs, runView(rec))
+	}
+	afhttp.WriteJSON(w, r, http.StatusOK, out)
+}
+
+func (s *Server) events(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runs, _, ok := s.runStores()
+	if !ok {
+		s.fail(w, r, afhttp.ErrNotFound.New(ctx))
+		return
+	}
+	owner, err := s.Owner(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	rec, err := runs.GetRun(ctx, owner, r.PathValue("run"))
+	if err == nil && rec.Thread != r.PathValue("thread") {
+		err = ErrNotFound
+	}
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	after := r.Header.Get("Last-Event-ID")
+	if q := r.URL.Query().Get("after"); q != "" {
+		after = q
+	}
+	var seq int64
+	if after != "" {
+		if err := afhttp.Parse("after", after, &seq); err != nil {
+			s.fail(w, r, err)
+			return
+		}
+	}
+	if !afhttp.WantsEventStream(r) {
+		events, err := runs.Events(ctx, owner, rec.ID, seq)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if rec.Status == Running {
+			// It may have ended since: then show it ended, with the events
+			// it recorded meanwhile.
+			if rec, err = runs.GetRun(ctx, owner, rec.ID); err == nil && rec.Status != Running {
+				from := seq
+				if len(events) > 0 {
+					from = events[len(events)-1].Seq
+				}
+				var more []RunEvent
+				more, err = runs.Events(ctx, owner, rec.ID, from)
+				events = append(events, more...)
+			}
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+		}
+		out := RunEvents{Run: runView(rec), Events: []RunEventView{}}
+		for _, e := range events {
+			if v, ok := clientRunEvent(e); ok {
+				out.Events = append(out.Events, v)
+			}
+		}
+		afhttp.WriteJSON(w, r, http.StatusOK, out)
+		return
+	}
+	stream := afhttp.NewEventStream(w)
+	stream.WriteTimeout = s.writeTimeout()
+	poll := s.PollInterval
+	if poll <= 0 {
+		poll = 500 * time.Millisecond
+	}
+	follow := s.FollowTimeout
+	if follow <= 0 {
+		follow = 30 * time.Minute
+	}
+	// A run whose worker crashed stays running until a worker reclaims the
+	// thread: past FollowTimeout, or on Shutdown, the stream ends without
+	// "done", and the client reconnects with Last-Event-ID.
+	s.init()
+	deadline := time.After(follow)
+	for {
+		// Read the run before its events: once it has ended, the events
+		// read after hold all of them.
+		rec, err := runs.GetRun(ctx, owner, rec.ID)
+		if err != nil {
+			stream.SendError(ctx, err)
+			return
+		}
+		events, err := runs.Events(ctx, owner, rec.ID, seq)
+		if err != nil {
+			stream.SendError(ctx, err)
+			return
+		}
+		for _, e := range events {
+			seq = e.Seq
+			if v, ok := clientRunEvent(e); ok {
+				if stream.SendEvent(strconv.FormatInt(e.Seq, 10), v.Kind, v.Data) != nil {
+					return
+				}
+			}
+		}
+		if rec.Status != Running {
+			stream.Send("done", runView(rec))
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.life.Done():
+			return
+		case <-deadline:
+			return
+		case <-time.After(poll):
+		}
+	}
+}
+
+// clientRunEvent is what a client sees of a recorded event, as
+// afagent.ClientEvent shows a live one: a tool's name and whether it
+// failed, never its arguments or result. Other events stay on the server.
+func clientRunEvent(e RunEvent) (RunEventView, bool) {
+	var d struct {
+		Call  *afagent.ToolCall `json:"call"`
+		Error string            `json:"error"`
+	}
+	switch afagent.EventKind(e.Kind) {
+	case afagent.ToolCalled, afagent.ToolReturned:
+		if json.Unmarshal(e.Data, &d) != nil || d.Call == nil {
+			return RunEventView{}, false
+		}
+		data := map[string]any{"name": d.Call.Name}
+		if afagent.EventKind(e.Kind) == afagent.ToolReturned {
+			data["failed"] = d.Error != ""
+		}
+		return RunEventView{Seq: e.Seq, Kind: e.Kind, Data: data}, true
+	case afagent.AnswerRejected:
+		return RunEventView{Seq: e.Seq, Kind: e.Kind, Data: map[string]any{}}, true
+	}
+	return RunEventView{}, false
 }

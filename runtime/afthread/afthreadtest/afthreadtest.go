@@ -221,6 +221,81 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 		}
 	})
 
+	t.Run("thread runs", func(t *testing.T) {
+		s := newStore()
+		runs, ok := s.(afthread.Runs)
+		lister, ok2 := s.(afthread.ThreadRuns)
+		if !ok || !ok2 {
+			t.Skip("the store doesn't list a thread's runs")
+		}
+		th := create(t, s, "ann")
+		other := create(t, s, "ann")
+		var ids []string
+		for range 3 {
+			r, err := runs.StartRun(ctx, "ann", th.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ids = append(ids, r.ID)
+			time.Sleep(2 * time.Millisecond)
+		}
+		runs.StartRun(ctx, "ann", other.ID)
+		runs.EndRun(ctx, "ann", ids[2], afthread.RunEnd{Turns: 1})
+		got, err := lister.ThreadRuns(ctx, "ann", th.ID, 2)
+		if err != nil || len(got) != 2 || got[0].ID != ids[2] || got[1].ID != ids[1] || got[0].Status != afthread.Succeeded || got[1].Status != afthread.Running {
+			t.Fatalf("ThreadRuns = %+v, %v; want %v newest first", got, err, ids[1:])
+		}
+		if all, _ := lister.ThreadRuns(ctx, "ann", th.ID, 10); len(all) != 3 {
+			t.Errorf("all runs = %+v", all)
+		}
+		if none, err := lister.ThreadRuns(ctx, "ann", th.ID, 0); err != nil || len(none) != 0 {
+			t.Errorf("limit 0 = %+v, %v", none, err)
+		}
+		if none, err := lister.ThreadRuns(ctx, "ann", th.ID, -1); err != nil || len(none) != 0 {
+			t.Errorf("limit -1 = %+v, %v", none, err)
+		}
+		if _, err := lister.ThreadRuns(ctx, "bob", th.ID, 10); !errors.Is(err, afthread.ErrNotFound) {
+			t.Errorf("another owner: %v", err)
+		}
+	})
+
+	t.Run("abandoned runs", func(t *testing.T) {
+		s := newStore()
+		runs, ok := s.(afthread.Runs)
+		if !ok {
+			t.Skip("the store doesn't record runs")
+		}
+		th := create(t, s, "ann")
+		other := create(t, s, "ann")
+		stale, _ := runs.StartRun(ctx, "ann", th.ID)
+		done, _ := runs.StartRun(ctx, "ann", th.ID)
+		runs.EndRun(ctx, "ann", done.ID, afthread.RunEnd{Turns: 1})
+		elsewhere, _ := runs.StartRun(ctx, "ann", other.ID)
+		cutoff := time.Now().Add(time.Second)
+		if _, err := s.Reclaim(ctx, "ann", th.ID, cutoff); err != nil {
+			t.Fatal(err)
+		}
+		late, _ := runs.StartRun(ctx, "ann", th.ID)
+		if r, _ := runs.GetRun(ctx, "ann", stale.ID); r.Status != afthread.RunFailed || r.Error != afthread.ErrRunAbandoned.Error() || r.Ended.IsZero() {
+			t.Errorf("abandoned run = %+v", r)
+		}
+		// Its worker, still alive, ends it late: it stays abandoned.
+		runs.EndRun(ctx, "ann", stale.ID, afthread.RunEnd{Turns: 3})
+		if r, _ := runs.GetRun(ctx, "ann", stale.ID); r.Status != afthread.RunFailed || r.Turns != 0 {
+			t.Errorf("abandoned run ended late = %+v", r)
+		}
+		if r, _ := runs.GetRun(ctx, "ann", done.ID); r.Status != afthread.Succeeded {
+			t.Errorf("ended run = %+v", r)
+		}
+		if r, _ := runs.GetRun(ctx, "ann", elsewhere.ID); r.Status != afthread.Running {
+			t.Errorf("another thread's run = %+v", r)
+		}
+		s.Reclaim(ctx, "ann", th.ID, cutoff.Add(-2*time.Second))
+		if r, _ := runs.GetRun(ctx, "ann", late.ID); r.Status != afthread.Running {
+			t.Errorf("a run started after the cutoff = %+v", r)
+		}
+	})
+
 	t.Run("directory", func(t *testing.T) {
 		s := newStore()
 		dir, ok := s.(afthread.Directory)

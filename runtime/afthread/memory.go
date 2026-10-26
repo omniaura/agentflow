@@ -12,7 +12,10 @@ import (
 	"github.com/omniaura/agentflow/runtime/afagent"
 )
 
-var _ Locker = (*Memory)(nil)
+var (
+	_ Locker     = (*Memory)(nil)
+	_ ThreadRuns = (*Memory)(nil)
+)
 
 // Memory is a Store in memory, for tests and examples. The zero value is
 // ready to use.
@@ -27,6 +30,8 @@ type Memory struct {
 type memRun struct {
 	r      RunRecord
 	events []RunEvent
+	// n orders runs started at the same instant.
+	n int
 }
 
 type memThread struct {
@@ -181,6 +186,11 @@ func (m *Memory) Reclaim(ctx context.Context, owner, id string, before time.Time
 			n++
 		}
 	}
+	for _, r := range m.runs {
+		if r.r.Owner == owner && r.r.Thread == id && r.r.Status == Running && r.r.Started.Before(before) {
+			r.r.Status, r.r.Ended, r.r.Error = RunFailed, time.Now(), ErrRunAbandoned.Error()
+		}
+	}
 	return n, nil
 }
 
@@ -223,8 +233,28 @@ func (m *Memory) StartRun(ctx context.Context, owner, thread string) (RunRecord,
 	}
 	m.nextRun++
 	r := RunRecord{ID: fmt.Sprintf("run-%d", m.nextRun), Owner: owner, Thread: thread, Status: Running, Started: time.Now()}
-	m.runs[r.ID] = &memRun{r: r}
+	m.runs[r.ID] = &memRun{r: r, n: m.nextRun}
 	return r, nil
+}
+
+func (m *Memory) ThreadRuns(ctx context.Context, owner, thread string, limit int) ([]RunRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, err := m.thread(owner, thread); err != nil {
+		return nil, err
+	}
+	var runs []*memRun
+	for _, r := range m.runs {
+		if r.r.Thread == thread {
+			runs = append(runs, r)
+		}
+	}
+	slices.SortFunc(runs, func(a, b *memRun) int { return b.n - a.n })
+	out := []RunRecord{}
+	for _, r := range runs[:min(max(limit, 0), len(runs))] {
+		out = append(out, r.r)
+	}
+	return out, nil
 }
 
 func (m *Memory) run(owner, id string) (*memRun, error) {
@@ -270,6 +300,9 @@ func (m *Memory) EndRun(ctx context.Context, owner, run string, end RunEnd) erro
 	r, err := m.run(owner, run)
 	if err != nil {
 		return err
+	}
+	if r.r.Status != Running {
+		return nil
 	}
 	r.r.RunEnd, r.r.Ended, r.r.Status = end, time.Now(), Succeeded
 	if end.Error != "" {

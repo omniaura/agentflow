@@ -219,7 +219,8 @@ Answers customer questions about their orders.
   (or from `Messenger.Notify`) instead of hand-writing locks, queue polling or reclaim. For the
   HTTP side of a chat, register `afthread.Server{Store, Worker, Owner}` (POST
   `{prefix}/{thread}/messages` queues and answers in the background or as SSE; GET reads the
-  conversation) instead of writing enqueue, stream and history handlers. If the store
+  conversation; GET `{prefix}/{thread}/runs[/{run}/events]` lists and follows runs, resumable
+  with Last-Event-ID) instead of writing enqueue, stream, history and reconnect handlers. If the store
   implements `afthread.Runs`, Run records the run and the agent's events itself. Agents message
   each other through `afthread.Messenger` (Send queues on the
   recipient's inbox; replies come back the same way), with `CanMessage` for permissions.

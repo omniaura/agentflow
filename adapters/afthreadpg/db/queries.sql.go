@@ -11,6 +11,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const abandonRuns = `-- name: AbandonRuns :execrows
+UPDATE af_runs SET status = 'failed', ended_at = now(), error = $1
+WHERE thread_id = $2 AND status = 'running' AND started_at < $3
+`
+
+type AbandonRunsParams struct {
+	Error    string
+	ThreadID pgtype.UUID
+	Before   pgtype.Timestamptz
+}
+
+func (q *Queries) AbandonRuns(ctx context.Context, arg AbandonRunsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, abandonRuns, arg.Error, arg.ThreadID, arg.Before)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const addEvent = `-- name: AddEvent :one
 INSERT INTO af_run_events (run_id, seq, kind, data)
 SELECT $1, coalesce(max(e.seq), 0) + 1, $2, $3
@@ -213,7 +232,7 @@ const endRun = `-- name: EndRun :exec
 UPDATE af_runs SET status = $1, ended_at = now(), turns = $2, tool_calls = $3,
     input_tokens = $4, cached_input_tokens = $5,
     output_tokens = $6, error = $7
-WHERE id = $8
+WHERE id = $8 AND status = 'running'
 `
 
 type EndRunParams struct {
@@ -568,6 +587,51 @@ func (q *Queries) StartRun(ctx context.Context, threadID pgtype.UUID) (AfRun, er
 		&i.Error,
 	)
 	return i, err
+}
+
+const threadRuns = `-- name: ThreadRuns :many
+SELECT r.id, r.thread_id, r.status, r.started_at, r.ended_at, r.turns, r.tool_calls, r.input_tokens, r.cached_input_tokens, r.output_tokens, r.error FROM af_runs r JOIN af_threads t ON t.id = r.thread_id
+WHERE r.thread_id = $1 AND t.owner = $2
+ORDER BY r.started_at DESC, r.id DESC
+LIMIT $3
+`
+
+type ThreadRunsParams struct {
+	ThreadID pgtype.UUID
+	Owner    string
+	Lim      int32
+}
+
+func (q *Queries) ThreadRuns(ctx context.Context, arg ThreadRunsParams) ([]AfRun, error) {
+	rows, err := q.db.Query(ctx, threadRuns, arg.ThreadID, arg.Owner, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AfRun
+	for rows.Next() {
+		var i AfRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.ThreadID,
+			&i.Status,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.Turns,
+			&i.ToolCalls,
+			&i.InputTokens,
+			&i.CachedInputTokens,
+			&i.OutputTokens,
+			&i.Error,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const touchThread = `-- name: TouchThread :exec
