@@ -68,7 +68,7 @@ func TestRun(t *testing.T) {
 	if len(first) != 3 || first[0].Content != "earlier" || first[2].Content != "where is A-1?" {
 		t.Errorf("turn 1 = %+v", first)
 	}
-	if last := second[len(second)-1]; !strings.Contains(last.Content, "[message from the tracker agent]\ncarrier says Tuesday") {
+	if last := second[len(second)-1]; !strings.Contains(last.Content, "[message from the tracker agent]\ncarrier says Tuesday") || last.Source != "agent:tracker" {
 		t.Errorf("turn 2 ends with %+v", last)
 	}
 	// The thread holds the whole conversation, and both messages are done.

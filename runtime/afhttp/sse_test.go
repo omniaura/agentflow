@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/omniaura/go-kit/errs"
 )
@@ -71,5 +72,140 @@ func TestEventStream(t *testing.T) {
 	}
 	if strings.Contains(body, "secret") {
 		t.Error("an error cause reached the client")
+	}
+}
+
+// flaky fails its first write, then accepts writes again.
+type flaky struct {
+	httptest.ResponseRecorder
+	writes int
+}
+
+func (f *flaky) Write(b []byte) (int, error) {
+	if f.writes++; f.writes == 1 {
+		return 0, errors.New("write timeout")
+	}
+	return f.ResponseRecorder.Write(b)
+}
+
+// After a failed write, a stream writes nothing more: a client must never
+// get a frame after a broken one.
+func TestEventStreamStopsAfterAFailedWrite(t *testing.T) {
+	w := &flaky{ResponseRecorder: *httptest.NewRecorder()}
+	s := NewEventStream(w)
+	s.WriteTimeout = time.Second
+	if err := s.Send("text", map[string]string{"text": "a"}); err == nil {
+		t.Fatal("the failed write returned nil")
+	}
+	if err := s.Send("text", map[string]string{"text": "b"}); err == nil || !strings.Contains(err.Error(), "write timeout") {
+		t.Fatalf("Send after the failure = %v", err)
+	}
+	if body := w.Body.String(); body != "" {
+		t.Errorf("wrote %q after the failure", body)
+	}
+}
+
+// deadlineless can't set write deadlines, though it says it can.
+type deadlineless struct{ httptest.ResponseRecorder }
+
+func (d *deadlineless) SetWriteDeadline(time.Time) error { return errors.New("conn closed") }
+
+func TestEventStreamDeadlineFailure(t *testing.T) {
+	w := &deadlineless{ResponseRecorder: *httptest.NewRecorder()}
+	s := NewEventStream(w)
+	s.WriteTimeout = time.Second
+	if err := s.Send("text", "a"); err == nil || !strings.Contains(err.Error(), "conn closed") {
+		t.Fatalf("Send = %v", err)
+	}
+	if w.Body.Len() != 0 {
+		t.Errorf("wrote %q without a deadline", w.Body)
+	}
+}
+
+func TestEventStreamClose(t *testing.T) {
+	w := httptest.NewRecorder()
+	s := NewEventStream(w)
+	s.Close()
+	if err := s.Send("text", "a"); !errors.Is(err, ErrStreamClosed) || w.Body.Len() != 0 {
+		t.Errorf("Send after Close = %v, wrote %q", err, w.Body)
+	}
+}
+
+// stalled is a client that stopped reading: a write blocks until a write
+// deadline passes.
+type stalled struct {
+	httptest.ResponseRecorder
+	writing  chan struct{}
+	deadline chan struct{}
+	once     sync.Once
+}
+
+func (s *stalled) Write(p []byte) (int, error) {
+	close(s.writing)
+	<-s.deadline
+	return 0, errors.New("i/o timeout")
+}
+
+func (s *stalled) SetWriteDeadline(t time.Time) error {
+	if !t.IsZero() && !t.After(time.Now()) {
+		s.once.Do(func() { close(s.deadline) })
+	}
+	return nil
+}
+
+// Close doesn't wait on a write to a client that stopped reading, even
+// without a WriteTimeout: it fails the write.
+func TestEventStreamCloseInterruptsAStalledWrite(t *testing.T) {
+	w := &stalled{ResponseRecorder: *httptest.NewRecorder(), writing: make(chan struct{}), deadline: make(chan struct{})}
+	s := NewEventStream(w)
+	sent := make(chan error, 1)
+	go func() { sent <- s.Send("text", "a") }()
+	<-w.writing
+	closed := make(chan struct{})
+	go func() {
+		s.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close waited on the stalled write")
+	}
+	if err := <-sent; err == nil {
+		t.Error("the stalled write succeeded")
+	}
+}
+
+// deadlines records the write deadlines set on it.
+type deadlines struct {
+	httptest.ResponseRecorder
+	set []time.Time
+}
+
+func (d *deadlines) SetWriteDeadline(t time.Time) error {
+	d.set = append(d.set, t)
+	return nil
+}
+
+// Each event's write has a deadline, cleared after it, so a connection
+// serving another request later has none.
+func TestEventStreamClearsTheDeadline(t *testing.T) {
+	w := &deadlines{ResponseRecorder: *httptest.NewRecorder()}
+	s := NewEventStream(w)
+	s.WriteTimeout = time.Second
+	if err := s.Send("text", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.set) != 2 || w.set[0].IsZero() || !w.set[1].IsZero() {
+		t.Errorf("deadlines set: %v", w.set)
+	}
+}
+
+// Close clears the deadline it set, so the response can still end well.
+func TestEventStreamCloseClearsTheDeadline(t *testing.T) {
+	w := &deadlines{ResponseRecorder: *httptest.NewRecorder()}
+	NewEventStream(w).Close()
+	if len(w.set) != 2 || w.set[0].IsZero() || !w.set[1].IsZero() {
+		t.Errorf("deadlines set: %v", w.set)
 	}
 }

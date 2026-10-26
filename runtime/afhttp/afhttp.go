@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/omniaura/go-kit/errs"
 )
@@ -373,9 +374,18 @@ func quality(params string) float64 {
 // EventStream writes server-sent events. Its methods are safe to call from
 // several goroutines.
 type EventStream struct {
-	mu sync.Mutex
-	w  http.ResponseWriter
-	rc *http.ResponseController
+	// WriteTimeout, when set, bounds each event's write, so a client that
+	// stops reading can't block the sender for longer. After a write
+	// fails, the stream writes nothing more and Send returns that error.
+	// It needs a ResponseWriter that can set write deadlines; middleware
+	// that wraps one should implement Unwrap, as http.ResponseController
+	// expects. Writers that can't, such as a recorder, write without one.
+	WriteTimeout time.Duration
+
+	mu     sync.Mutex
+	w      http.ResponseWriter
+	rc     *http.ResponseController
+	broken error
 }
 
 // NewEventStream starts a 200 text/event-stream response on w.
@@ -399,13 +409,54 @@ func (s *EventStream) Send(event string, data any) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.broken != nil {
+		return s.broken
+	}
+	if s.WriteTimeout > 0 {
+		// Writers that can't time out, such as a recorder, never block.
+		if err := s.rc.SetWriteDeadline(time.Now().Add(s.WriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			s.broken = err
+			return err
+		}
+	}
 	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, b); err != nil {
+		s.broken = err
 		return err
 	}
 	if err := s.rc.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		s.broken = err
 		return err
 	}
+	if s.WriteTimeout > 0 {
+		// The connection may serve another request after this one: leave
+		// it no deadline.
+		if err := s.rc.SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			s.broken = err
+			return err
+		}
+	}
 	return nil
+}
+
+// ErrStreamClosed is what Send returns after Close.
+var ErrStreamClosed = errors.New("afhttp: the event stream is closed")
+
+// Close ends the stream: it fails a write in progress, waits for it, and
+// Send writes nothing after it. Call it before the handler returns when other
+// goroutines may still send, since the ResponseWriter is done then. Failing
+// the write takes a ResponseWriter that can set write deadlines, as
+// WriteTimeout does; with one that can't, Close waits for the write.
+func (s *EventStream) Close() {
+	// A write stalled on a client that stopped reading would hold the lock;
+	// this fails it now.
+	_ = s.rc.SetWriteDeadline(time.Now())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.broken == nil {
+		s.broken = ErrStreamClosed
+	}
+	// The response may still end well, and the connection serve another.
+	_ = s.rc.SetWriteDeadline(time.Time{})
 }
 
 // SendError writes an error event whose data is the client view of err,

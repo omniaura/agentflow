@@ -105,6 +105,9 @@ func Summarize(model afagent.Model) Summarizer {
 // SummaryPrefix starts the message Fold puts in place of what it folded.
 const SummaryPrefix = "[Summary of the earlier conversation, compacted to save context]\n"
 
+// SourceSummary is the Source of that message: the user didn't write it.
+const SourceSummary = "summary"
+
 // Fold replaces the messages between the first one, the request, and the
 // last keep messages with one user message holding their summary. The
 // tail starts at a round boundary, never between a tool call and its
@@ -123,7 +126,7 @@ func Fold(ctx context.Context, msgs []afagent.Message, keep int, summarize Summa
 	if err != nil {
 		return nil, err
 	}
-	out := []afagent.Message{msgs[0], {Role: afagent.User, Content: SummaryPrefix + summary}}
+	out := []afagent.Message{msgs[0], {Role: afagent.User, Content: SummaryPrefix + summary, Source: SourceSummary}}
 	return append(out, msgs[start:]...), nil
 }
 

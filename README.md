@@ -754,6 +754,22 @@ err := w.Drain(ctx, userID, threadID)
 
 `Drain` leases the thread and runs `afthread.Run` until no messages are queued. It renews the lease while the agent runs, and stops the run with `afthread.ErrLeaseLost` if another worker takes the thread. When another worker holds the thread, `Drain` returns at once. That worker answers the new messages, because `Unlock` reports what is queued after the lease ends. Holding the lease, `Drain` first re-queues messages that a crashed worker claimed and never finished, since no live worker can be answering them. A lease outlives a crashed worker by `Lease`, 1 minute by default. Without a worker, call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run.
 
+**Serving threads.** `afthread.Server` is the HTTP side of a chat backend. Create threads with `store.Create`, for example when a user starts a chat, then:
+
+```go
+srv := &afthread.Server{Store: store, Worker: w, Owner: func(r *http.Request) (string, error) { return userID(r) }}
+srv.Register(mux, "/threads")
+// On shutdown, after httpServer.Shutdown: let runs finish, or cancel them when ctx ends.
+srv.Shutdown(ctx)
+```
+
+- `POST /threads/{thread}/messages` with `{"message": "...", "key": "..."}` queues the message and answers `202` with `{"id", "key", "status"}`. The worker then answers it in the background. The key, or an `Idempotency-Key` header, makes retries safe: a key sent before returns that message.
+- With `Accept: text/event-stream`, the request streams the run instead: `queued`, then the agent's `text`, `reasoning`, `tool_called` and `tool_returned` events, then `done` with the message's final status. A client that disconnects, or stops reading for `WriteTimeout` (10s by default), stops getting events but doesn't stop the run. If another worker holds the thread, `done` comes at once with the message still `queued`, and that worker answers it.
+- `GET /threads/{thread}/messages` returns the conversation as `{"messages": [{"role", "content"}]}`: the user's messages and the agent's answers. Tool calls and results stay on the server.
+- Another owner's thread is a 404. Why a message failed stays on the server, since it may hold a provider's error; `OnDrainError` reports background runs that fail. Without a `Worker`, messages stay queued for workers of your own.
+
+`afagent.WithStream(ctx, fn)` is what streams the run: like `WithEvents`, but with streamed text and reasoning too, so the model streams.
+
 **Postgres.** For a new backend, [`adapters/afthreadpg`](adapters/afthreadpg) is a ready `afthread.Store`, `afthread.Runs`, `afthread.Directory` and `afthread.Locker`, built the agentflow way: the tables are in `migrations/`, the queries in `queries.sql`, and the code sqlc generated in `db/`. Apply the migrations, in order, with your migration tool, or call `afthreadpg.Migrate(ctx, pool)` at startup, which records them in `af_migrations` and lets servers starting together apply each once. Then call `afthreadpg.New(pool)`. An agent's messages go to the owner's oldest thread for that agent.
 - Claims use `FOR UPDATE SKIP LOCKED`, so workers on many servers can share a queue.
 - `Send` is idempotent through a unique index on the thread and key.

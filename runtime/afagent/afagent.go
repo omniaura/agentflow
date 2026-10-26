@@ -43,7 +43,15 @@ type Message struct {
 	// adapter sends it back as is, keeping what Message can't express,
 	// such as thinking blocks; other providers ignore it.
 	Native *Native `json:"native,omitempty"`
+	// Source says who wrote a user message the user didn't, such as
+	// SourceLoop, so a transcript shown to the user can leave it out. The
+	// model sees it as any user message.
+	Source string `json:"source,omitempty"`
 }
+
+// SourceLoop is the Source of the loop's own messages, such as asking the
+// model again after Check rejected its answer.
+const SourceLoop = "loop"
 
 // Native is a message as a provider encodes it.
 type Native struct {
@@ -273,10 +281,13 @@ func Nest(ctx context.Context) (context.Context, error) {
 
 type eventsKey struct{}
 
-// observer is a WithEvents func, for the loops at its depth.
+// observer is a WithEvents or WithStream func, for the loops at its
+// depth.
 type observer struct {
 	depth int
 	fn    func(Event)
+	// text is whether fn wants streamed text and reasoning.
+	text bool
 }
 
 // WithEvents returns ctx with fn also seeing the events of the loops run
@@ -286,22 +297,33 @@ type observer struct {
 // which fn doesn't see. A store recording runs uses it, so the agents it
 // runs need no wiring. Like OnEvent, fn must be safe for concurrent use.
 func WithEvents(ctx context.Context, fn func(Event)) context.Context {
-	d, _ := ctx.Value(depthKey{}).(int)
-	obs, _ := ctx.Value(eventsKey{}).([]observer)
-	return context.WithValue(ctx, eventsKey{}, append(obs[:len(obs):len(obs)], observer{depth: d, fn: fn}))
+	return withObserver(ctx, fn, false)
 }
 
-// observers returns the WithEvents funcs for a loop run with ctx.
-func observers(ctx context.Context) []func(Event) {
+// WithStream is WithEvents with streamed text and reasoning too, for
+// streaming a run to a client: adapters stream for it.
+func WithStream(ctx context.Context, fn func(Event)) context.Context {
+	return withObserver(ctx, fn, true)
+}
+
+func withObserver(ctx context.Context, fn func(Event), text bool) context.Context {
 	d, _ := ctx.Value(depthKey{}).(int)
 	obs, _ := ctx.Value(eventsKey{}).([]observer)
-	var fns []func(Event)
+	return context.WithValue(ctx, eventsKey{}, append(obs[:len(obs):len(obs)], observer{depth: d, fn: fn, text: text}))
+}
+
+// observers returns the WithEvents and WithStream funcs for a loop run
+// with ctx.
+func observers(ctx context.Context) []observer {
+	d, _ := ctx.Value(depthKey{}).(int)
+	obs, _ := ctx.Value(eventsKey{}).([]observer)
+	var out []observer
 	for _, o := range obs {
 		if o.depth == d {
-			fns = append(fns, o.fn)
+			out = append(out, o)
 		}
 	}
-	return fns
+	return out
 }
 
 // ErrMaxToolCalls means the model kept calling tools after MaxToolCalls
@@ -355,22 +377,26 @@ type Loop struct {
 // context, the Result holds the conversation so far.
 func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 	res := Result{Messages: append([]Message(nil), messages...)}
-	// Streamed text goes to OnEvent only: WithEvents funcs don't want it.
+	// Streamed text goes to OnEvent and WithStream funcs, not WithEvents
+	// funcs: the model streams only when someone wants it.
 	streaming := l.OnEvent != nil
-	if fns := observers(ctx); len(fns) > 0 {
+	if obs := observers(ctx); len(obs) > 0 {
 		copied, own := *l, l.OnEvent
 		copied.OnEvent = func(e Event) {
 			if own != nil {
 				own(e)
 			}
-			if e.Kind == TextDelta || e.Kind == ReasoningDelta {
-				return
-			}
-			for _, fn := range fns {
-				fn(e)
+			text := e.Kind == TextDelta || e.Kind == ReasoningDelta
+			for _, o := range obs {
+				if o.text || !text {
+					o.fn(e)
+				}
 			}
 		}
 		l = &copied
+		for _, o := range obs {
+			streaming = streaming || o.text
+		}
 	}
 	maxTurns := l.MaxTurns
 	if maxTurns <= 0 {
@@ -452,7 +478,7 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 					// No turn is left to ask again: end on the rejected answer.
 					return res, fmt.Errorf("%w: the last answer was rejected: %w", ErrMaxTurns, rejected)
 				}
-				res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected)})
+				res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected), Source: SourceLoop})
 				continue
 			}
 			res.Final = resp.Message.Content

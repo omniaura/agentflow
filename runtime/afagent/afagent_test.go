@@ -199,7 +199,8 @@ func TestLoopCheckRejectsAnswer(t *testing.T) {
 		t.Errorf("rejected = %v", rejected)
 	}
 	// The rejection goes back as a user message after the bad answer.
-	if m := res.Messages[2]; m.Role != User || m.Content != "Your answer was rejected: not JSON. Answer again." {
+	// The user didn't write it, and its Source says so.
+	if m := res.Messages[2]; m.Role != User || m.Content != "Your answer was rejected: not JSON. Answer again." || m.Source != SourceLoop {
 		t.Errorf("message = %+v", m)
 	}
 	for i, r := range *reqs {
@@ -536,6 +537,17 @@ func TestWithEvents(t *testing.T) {
 	}
 	if l.OnEvent == nil {
 		t.Error("Run changed the loop")
+	}
+
+	// A WithStream func gets the text, and the model streams for it.
+	var streamed []string
+	sctx := WithStream(context.Background(), func(e Event) { streamed = append(streamed, string(e.Kind)) })
+	l = Loop{Model: streamer}
+	if _, err := l.Run(sctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(streamed, ",") != "text_delta,model_responded" {
+		t.Errorf("the WithStream func saw %v", streamed)
 	}
 }
 
