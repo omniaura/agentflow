@@ -374,3 +374,37 @@ func TestRenderChecksPrepareFuncs(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderChecksEmptyFuncs(t *testing.T) {
+	src := ".route GET /x/{id} db.GetX\n.public\n.empty 200 noX\n"
+	for _, tt := range []struct{ name, goSrc, msg, call string }{
+		{"no inputs", "func noX() int64 { return 0 }", "", "afhttp.WriteJSON(w, r, http.StatusOK, noX())"},
+		{"arguments and context, fallible", "func noX(ctx context.Context, id int64) (int64, error) { return id, nil }", "", "resp, err := noX(r.Context(), arg)"},
+		{"missing", "func other() {}", "package api declares no func noX", ""},
+		{"only an error", "func noX() error { return nil }", "it returns only an error", ""},
+		{"nothing", "func noX() {}", "it returns 0 values", ""},
+		{"arguments twice", "func noX(a, b int64) int64 { return 0 }", "it takes the arguments twice", ""},
+		{"caller on a public route", "type Caller struct{}\n\nfunc noX(c Caller) int64 { return 0 }", "which a .public route has none of", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root := writeModule(t, "db")
+			dir := filepath.Join(root, "api")
+			os.MkdirAll(dir, 0o755)
+			os.WriteFile(filepath.Join(dir, "x.go"), []byte("package api\n\n"+tt.goSrc+"\n"), 0o644)
+			name := filepath.Join(dir, "api.af")
+			_, code, err := Render(name, []byte(src))
+			if tt.msg == "" {
+				if err != nil || !bytes.Contains(code, []byte(tt.call)) {
+					t.Fatalf("got %v\n%s", err, code)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.msg) {
+				t.Fatalf("got %v, want %q", err, tt.msg)
+			}
+			if msgs := Diagnose(name, []byte(src), err); !strings.Contains(msgs[0], "api.af:3:1:") {
+				t.Fatalf("diagnostic %q", msgs[0])
+			}
+		})
+	}
+}

@@ -406,6 +406,7 @@ When the API's name for an argument differs from the query's, `.bind arg = name`
 | `.status 201` | The success status. |
 | `.maxbytes n` | Cap the request body (default 1 MiB). |
 | `.empty [4xx] message` | The error when a `:one` query finds no row, or an `:execrows` query changes none (default `404 not found`). |
+| `.empty 2xx response` | A success there instead: JSON (`.empty 200 {"note": null}`), a func of the package that makes it (`.empty 200 draftDefault`), or no body (`.empty 204`). |
 | `.wrap key` | Respond with a `:one` or `:many` result as the one field of an object: `.wrap notes` gives `{"notes": [...]}`. |
 | `.prepare fn` | Pass the decoded arguments to `fn`, a func of the package, before the query: to trim, default, derive or check them. |
 | `.map fn` | Respond with what `fn`, a func of the package, makes of the result: each row, or all of them when it takes a slice, with the caller or request when it takes them. |
@@ -496,6 +497,21 @@ RETURNING *
 ```
 
 Ownership and state checks in the `WHERE` of an `UPDATE` or `DELETE` hold under concurrent requests, because Postgres re-checks them on the row it locks. A `count(*)` limit doesn't: two inserts at once can both see 4 notes. The read-then-write handler it replaces has the same gap, so a limit that must hold exactly needs a lock or a trigger. `.empty` on a SQL tool sets what the model is told instead of `not found`: `.empty no note of yours has that id`.
+
+**When no row isn't an error.** Some reads have an answer when nothing matches, and some writes are fine when nothing changes: no latest note, a draft that falls back to defaults, a delete that a retry repeats. A 2xx status makes `.empty` that success:
+
+```af
+.route GET /notes/latest LatestNote
+.auth owner_id
+.wrap note
+.empty 200 {"note": null}
+
+.route DELETE /notes/{id} DeleteNote
+.auth owner_id
+.empty 204
+```
+
+The JSON is sent as written: `.map` and `.wrap` shape rows, so write the object the client should get. For a response that needs Go, name a func of the package instead, `.empty 200 draftDefault`. Like a `.map` func, its signature says what it gets: any of the query's arguments, the `Caller`, the `context.Context` or the `*http.Request`. It returns the response, optionally with an `error` that fails the request.
 
 **API docs with swag.** In a module that requires `github.com/swaggo/swag`, generated handlers carry swag annotations, so `swag init` documents them next to the hand-written ones:
 - the summary and description;

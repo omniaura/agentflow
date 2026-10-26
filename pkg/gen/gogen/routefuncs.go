@@ -21,6 +21,9 @@ import (
 type RouteFuncs struct {
 	Map     map[string]MapFunc
 	Prepare map[string]PrepareFunc
+	// Empty are the funcs that make a successful .empty response. Their
+	// Params may hold the query's "args" in place of a row.
+	Empty map[string]MapFunc
 	// Unread reports that a Go file of the package doesn't parse, so no
 	// signature was read.
 	Unread bool
@@ -41,6 +44,9 @@ func ReadRouteFuncs(name, out string, f afast.File) (RouteFuncs, error) {
 	want := map[string]bool{}
 	for _, r := range f.Routes {
 		want[r.Map], want[r.Prepare] = true, true
+		if r.Empty != nil {
+			want[r.Empty.Func] = true
+		}
 	}
 	delete(want, "")
 	if len(want) == 0 {
@@ -81,17 +87,30 @@ func ReadRouteFuncs(name, out string, f afast.File) (RouteFuncs, error) {
 			if !found {
 				return funcs, missing(".prepare", r.Prepare, "taking a pointer to the query's arguments", r.PrepareOffset)
 			}
-			fn, why := d.prepareShape()
-			if why == "" && fn == nil {
-				continue
-			}
-			if why != "" {
+			switch fn, why := d.prepareShape(); {
+			case why != "":
 				return funcs, &RouteError{Offset: r.PrepareOffset, Err: fmt.Errorf(".prepare %s: %s must be a func taking a pointer to the query's arguments, optionally with the Caller, a context.Context or the *http.Request, and returning nothing or an error; %s", r.Prepare, r.Prepare, why)}
+			case fn != nil:
+				if funcs.Prepare == nil {
+					funcs.Prepare = map[string]PrepareFunc{}
+				}
+				funcs.Prepare[r.Prepare] = *fn
 			}
-			if funcs.Prepare == nil {
-				funcs.Prepare = map[string]PrepareFunc{}
+		}
+		if e := r.Empty; e != nil && e.Func != "" {
+			d, found := declared[e.Func]
+			if !found {
+				return funcs, missing(".empty", e.Func, "returning the response", e.Offset)
 			}
-			funcs.Prepare[r.Prepare] = *fn
+			switch fn, why := d.emptyShape(fset); {
+			case why != "":
+				return funcs, &RouteError{Offset: e.Offset, Err: fmt.Errorf(".empty %d %s: %s must be a func returning the response, optionally with an error, and taking any of the query's arguments, the Caller, a context.Context or the *http.Request; %s", e.Status, e.Func, e.Func, why)}
+			case fn != nil:
+				if funcs.Empty == nil {
+					funcs.Empty = map[string]MapFunc{}
+				}
+				funcs.Empty[e.Func] = *fn
+			}
 		}
 	}
 	return funcs, nil
@@ -267,6 +286,44 @@ func (d funcDecl) prepareShape() (*PrepareFunc, string) {
 	case n != 0:
 		return nil, "it returns something other than an error"
 	}
+	return &fn, ""
+}
+
+// emptyShape reads d as a successful .empty's func: its signature, or why
+// it can't be one; neither when its signature isn't known.
+func (d funcDecl) emptyShape(fset *gotoken.FileSet) (*MapFunc, string) {
+	switch {
+	case d.notFunc:
+		return nil, "it isn't a func"
+	case d.ft == nil:
+		return nil, ""
+	}
+	var fn MapFunc
+	if d.ft.Params != nil {
+		for _, field := range d.ft.Params.List {
+			kind := paramKind(field.Type)
+			if kind == "row" || kind == "rows" {
+				kind = "args"
+			}
+			for range max(1, len(field.Names)) {
+				if slices.Contains(fn.Params, kind) {
+					return nil, "it takes the " + map[string]string{"args": "arguments", "caller": "Caller", "ctx": "context", "request": "request"}[kind] + " twice"
+				}
+				fn.Params = append(fn.Params, kind)
+			}
+		}
+	}
+	switch n := count(d.ft.Results); {
+	case n == 2 && isIdent(d.ft.Results.List[len(d.ft.Results.List)-1].Type, "error"):
+		fn.Err = true
+	case n == 1 && isIdent(d.ft.Results.List[0].Type, "error"):
+		return nil, "it returns only an error, not the response"
+	case n != 1:
+		return nil, fmt.Sprintf("it returns %d values", n)
+	}
+	var b bytes.Buffer
+	printer.Fprint(&b, fset, d.ft.Results.List[0].Type)
+	fn.Result = b.String()
 	return &fn, ""
 }
 

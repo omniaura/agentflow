@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/omniaura/agentflow/examples/routes/db"
 )
 
@@ -51,6 +53,21 @@ func (f *fakeNotes) update(id int64, owner string, fn func(*db.Note)) int64 {
 		}
 	}
 	return 0
+}
+
+func (f *fakeNotes) LatestNote(ctx context.Context, ownerID string) (db.Note, error) {
+	for i := len(f.notes) - 1; i >= 0; i-- {
+		if f.notes[i].OwnerID == ownerID {
+			return f.notes[i], nil
+		}
+	}
+	return db.Note{}, pgx.ErrNoRows
+}
+
+func (f *fakeNotes) DeleteNote(ctx context.Context, arg db.DeleteNoteParams) (int64, error) {
+	n := len(f.notes)
+	f.notes = slices.DeleteFunc(f.notes, func(n db.Note) bool { return n.ID == arg.ID && n.OwnerID == arg.OwnerID })
+	return int64(n - len(f.notes)), nil
 }
 
 func (f *fakeNotes) UpdateNote(ctx context.Context, arg db.UpdateNoteParams) (int64, error) {
@@ -114,6 +131,19 @@ func TestNoteRoutes(t *testing.T) {
 	// No notes is an empty list, not null.
 	if empty := do("GET", "/notes", "cat", "", 200); strings.TrimSpace(empty) != `{"notes":[]}` {
 		t.Fatalf("no notes = %s", empty)
+	}
+	// .empty 200: no note is a response, not an error.
+	if none := do("GET", "/notes/latest", "cat", "", 200); strings.TrimSpace(none) != `{"note":null}` {
+		t.Fatalf("no latest note = %s", none)
+	}
+	if latest := do("GET", "/notes/latest", "bob", "", 200); !strings.HasPrefix(latest, `{"note":{`) || !strings.Contains(latest, `"body":"bob's"`) {
+		t.Fatalf("latest note = %s", latest)
+	}
+	// .empty 204: deleting a note already gone succeeds too.
+	do("DELETE", "/notes/3", "bob", "", 204)
+	do("DELETE", "/notes/3", "bob", "", 204)
+	if none := do("GET", "/notes/latest", "bob", "", 200); strings.TrimSpace(none) != `{"note":null}` {
+		t.Fatalf("after the delete = %s", none)
 	}
 	// .prepare tidyNote trims the body before the query.
 	if created := do("POST", "/notes", "dee", `{"body":"  padded \n"}`, 201); !strings.Contains(created, `"body":"padded"`) {

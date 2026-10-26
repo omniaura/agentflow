@@ -238,11 +238,26 @@ func writeSwag(buf *bytes.Buffer, b *boundRoute, bodyType string, sw *Swag, impo
 	} else {
 		line("Success 204")
 	}
+	success := status
+	if !withBody && r.Status == 0 {
+		success = 204
+	}
+	if e := r.Empty; e != nil && e.OK() && e.Status != success {
+		// What a query that finds no row responds with instead.
+		switch {
+		case e.Status == 204:
+			line("Success 204")
+		case b.emptyFn.Result != "":
+			line("Success %d {object} %s", e.Status, b.emptyFn.Result)
+		default:
+			line("Success %d {object} object", e.Status)
+		}
+	}
 	failures := map[int]bool{500: true}
 	failures[400] = inputs
 	failures[401] = !r.Public
 	// An :execrows query may always change no row.
-	if q.Kind == sqlcgo.ExecRows || q.Kind == sqlcgo.One && (r.Empty != nil || mayFindNone(q.SQL)) {
+	if (q.Kind == sqlcgo.ExecRows || q.Kind == sqlcgo.One && (r.Empty != nil || mayFindNone(q.SQL))) && (r.Empty == nil || !r.Empty.OK()) {
 		code := 404
 		if r.Empty != nil {
 			code = r.Empty.Status

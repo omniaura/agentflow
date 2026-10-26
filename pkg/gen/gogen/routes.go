@@ -34,6 +34,10 @@ type Options struct {
 	// name. A func missing from it takes a pointer to the arguments and
 	// returns an error.
 	PrepareFuncs map[string]PrepareFunc
+	// EmptyFuncs are the signatures of the package's funcs that make a
+	// successful .empty response, by name. A func missing from it takes
+	// nothing and returns the response.
+	EmptyFuncs map[string]MapFunc
 	// SiblingTools are the tools of the other .af files of the package,
 	// which an agent's .tools may name.
 	SiblingTools []ast.SiblingTool
@@ -125,6 +129,8 @@ type boundRoute struct {
 	mapFn MapFunc
 	// prepareFn is the signature of the route's .prepare func.
 	prepareFn PrepareFunc
+	// emptyFn is the signature of the func of a successful .empty.
+	emptyFn MapFunc
 }
 
 // genRoutes writes the routes type of file name: an interface of the sqlc
@@ -196,8 +202,20 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 			if b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.ExecRows {
 				return &RouteError{Offset: e.Offset, Err: fmt.Errorf(".empty applies to a :one query that finds no row or an :execrows query that changes none; query %s is %s", b.q.Name, b.q.Kind)}
 			}
-			b.empty = "err" + name + b.handler
-			empties = append(empties, b)
+			if e.OK() {
+				if e.Func != "" {
+					b.emptyFn = opts.EmptyFuncs[e.Func]
+				}
+				switch {
+				case slices.Contains(b.emptyFn.Params, "caller") && b.r.Public:
+					return &RouteError{Offset: e.Offset, Err: fmt.Errorf(".empty %d %s takes the Caller, which a .public route has none of", e.Status, e.Func)}
+				case slices.Contains(b.emptyFn.Params, "args") && len(b.q.Args) == 0:
+					return &RouteError{Offset: e.Offset, Err: fmt.Errorf(".empty %d %s takes the query's arguments; query %s takes none", e.Status, e.Func, b.q.Name)}
+				}
+			} else {
+				b.empty = "err" + name + b.handler
+				empties = append(empties, b)
+			}
 		}
 	}
 	if opts.Swag != nil && len(empties) == 0 {
@@ -523,7 +541,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 		// On every response, errors too: none of them may be kept.
 		fmt.Fprintf(buf, "w.Header().Set(\"Cache-Control\", %q)\n", cc)
 	}
-	usesCaller := slices.Contains(b.sources, "auth") || slices.Contains(b.mapFn.Params, "caller") || slices.Contains(b.prepareFn.Params, "caller")
+	usesCaller := slices.Contains(b.sources, "auth") || slices.Contains(b.mapFn.Params, "caller") || slices.Contains(b.prepareFn.Params, "caller") || slices.Contains(b.emptyFn.Params, "caller")
 	if !r.Public {
 		// An unset Auth fails closed rather than panicking.
 		buf.WriteString("if rt.Auth == nil {\nrt.fail(w, r, errors.New(\"afhttp: Auth is not set\"))\nreturn\n}\n")
@@ -615,7 +633,13 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 		imports[path] = true
 		imports["errors"] = true
 		fmt.Fprintf(buf, "row, err := %s\n", call)
-		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, %s.New(r.Context()).AddError(err))\nreturn\n}\n", expr, b.emptyErr())
+		if e := r.Empty; e != nil && e.OK() {
+			fmt.Fprintf(buf, "if errors.Is(err, %s) {\n", expr)
+			b.writeEmptyOK(buf, cache, imports)
+			buf.WriteString("return\n}\n")
+		} else {
+			fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, %s.New(r.Context()).AddError(err))\nreturn\n}\n", expr, b.emptyErr())
+		}
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		resp := b.respond(buf, "row")
 		buf.WriteString(cache)
@@ -630,7 +654,13 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 	case sqlcgo.ExecRows:
 		fmt.Fprintf(buf, "n, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
-		fmt.Fprintf(buf, "if n == 0 {\nrt.fail(w, r, %s.New(r.Context()))\nreturn\n}\n", b.emptyErr())
+		if e := r.Empty; e != nil && e.OK() {
+			buf.WriteString("if n == 0 {\n")
+			b.writeEmptyOK(buf, "", imports)
+			buf.WriteString("return\n}\n")
+		} else {
+			fmt.Fprintf(buf, "if n == 0 {\nrt.fail(w, r, %s.New(r.Context()))\nreturn\n}\n", b.emptyErr())
+		}
 		fmt.Fprintf(buf, "w.WriteHeader(%s)\n", status("http.StatusNoContent"))
 	default:
 		fmt.Fprintf(buf, "if err := %s; err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n", call)
@@ -649,6 +679,38 @@ func hasNoStore(cc string) bool {
 		}
 	}
 	return false
+}
+
+// writeEmptyOK writes the successful response of the route's .empty, for a
+// query that found no row or changed none: no body, the JSON .empty gives,
+// or what its func makes, which may fail the request. cache is the
+// Cache-Control header a response with a body gets.
+func (b *boundRoute) writeEmptyOK(buf *bytes.Buffer, cache string, imports map[string]bool) {
+	e := b.r.Empty
+	status := strconv.Itoa(e.Status)
+	if name, ok := statusNames[e.Status]; ok {
+		status = "http." + name
+	}
+	switch {
+	case e.Func != "":
+		var args []string
+		for _, p := range b.emptyFn.Params {
+			args = append(args, map[string]string{"args": "arg", "caller": "caller", "ctx": "r.Context()", "request": "r"}[p])
+		}
+		call := e.Func + "(" + strings.Join(args, ", ") + ")"
+		if b.emptyFn.Err {
+			fmt.Fprintf(buf, "resp, err := %s\nif err != nil {\nrt.fail(w, r, err)\nreturn\n}\n", call)
+			call = "resp"
+		}
+		buf.WriteString(cache)
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status, call)
+	case e.Body != "":
+		imports["encoding/json"] = true
+		buf.WriteString(cache)
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, json.RawMessage(%s))\n", status, strconv.Quote(e.Body))
+	default:
+		fmt.Fprintf(buf, "w.WriteHeader(%s)\n", status)
+	}
 }
 
 var statusNames = map[int]string{

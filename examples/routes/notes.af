@@ -26,3 +26,23 @@ WHERE id = @id AND owner_id = @owner_id
 .auth owner_id
 .sql :execrows
 UPDATE notes SET pinned = true WHERE id = @id AND owner_id = @owner_id
+
+.route GET /notes/latest LatestNote
+.auth owner_id
+.wrap note
+.empty 200 {"note": null}
+The caller's newest note as {"note": {...}}, or {"note": null} when they
+have none: no notes isn't an error.
+.sql :one
+SELECT * FROM notes
+WHERE owner_id = @owner_id
+ORDER BY id DESC
+LIMIT 1
+
+.route DELETE /notes/{id} DeleteNote
+.auth owner_id
+.empty 204
+Deletes one of the caller's notes. One already gone is deleted too, so a
+client can retry.
+.sql :execrows
+DELETE FROM notes WHERE id = @id AND owner_id = @owner_id

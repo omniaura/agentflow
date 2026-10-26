@@ -53,7 +53,7 @@ func TestParseRouteErrors(t *testing.T) {
 		{"sql twice", ".route GET /x Q\n.sql :one\nSELECT 1\n.route GET /y Q\n.sql :one\nSELECT 2\n", "query Q is written twice"},
 		{"empty without message", ".route GET /x Q\n.empty 409\n", "usage: .empty [4xx status] message"},
 		{"empty blank", ".route GET /x Q\n.empty\n", "usage: .empty"},
-		{"empty 5xx", ".route GET /x Q\n.empty 503 down\n", `.empty needs a 4xx status, got "503"`},
+		{"empty 5xx", ".route GET /x Q\n.empty 503 down\n", `.empty needs a 4xx status for a failure, or a 2xx one for a success; got "503"`},
 		{"empty twice", ".route GET /x Q\n.empty a\n.empty b\n", "only one .empty line"},
 		{"wrap blank", ".route GET /x Q\n.wrap\n", "usage: .wrap key"},
 		{"wrap two words", ".route GET /x Q\n.wrap the todos\n", `got "the todos"`},
@@ -230,6 +230,40 @@ func TestParseRoutePrepare(t *testing.T) {
 	} {
 		if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: got %v, want %q", src, err, want)
+		}
+	}
+}
+
+func TestParseRouteEmptyOK(t *testing.T) {
+	for _, tt := range []struct {
+		line string
+		want Empty
+	}{
+		{".empty 204", Empty{Status: 204}},
+		{".empty 200 {\"note\": null}", Empty{Status: 200, Body: `{"note": null}`}},
+		{".empty 200 []", Empty{Status: 200, Body: "[]"}},
+		{".empty 200 null", Empty{Status: 200, Body: "null"}},
+		{".empty 202 draftDefault", Empty{Status: 202, Func: "draftDefault"}},
+	} {
+		f, err := Parse([]byte(".route GET /x Q\n" + tt.line + "\n"))
+		if err != nil {
+			t.Fatalf("%s: %v", tt.line, err)
+		}
+		got := *f.Routes[0].Empty
+		got.Offset = 0
+		if got != tt.want || !got.OK() {
+			t.Errorf("%s: got %+v, want %+v", tt.line, got, tt.want)
+		}
+	}
+	for line, want := range map[string]string{
+		".empty 204 {}":       "takes nothing after the status",
+		".empty 200":          ".empty 200 needs the response",
+		".empty 200 {bad":     "is neither JSON nor a func name",
+		".empty 200 db.draft": "is neither JSON nor a func name",
+		".empty 302 /login":   "a 2xx one for a success",
+	} {
+		if _, err := Parse([]byte(".route GET /x Q\n" + line + "\n")); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: got %v, want %q", line, err, want)
 		}
 	}
 }

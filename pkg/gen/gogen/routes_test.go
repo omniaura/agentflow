@@ -538,3 +538,60 @@ func TestGenRoutesPrepare(t *testing.T) {
 		})
 	}
 }
+
+// A successful .empty answers a query that finds no row, or changes none,
+// with its response instead of an error.
+func TestGenRoutesEmptyOK(t *testing.T) {
+	repo, err := sqlcgo.Find("../../../examples/routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := func(src string, funcs map[string]MapFunc) (string, error) {
+		f, err := ast.NewFile("todos.af", []byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		err = GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup, EmptyFuncs: funcs, Swag: &Swag{}})
+		return buf.String(), err
+	}
+	code, err := gen(".route GET /a/{id} GetTodo\n.auth owner_id\n.empty 200 draft\n.cache 1m\n\n.route GET /b/{id} GetTodoTitle\n.public\n.empty 200 \"untitled\"\n\n.route PUT /c/{id}/done SetTodoDone\n.auth owner_id\n.empty 204\n\n.route DELETE /d/{id} DeleteTodo\n.auth owner_id\n.empty 200 {\"deleted\": false}\n", map[string]MapFunc{
+		"draft": {Params: []string{"ctx", "args", "caller"}, Err: true, Result: "Draft"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// A func, with the arguments, context and caller; it can fail. A
+		// response with a body gets the route's caching.
+		"if errors.Is(err, pgx.ErrNoRows) {\n\t\tresp, err := draft(r.Context(), arg, caller)\n\t\tif err != nil {\n\t\t\trt.fail(w, r, err)\n\t\t\treturn\n\t\t}\n\t\tw.Header().Set(\"Cache-Control\", \"private, max-age=60\")",
+		"afhttp.WriteJSON(w, r, http.StatusOK, resp)\n\t\treturn\n\t}",
+		"afhttp.WriteJSON(w, r, http.StatusOK, json.RawMessage(\"\\\"untitled\\\"\"))",
+		// An :execrows query that changes none.
+		"if n == 0 {\n\t\tw.WriteHeader(http.StatusNoContent)\n\t\treturn\n\t}",
+		"if n == 0 {\n\t\tafhttp.WriteJSON(w, r, http.StatusOK, json.RawMessage(\"{\\\"deleted\\\": false}\"))",
+		// Swag: a success of another status, and no 404. (One of the same
+		// status keeps the route's type: swag has one per status.)
+		"// @Success 204\n// @Success 200 {object} object\n",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q in\n%s", want, code)
+		}
+	}
+	if strings.Contains(code, "errGetTodo") || strings.Contains(code, "@Failure 404") {
+		t.Errorf("a successful .empty declared an error:\n%s", code)
+	}
+	for _, tt := range []struct{ name, src, msg string }{
+		{"caller on a public route", ".route GET /b/{id} GetTodoTitle\n.public\n.empty 200 draft\n", ".empty 200 draft takes the Caller, which a .public route has none of"},
+		{"arguments of a query with none", ".route GET /n CountTodos\n.public\n.empty 200 fromArgs\n", ".empty 200 fromArgs takes the query's arguments; query CountTodos takes none"},
+		{"a :many", ".route GET /l ListTodos\n.auth owner_id\n.empty 204\n", ".empty applies to a :one query"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := gen(tt.src, map[string]MapFunc{"draft": {Params: []string{"caller"}}, "fromArgs": {Params: []string{"args"}}})
+			var re *RouteError
+			if !errors.As(err, &re) || !strings.Contains(err.Error(), tt.msg) || !strings.HasPrefix(tt.src[re.Offset:], ".empty") {
+				t.Fatalf("got %v, want %q at .empty", err, tt.msg)
+			}
+		})
+	}
+}
