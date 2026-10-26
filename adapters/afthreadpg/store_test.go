@@ -96,12 +96,14 @@ func TestMigrate(t *testing.T) {
 	if err := afthreadpg.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate again: %v", err)
 	}
-	// It let go of its lock: another session takes it at once.
-	conn, err := pool.Acquire(ctx)
+	// It let go of its lock: another session takes it at once. A new
+	// connection, since a pooled one may be the session Migrate used, which
+	// would take the lock again whether it held it or not.
+	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Release()
+	defer conn.Close(ctx)
 	var locked bool
 	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext('afthreadpg.Migrate'))").Scan(&locked); err != nil || !locked {
 		t.Fatalf("the migration lock is still held: %v", err)
