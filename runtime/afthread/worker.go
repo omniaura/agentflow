@@ -49,8 +49,9 @@ type Worker struct {
 	// one its Agent field names.
 	Agent func(ctx context.Context, t Thread) (Agent, error)
 	// Lease is how long a worker that stopped mid-run keeps others from
-	// the thread. A running worker renews it every third of it. 0 means
-	// DefaultLease.
+	// the thread. A running worker renews it every third of it, and stops
+	// its run when it can't for two thirds. Make it longer than the
+	// pauses a worker may stall for. 0 means DefaultLease.
 	Lease time.Duration
 	// OnRun, when set, sees each run that answered messages.
 	OnRun func(ctx context.Context, t Thread, res afagent.Result, err error)
@@ -134,7 +135,8 @@ func (w *Worker) run(ctx context.Context, locker Locker, owner, id, worker strin
 
 // renew extends the lease every third of it until ctx ends, and cancels
 // ctx with ErrLeaseLost once another worker holds it, or once renewing
-// has failed for longer than the lease.
+// has failed for two thirds of the lease, leaving the run time to stop
+// before the lease ends.
 func renew(ctx context.Context, cancel context.CancelCauseFunc, locker Locker, owner, id, worker string, lease time.Duration) {
 	tick := time.NewTicker(max(lease/3, 1))
 	defer tick.Stop()
@@ -149,7 +151,7 @@ func renew(ctx context.Context, cancel context.CancelCauseFunc, locker Locker, o
 		switch {
 		case err == nil && held:
 			renewed = time.Now()
-		case err == nil, time.Since(renewed) >= lease:
+		case err == nil, time.Since(renewed) >= lease*2/3:
 			cancel(ErrLeaseLost)
 			return
 		}

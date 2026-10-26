@@ -225,3 +225,37 @@ func TestWorkerFailures(t *testing.T) {
 		t.Errorf("Drain on a plain store = %v", err)
 	}
 }
+
+// failing is a store whose lease renewals fail.
+type failing struct {
+	*afthread.Memory
+	locks atomic.Int32
+}
+
+func (s *failing) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	if s.locks.Add(1) > 1 {
+		return false, errors.New("database down")
+	}
+	return s.Memory.Lock(ctx, owner, id, worker, lease)
+}
+
+// A worker that can't renew stops before its lease ends, so no other
+// worker takes the thread while it still runs.
+func TestWorkerStopsBeforeItsLeaseEnds(t *testing.T) {
+	ctx := context.Background()
+	s := &failing{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	lease := 300 * time.Millisecond
+	w := &afthread.Worker{Store: s, Lease: lease, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 10*time.Second), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "slow"})
+	start := time.Now()
+	if err := w.Drain(ctx, "ann", th.ID); !errors.Is(err, afthread.ErrLeaseLost) {
+		t.Fatalf("Drain = %v", err)
+	}
+	if took := time.Since(start); took >= lease {
+		t.Errorf("stopped after %v, past the %v lease", took, lease)
+	}
+}
