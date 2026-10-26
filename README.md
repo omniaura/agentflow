@@ -665,7 +665,7 @@ event: done
 data: {"answer":"Your order A-1 ...","usage":{...}}
 ```
 
-`text` events stream the answer as the model writes it. `afanthropic` streams always; `afopenai` switches to streaming when someone listens. With `.returns`, the text is the JSON answer, sent once it passes the schema check, so a rejected answer never reaches the client. `tool_called`/`tool_returned` carry only the tool's name and whether it failed, never its arguments or results, and `answer_rejected` means the model is asked again. The stream ends with `done`, which has the same body as the JSON response, or with `error` (the same errs JSON as an HTTP error) once the 200 has been sent. Errors before the run starts, such as a bad body or failed authentication, are still plain HTTP errors. `afagent.ClientEvent` gives the same projection for your own servers.
+`text` events stream the answer as the model writes it. `afanthropic` streams always; `afopenai` switches to streaming when someone listens. `reasoning` events (`{"text": "..."}`) stream Claude's thinking or an OpenAI reasoning summary when the model is set to produce one; they are never part of the answer, and `.returns` doesn't hold them back. With `.returns`, the text is the JSON answer, sent once it passes the schema check, so a rejected answer never reaches the client. `tool_called`/`tool_returned` carry only the tool's name and whether it failed, never its arguments or results, and `answer_rejected` means the model is asked again. The stream ends with `done`, which has the same body as the JSON response, or with `error` (the same errs JSON as an HTTP error) once the 200 has been sent. Errors before the run starts, such as a bad body or failed authentication, are still plain HTTP errors. `afagent.ClientEvent` gives the same projection for your own servers.
 
 The client sends only its new message, `{"message": "..."}`. It gets back `{"output": {...}, "usage": {...}}`, or `{"answer": "..."}` without `.returns`. The history comes from `Prepare` on the server, so a client can't forge the model's or a tool's earlier messages. Errors follow the `.route` conventions:
 - the body is strict and capped (`MaxBytes`, 1 MiB by default)
@@ -682,7 +682,12 @@ model := &afanthropic.Model{} // claude-opus-5-5, 16000 max tokens by default
 // OpenAI Chat Completions, or any gateway that speaks it, through
 // github.com/openai/openai-go/v3. Reads OPENAI_API_KEY.
 model := &afopenai.Model{Model: modelID, Options: []option.RequestOption{option.WithBaseURL(gatewayURL)}}
+
+// OpenAI's Responses API, for reasoning models.
+model := &afopenai.ResponsesModel{Model: "o3", Reasoning: shared.ReasoningParam{Effort: shared.ReasoningEffortMedium, Summary: shared.ReasoningSummaryAuto}}
 ```
+
+`afopenai.ResponsesModel` keeps nothing on OpenAI's side (`store: false`). Each assistant message keeps the response's output items in `Message.Native`, with reasoning encrypted, so the reasoning goes back to the model on the next turn and a conversation stored in your database can resume on any server.
 
 `afanthropic` streams, so long answers don't time out, and turns on prompt caching, so each turn reuses the conversation before it. It keeps Claude's own content blocks on each assistant message (`Message.Native`), so thinking blocks go back unchanged on the next turn. Both adapters report cached input tokens in `Usage`, and return errors wrapping `afagent.ErrTruncated` for an answer cut off by the token limit and `afagent.ErrRefused` for a refusal. A `Params` hook adjusts each request, for example to set thinking, effort or `tool_choice`. When the API answers with an error, they return an `*afagent.ModelError` with its HTTP status and `Retry-After` hint.
 

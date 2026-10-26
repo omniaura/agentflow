@@ -345,6 +345,7 @@ func TestClientEventKeepsToolDataOnTheServer(t *testing.T) {
 		data string
 	}{
 		{Event{Kind: TextDelta, Text: "hi"}, "text", `{"text":"hi"}`},
+		{Event{Kind: ReasoningDelta, Text: "hmm"}, "reasoning", `{"text":"hmm"}`},
 		{Event{Kind: ToolCalled, Call: call}, "tool_called", `{"name":"lookup_order"}`},
 		{Event{Kind: ToolReturned, Call: call, Result: "secret-result"}, "tool_returned", `{"failed":false,"name":"lookup_order"}`},
 		{Event{Kind: ToolReturned, Call: call, Err: errors.New("secret-error")}, "tool_returned", `{"failed":true,"name":"lookup_order"}`},
@@ -411,6 +412,43 @@ func TestLoopHoldsTextUntilCheckPasses(t *testing.T) {
 		t.Fatalf("final %q, err %v", res.Final, err)
 	}
 	want := "1:Looking,1:model_responded,2:model_responded,2:answer_rejected,3:good,3:model_responded"
+	if strings.Join(got, ",") != want {
+		t.Errorf("events\n got %s\nwant %s", strings.Join(got, ","), want)
+	}
+}
+
+// Reasoning isn't the answer: it streams at once, even while Check holds
+// the answer's text, and reasoning after Complete returns is dropped.
+func TestLoopStreamsReasoning(t *testing.T) {
+	var late func(string)
+	n := 0
+	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		n++
+		req.OnReasoning(fmt.Sprintf("think %d", n))
+		req.OnText(fmt.Sprintf("answer %d", n))
+		late = req.OnReasoning
+		return Response{Message: Message{Content: fmt.Sprintf("answer %d", n)}}, nil
+	})
+	var got []string
+	l := Loop{
+		Model: model,
+		Check: func(answer string) error {
+			if answer != "answer 2" {
+				return errors.New("again")
+			}
+			return nil
+		},
+		OnEvent: func(e Event) {
+			if e.Kind == ReasoningDelta || e.Kind == TextDelta {
+				got = append(got, fmt.Sprintf("%d:%s:%s", e.Turn, e.Kind, e.Text))
+			}
+		},
+	}
+	if _, err := l.Run(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	late("too late")
+	want := "1:reasoning_delta:think 1,2:reasoning_delta:think 2,2:text_delta:answer 2"
 	if strings.Join(got, ",") != want {
 		t.Errorf("events\n got %s\nwant %s", strings.Join(got, ","), want)
 	}
