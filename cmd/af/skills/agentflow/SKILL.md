@@ -242,13 +242,15 @@ Answers customer questions about their orders.
   `Register(mux)`. The client posts `{"message": "..."}`. `Prepare` authenticates and
   returns the prompt values and the stored history, and `Done` stores `res.Messages`.
   Never accept history from the client. Clients sending `Accept: text/event-stream` get
-  `text`, `tool_called`, `tool_returned`, `answer_rejected`, then `done` or `error` events.
+  `text`, `reasoning`, `tool_called`, `tool_returned`, `answer_rejected`, then `done` or
+  `error` events.
   With `.returns`, `text` carries the JSON answer only after it passes the schema check.
   Don't hand-write SSE plumbing for an agent endpoint.
 - Run it with `(&SupportAgent{Model: m, Tools: impl}).Run(ctx, &Support{Shop: "Acme"},
   afagent.Message{Role: afagent.User, Content: q})`. `res.Final` is the answer.
 - `Model` is `afagent.Model`. Use `&afanthropic.Model{}` (Claude) or
-  `&afopenai.Model{Model: id}` (OpenAI-compatible) from
+  `&afopenai.Model{Model: id}` (OpenAI-compatible) or `&afopenai.ResponsesModel{Model: id}`
+  (OpenAI's Responses API, for reasoning models) from
   `github.com/omniaura/agentflow/runtime`, or wrap another provider call in
   `afagent.ModelFunc`. Wrap it with `afmodel.Retry`, `afmodel.Fallback` and
   `afmodel.Meter` for retries on 429/5xx/529, a backup provider and per-call usage,

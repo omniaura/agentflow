@@ -84,6 +84,10 @@ type Request struct {
 	// from one goroutine at a time, in the order of the text, and only
 	// before Complete returns: text after that is dropped.
 	OnText func(text string)
+	// OnReasoning, when set, receives the model's reasoning, or a summary
+	// of it, as the model writes it, for adapters that stream it. It is
+	// not the answer. The same rules as OnText apply.
+	OnReasoning func(text string)
 }
 
 // OutputSpec describes a structured final answer.
@@ -184,6 +188,10 @@ const (
 	// With Check set, a final answer's text is held until it passes, and
 	// dropped if it fails: clients never see a rejected answer.
 	TextDelta EventKind = "text_delta"
+	// ReasoningDelta carries the model's reasoning, or a summary of it, in
+	// Text, as the model writes it, when the adapter streams it. It is not
+	// part of the answer.
+	ReasoningDelta EventKind = "reasoning_delta"
 )
 
 // Event reports progress, for logs, metrics and streaming to a client.
@@ -343,17 +351,27 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		)
 		if l.OnEvent != nil {
 			turn := res.Turns
+			// Emitting under mu keeps an event from reaching OnEvent after
+			// the turn closed, and so after Run returned.
 			req.OnText = func(text string) {
 				e := Event{Kind: TextDelta, Turn: turn, Text: text}
-				if l.Check != nil {
-					mu.Lock()
-					if !closed {
-						held = append(held, e)
-					}
-					mu.Unlock()
-					return
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case closed:
+				case l.Check != nil:
+					held = append(held, e)
+				default:
+					l.emit(e)
 				}
-				l.emit(e)
+			}
+			// Reasoning isn't the answer: Check doesn't hold it back.
+			req.OnReasoning = func(text string) {
+				mu.Lock()
+				defer mu.Unlock()
+				if !closed {
+					l.emit(Event{Kind: ReasoningDelta, Turn: turn, Text: text})
+				}
 			}
 		}
 		resp, err := l.Model.Complete(ctx, req)
@@ -477,6 +495,7 @@ func (l *Loop) dispatch(ctx context.Context, call ToolCall) (out string, err err
 // server; ok is false for events with nothing to show.
 //
 //	text            {"text": "..."}          the answer as it is written
+//	reasoning       {"text": "..."}          the model's reasoning summary
 //	tool_called     {"name": "lookup_order"}
 //	tool_returned   {"name": "lookup_order", "failed": false}
 //	answer_rejected {}                       the model is asked again
@@ -484,6 +503,8 @@ func ClientEvent(e Event) (name string, data any, ok bool) {
 	switch e.Kind {
 	case TextDelta:
 		return "text", map[string]string{"text": e.Text}, true
+	case ReasoningDelta:
+		return "reasoning", map[string]string{"text": e.Text}, true
 	case ToolCalled:
 		if e.Call == nil {
 			return "", nil, false

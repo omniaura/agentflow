@@ -11,8 +11,9 @@
 //		recordUsage,
 //	)
 //
-// A call that already streamed text to Request.OnText is never retried or
-// sent to another model, so a client never sees an answer start twice.
+// A call that already streamed text to Request.OnText or OnReasoning is
+// never retried or sent to another model, so a client never sees an answer
+// start twice.
 //
 // The provider SDKs retry on their own too; turn that off (for example
 // option.WithMaxRetries(0)) when Retry should own the policy.
@@ -52,15 +53,21 @@ func Transient(err error) bool {
 	return errors.As(err, &ne) || errors.Is(err, io.ErrUnexpectedEOF)
 }
 
-// streamGuard wraps req.OnText to record whether any text reached it.
+// streamGuard wraps req.OnText and req.OnReasoning to record whether any
+// text reached them.
 func streamGuard(req afagent.Request) (afagent.Request, *atomic.Bool) {
 	var streamed atomic.Bool
-	if on := req.OnText; on != nil {
-		req.OnText = func(s string) {
+	guard := func(on func(string)) func(string) {
+		if on == nil {
+			return nil
+		}
+		return func(s string) {
 			streamed.Store(true)
 			on(s)
 		}
 	}
+	req.OnText = guard(req.OnText)
+	req.OnReasoning = guard(req.OnReasoning)
 	return req, &streamed
 }
 

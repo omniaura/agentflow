@@ -66,10 +66,15 @@ func (m *Model) Complete(ctx context.Context, req afagent.Request) (afagent.Resp
 		if err := msg.Accumulate(event); err != nil {
 			return afagent.Response{}, fmt.Errorf("afanthropic: %w", err)
 		}
-		if req.OnText != nil {
-			if d, ok := event.AsAny().(anthropic.ContentBlockDeltaEvent); ok {
-				if t, ok := d.Delta.AsAny().(anthropic.TextDelta); ok {
+		if d, ok := event.AsAny().(anthropic.ContentBlockDeltaEvent); ok {
+			switch t := d.Delta.AsAny().(type) {
+			case anthropic.TextDelta:
+				if req.OnText != nil {
 					req.OnText(t.Text)
+				}
+			case anthropic.ThinkingDelta:
+				if req.OnReasoning != nil {
+					req.OnReasoning(t.Thinking)
 				}
 			}
 		}

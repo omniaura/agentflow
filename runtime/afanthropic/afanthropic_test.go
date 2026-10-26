@@ -268,17 +268,18 @@ func TestStreamsText(t *testing.T) {
 	f := &fakeClaude{answers: [][]string{answer("end_turn",
 		`{"type":"thinking","thinking":"private","signature":"s"}`,
 		`{"type":"text","text":"Hello there"}`)}}
-	var deltas []string
+	var deltas, thinking []string
 	resp, err := newModel(t, f).Complete(context.Background(), afagent.Request{
-		Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}},
-		OnText:   func(s string) { deltas = append(deltas, s) },
+		Messages:    []afagent.Message{{Role: afagent.User, Content: "hi"}},
+		OnText:      func(s string) { deltas = append(deltas, s) },
+		OnReasoning: func(s string) { thinking = append(thinking, s) },
 	})
 	if err != nil || resp.Message.Content != "Hello there" {
 		t.Fatalf("got %v, %+v", err, resp)
 	}
-	// Text only: thinking stays out of the stream.
-	if strings.Join(deltas, "") != "Hello there" {
-		t.Errorf("deltas = %q", deltas)
+	// Thinking streams apart from the text.
+	if strings.Join(deltas, "") != "Hello there" || strings.Join(thinking, "") != "private" {
+		t.Errorf("deltas = %q, thinking = %q", deltas, thinking)
 	}
 }
 

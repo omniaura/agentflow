@@ -19,6 +19,7 @@ type scripted struct {
 	results []error
 	calls   int
 	stream  bool
+	reason  bool
 }
 
 func (s *scripted) Complete(ctx context.Context, req afagent.Request) (afagent.Response, error) {
@@ -26,6 +27,9 @@ func (s *scripted) Complete(ctx context.Context, req afagent.Request) (afagent.R
 	s.calls++
 	if s.stream && req.OnText != nil {
 		req.OnText("Hel")
+	}
+	if s.reason && req.OnReasoning != nil {
+		req.OnReasoning("Hmm")
 	}
 	if i < len(s.results) && s.results[i] != nil {
 		return afagent.Response{}, s.results[i]
@@ -84,6 +88,11 @@ func TestRetry(t *testing.T) {
 	m = &scripted{stream: true, results: []error{status(503)}}
 	if _, err := Retry(m, policy).Complete(ctx, afagent.Request{OnText: func(string) {}}); err == nil || m.calls != 1 {
 		t.Fatalf("after streaming: %v, %d calls", err, m.calls)
+	}
+	// So is reasoning.
+	m = &scripted{reason: true, results: []error{status(503)}}
+	if _, err := Retry(m, policy).Complete(ctx, afagent.Request{OnReasoning: func(string) {}}); err == nil || m.calls != 1 {
+		t.Fatalf("after streaming reasoning: %v, %d calls", err, m.calls)
 	}
 	// Streaming without text yet is retried.
 	m = &scripted{results: []error{status(503)}}

@@ -7,6 +7,9 @@
 // Point Options at another base URL (option.WithBaseURL) to use an
 // OpenAI-compatible gateway. A structured output (Request.Output) is sent as
 // a strict json_schema response_format.
+//
+// ResponsesModel runs agents on the Responses API instead, for reasoning
+// models.
 package afopenai
 
 import (
