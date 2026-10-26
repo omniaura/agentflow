@@ -131,7 +131,7 @@ func (q *Queries) Claim(ctx context.Context, threadID pgtype.UUID) ([]AfInbox, e
 const createThread = `-- name: CreateThread :one
 INSERT INTO af_threads (owner, agent, title, metadata)
 VALUES ($1, $2, $3, $4)
-RETURNING id, owner, agent, title, metadata, created_at, updated_at
+RETURNING id, owner, agent, title, metadata, created_at, updated_at, lease_holder, lease_until
 `
 
 type CreateThreadParams struct {
@@ -157,6 +157,8 @@ func (q *Queries) CreateThread(ctx context.Context, arg CreateThreadParams) (AfT
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LeaseHolder,
+		&i.LeaseUntil,
 	)
 	return i, err
 }
@@ -164,7 +166,7 @@ func (q *Queries) CreateThread(ctx context.Context, arg CreateThreadParams) (AfT
 const createThreadWithID = `-- name: CreateThreadWithID :one
 INSERT INTO af_threads (id, owner, agent, title, metadata)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, owner, agent, title, metadata, created_at, updated_at
+RETURNING id, owner, agent, title, metadata, created_at, updated_at, lease_holder, lease_until
 `
 
 type CreateThreadWithIDParams struct {
@@ -192,6 +194,8 @@ func (q *Queries) CreateThreadWithID(ctx context.Context, arg CreateThreadWithID
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LeaseHolder,
+		&i.LeaseUntil,
 	)
 	return i, err
 }
@@ -324,7 +328,7 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (AfRun, error) {
 }
 
 const getThread = `-- name: GetThread :one
-SELECT id, owner, agent, title, metadata, created_at, updated_at FROM af_threads WHERE id = $1 AND owner = $2
+SELECT id, owner, agent, title, metadata, created_at, updated_at, lease_holder, lease_until FROM af_threads WHERE id = $1 AND owner = $2
 `
 
 type GetThreadParams struct {
@@ -343,8 +347,21 @@ func (q *Queries) GetThread(ctx context.Context, arg GetThreadParams) (AfThread,
 		&i.Metadata,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LeaseHolder,
+		&i.LeaseUntil,
 	)
 	return i, err
+}
+
+const hasQueued = `-- name: HasQueued :one
+SELECT EXISTS (SELECT 1 FROM af_inbox WHERE thread_id = $1 AND status = 'queued')
+`
+
+func (q *Queries) HasQueued(ctx context.Context, threadID pgtype.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, hasQueued, threadID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const inboxByKey = `-- name: InboxByKey :one
@@ -399,6 +416,33 @@ func (q *Queries) LastSeq(ctx context.Context, threadID pgtype.UUID) (int32, err
 	return column_1, err
 }
 
+const leaseThread = `-- name: LeaseThread :execrows
+UPDATE af_threads
+SET lease_holder = $1, lease_until = now() + make_interval(secs => $2::float8)
+WHERE id = $3 AND owner = $4
+  AND (lease_holder = '' OR lease_holder = $1 OR lease_until < now())
+`
+
+type LeaseThreadParams struct {
+	Worker  string
+	Seconds float64
+	ID      pgtype.UUID
+	Owner   string
+}
+
+func (q *Queries) LeaseThread(ctx context.Context, arg LeaseThreadParams) (int64, error) {
+	result, err := q.db.Exec(ctx, leaseThread,
+		arg.Worker,
+		arg.Seconds,
+		arg.ID,
+		arg.Owner,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const lockRun = `-- name: LockRun :one
 SELECT r.id FROM af_runs r JOIN af_threads t ON t.id = r.thread_id
 WHERE r.id = $1 AND t.owner = $2
@@ -449,6 +493,22 @@ func (q *Queries) Reclaim(ctx context.Context, arg ReclaimParams) (int64, error)
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const releaseThread = `-- name: ReleaseThread :exec
+UPDATE af_threads SET lease_holder = '', lease_until = NULL
+WHERE id = $1 AND owner = $2 AND lease_holder = $3
+`
+
+type ReleaseThreadParams struct {
+	ID     pgtype.UUID
+	Owner  string
+	Worker string
+}
+
+func (q *Queries) ReleaseThread(ctx context.Context, arg ReleaseThreadParams) error {
+	_, err := q.db.Exec(ctx, releaseThread, arg.ID, arg.Owner, arg.Worker)
+	return err
 }
 
 const send = `-- name: Send :one

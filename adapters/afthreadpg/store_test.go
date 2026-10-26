@@ -8,7 +8,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -135,5 +138,61 @@ func TestRun(t *testing.T) {
 	pool.QueryRow(ctx, "SELECT status FROM af_inbox WHERE thread_id = $1 AND key = 'm1'", th.ID).Scan(&status)
 	if status != "done" {
 		t.Errorf("inbox status = %q", status)
+	}
+}
+
+// Workers on many servers share threads through the lease: concurrent
+// requests each send and drain, and every message is answered by one run
+// at a time.
+func TestWorkers(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	s := afthreadpg.New(pool)
+	th, err := s.Create(ctx, afthread.Thread{Owner: "ann", Agent: "support"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var running, overlaps atomic.Int32
+	agent := func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+		if running.Add(1) > 1 {
+			overlaps.Add(1)
+		}
+		defer running.Add(-1)
+		msgs, err := before(ctx, 1, msgs)
+		if err != nil {
+			return afagent.Result{}, err
+		}
+		time.Sleep(2 * time.Millisecond)
+		answer := afagent.Message{Role: afagent.Assistant, Content: "ok"}
+		return afagent.Result{Final: "ok", Turns: 1, Messages: append(msgs, answer)}, nil
+	}
+	var wg sync.WaitGroup
+	for i := range 30 {
+		wg.Go(func() {
+			// A worker per request, as on separate servers.
+			w := &afthread.Worker{Store: s, Lease: time.Second, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) { return agent, nil }}
+			if _, err := s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: fmt.Sprint(i), Content: fmt.Sprint(i)}); err != nil {
+				t.Error(err)
+			}
+			if err := w.Drain(ctx, "ann", th.ID); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if n := overlaps.Load(); n != 0 {
+		t.Errorf("%d runs overlapped", n)
+	}
+	var notDone int
+	pool.QueryRow(ctx, "SELECT count(*) FROM af_inbox WHERE thread_id = $1 AND status <> 'done'", th.ID).Scan(&notDone)
+	got, _ := s.Transcript(ctx, "ann", th.ID)
+	users := 0
+	for _, m := range got {
+		if m.Role == afagent.User {
+			users++
+		}
+	}
+	if notDone != 0 || users != 30 {
+		t.Errorf("%d messages not done, %d in the transcript", notDone, users)
 	}
 }

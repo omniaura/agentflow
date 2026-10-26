@@ -248,6 +248,89 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 		}
 	})
 
+	t.Run("locker", func(t *testing.T) {
+		s := newStore()
+		l, ok := s.(afthread.Locker)
+		if !ok {
+			t.Skip("the store doesn't lease threads")
+		}
+		th := create(t, s, "ann")
+		if held, err := l.Lock(ctx, "ann", th.ID, "w1", time.Minute); err != nil || !held {
+			t.Fatalf("Lock = %v, %v", held, err)
+		}
+		// Another worker waits; the holder extends its lease.
+		if held, err := l.Lock(ctx, "ann", th.ID, "w2", time.Minute); err != nil || held {
+			t.Fatalf("Lock by another worker = %v, %v", held, err)
+		}
+		if held, err := l.Lock(ctx, "ann", th.ID, "w1", time.Minute); err != nil || !held {
+			t.Fatalf("Lock by the holder = %v, %v", held, err)
+		}
+		// Unlocking by another worker leaves the lease; it reports the queue.
+		s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "hi"})
+		if queued, err := l.Unlock(ctx, "ann", th.ID, "w2"); err != nil || !queued {
+			t.Fatalf("Unlock by another worker = %v, %v", queued, err)
+		}
+		if held, _ := l.Lock(ctx, "ann", th.ID, "w2", time.Minute); held {
+			t.Fatal("another worker's Unlock ended the lease")
+		}
+		if queued, err := l.Unlock(ctx, "ann", th.ID, "w1"); err != nil || !queued {
+			t.Fatalf("Unlock with a queued message = %v, %v", queued, err)
+		}
+		claimed, _ := s.Claim(ctx, "ann", th.ID)
+		// Claimed isn't queued.
+		if queued, err := l.Unlock(ctx, "ann", th.ID, "w1"); err != nil || queued {
+			t.Fatalf("Unlock with a claimed message = %v, %v", queued, err)
+		}
+		s.Finish(ctx, "ann", th.ID, []int64{claimed[0].ID}, nil)
+		// Released, the thread is free; an expired lease is too.
+		if held, err := l.Lock(ctx, "ann", th.ID, "w2", 50*time.Millisecond); err != nil || !held {
+			t.Fatalf("Lock after Unlock = %v, %v", held, err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if held, err := l.Lock(ctx, "ann", th.ID, "w3", time.Minute); err != nil || !held {
+			t.Fatalf("Lock after the lease expired = %v, %v", held, err)
+		}
+		// Another owner can't lease or unlock it.
+		if _, err := l.Lock(ctx, "bob", th.ID, "w4", time.Minute); !errors.Is(err, afthread.ErrNotFound) {
+			t.Errorf("Lock by another owner: %v", err)
+		}
+		if _, err := l.Unlock(ctx, "bob", th.ID, "w3"); !errors.Is(err, afthread.ErrNotFound) {
+			t.Errorf("Unlock by another owner: %v", err)
+		}
+		if held, _ := l.Lock(ctx, "ann", th.ID, "w5", time.Minute); held {
+			t.Error("another owner's Unlock ended the lease")
+		}
+	})
+
+	t.Run("concurrent locks", func(t *testing.T) {
+		s := newStore()
+		l, ok := s.(afthread.Locker)
+		if !ok {
+			t.Skip("the store doesn't lease threads")
+		}
+		th := create(t, s, "ann")
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var holders []int
+		for i := range 20 {
+			wg.Go(func() {
+				held, err := l.Lock(ctx, "ann", th.ID, fmt.Sprint("w", i), time.Minute)
+				if err != nil {
+					t.Error(err)
+				}
+				if held {
+					mu.Lock()
+					holders = append(holders, i)
+					mu.Unlock()
+				}
+			})
+		}
+		wg.Wait()
+		if len(holders) != 1 {
+			t.Fatalf("%d workers hold the lease: %v", len(holders), holders)
+		}
+	})
+
 	t.Run("concurrent claims", func(t *testing.T) {
 		s := newStore()
 		th := create(t, s, "ann")
