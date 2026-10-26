@@ -481,7 +481,19 @@ Errors are [go-kit errs](https://github.com/omniaura/go-kit/tree/main/errs) erro
 {"fields":{"id":"invalid value \"abc\""},"message":"invalid request","code":"invalid_request","ref":"d3f1...","action":"fix_input","status":400}
 ```
 
-The runtime declares a factory for each failure: `ErrInvalidRequest` (400, with a field for each bad input), `ErrTooLarge` (413), `ErrUnauthorized` (401, when `Auth` fails), `ErrNotFound` (404), `ErrConflict` (409, for a unique violation) and `ErrModelFailed` (502). Any other query failure is `errs.Unknown`, a 500 whose message says nothing of the cause. `Auth` and `Prepare` can return your own errs factories, and they are written as they are. The cause goes to errs's log and sinks with the `ref`, never to the client. The runtime is `github.com/omniaura/agentflow/runtime/afhttp`, which depends only on `go-kit/errs`. See [`examples/routes`](examples/routes), which is tested against Postgres in CI.
+The runtime declares a factory for each failure: `ErrInvalidRequest` (400, with a field for each bad input), `ErrTooLarge` (413), `ErrUnauthorized` (401, when `Auth` fails), `ErrNotFound` (404), `ErrConflict` (409, for a unique violation) and `ErrModelFailed` (502). Any other query failure is `errs.Unknown`, a 500 whose message says nothing of the cause.
+
+Validate input with constraints in the schema, not Go code: a `NOT NULL` or `CHECK` violation is a 400 `ErrInvalidRequest`. The field is the column, when the driver names it or a `CHECK` has Postgres's default name. Bound lengths with a `CHECK`, not `varchar(n)`: Postgres reports its overflow without a column, like other data errors that reading stored data raises too, and those stay 500. For example:
+
+```sql
+body text NOT NULL CHECK (body <> '') CHECK (length(body) <= 2000)
+```
+
+```json
+{"message": "invalid request", "code": "invalid_request", "status": 400, "fields": {"body": "is invalid"}}
+```
+
+SQL tools tell the model the same thing (`invalid request; body is invalid`), so it can fix the call, and say only `internal error` for failures it can't fix. `Auth` and `Prepare` can return your own errs factories, and they are written as they are. The cause goes to errs's log and sinks with the `ref`, never to the client. The runtime is `github.com/omniaura/agentflow/runtime/afhttp`, which depends only on `go-kit/errs`. See [`examples/routes`](examples/routes), which is tested against Postgres in CI.
 
 ### Structured Outputs
 

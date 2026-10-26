@@ -24,6 +24,14 @@ SELECT id, body, pinned FROM notes
 WHERE owner_id = @owner_id AND strpos(lower(body), lower(@text)) > 0
 ORDER BY id
 
+.tool add_note
+.auth owner_id
+
+Adds a note for the caller.
+
+.sql :one
+INSERT INTO notes (owner_id, body) VALUES (@owner_id, @body) RETURNING id, body
+
 .tool pin_note
 .auth owner_id
 .empty no note of yours has that id

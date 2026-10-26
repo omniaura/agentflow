@@ -12,7 +12,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,20 +49,101 @@ func Unauthorized(ctx context.Context, err error) *errs.Error {
 	return ErrUnauthorized.New(ctx).AddError(err)
 }
 
-// QueryFailed wraps a failed query: ErrConflict for a unique violation.
-// An *errs.Error the queries return, such as a permission check in a
-// wrapper around them, keeps its status; anything else is errs.Unknown,
-// whose message says nothing of the cause.
+// QueryFailed wraps a failed query: ErrConflict for a unique violation,
+// and ErrInvalidRequest for a NOT NULL or CHECK violation, so constraints
+// in the schema validate input. The field is the column, when the driver
+// names it (pgx's
+// PgError.ColumnName, lib/pq's Error.Column) or a CHECK constraint has
+// Postgres's default name, <table>_<column>_check (or _check1, ...). An *errs.Error the
+// queries return, such as a permission check in a wrapper around them,
+// keeps its status; anything else is errs.Unknown, whose message says
+// nothing of the cause.
 func QueryFailed(ctx context.Context, err error) *errs.Error {
 	var e *errs.Error
 	if errors.As(err, &e) {
 		return errs.AsError(ctx, err)
 	}
 	var state interface{ SQLState() string }
-	if errors.As(err, &state) && state.SQLState() == "23505" {
+	if !errors.As(err, &state) {
+		return errs.AsError(ctx, err)
+	}
+	code := state.SQLState()
+	if code == "23505" {
 		return ErrConflict.New(ctx).AddError(err)
 	}
-	return errs.AsError(ctx, err)
+	problem, ok := invalidValues[code]
+	if !ok {
+		return errs.AsError(ctx, err)
+	}
+	out := ErrInvalidRequest.New(ctx).AddError(err)
+	if col := rejectedColumn(state, code); col != "" {
+		out.Field(col, problem)
+	}
+	return out
+}
+
+// invalidValues are the Postgres SQLSTATEs of a value a write's
+// constraint rejects, with what a client is told is wrong with it. Data
+// exceptions (class 22, such as a varchar(n) overflow) are left out: a read
+// of stored data raises them too, and Postgres names no column for them.
+// Bound a length with a CHECK instead.
+var invalidValues = map[string]string{
+	"23502": "is required", // not_null_violation
+	"23514": "is invalid",  // check_violation
+}
+
+// rejectedColumn names the column a database error is about, from the
+// driver error's fields, which are read by name so that afhttp needs no
+// driver.
+func rejectedColumn(err any, code string) string {
+	if col := stringField(err, "ColumnName", "Column"); col != "" {
+		return col
+	}
+	if code != "23514" {
+		return ""
+	}
+	table := stringField(err, "TableName", "Table")
+	constraint := stringField(err, "ConstraintName", "Constraint")
+	// Postgres numbers a column's further checks: <table>_<column>_check1.
+	constraint = strings.TrimRight(constraint, "0123456789")
+	col, ok := strings.CutPrefix(constraint, table+"_")
+	if col, found := strings.CutSuffix(col, "_check"); ok && table != "" && found && col != "" {
+		return col
+	}
+	return ""
+}
+
+// stringField returns the first of the named string fields of the struct v
+// points to that is set.
+func stringField(v any, names ...string) string {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return ""
+	}
+	for _, n := range names {
+		if f := rv.FieldByName(n); f.IsValid() && f.Kind() == reflect.String && f.String() != "" {
+			return f.String()
+		}
+	}
+	return ""
+}
+
+// ToolMessage is what a model is told of a failed tool call: the error's
+// message and fields when it is the caller's fault (a 4xx), such as a
+// value the database rejects, or "internal error".
+func ToolMessage(e *errs.Error) string {
+	p := e.Public()
+	if p.Status >= 500 {
+		return "internal error"
+	}
+	msg := p.Message
+	for _, name := range slices.Sorted(maps.Keys(p.Fields)) {
+		msg += "; " + name + " " + p.Fields[name]
+	}
+	return msg
 }
 
 // ParseError reports a path, query or tool argument that does not parse.

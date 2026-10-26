@@ -346,7 +346,10 @@ func writeSQLTool(buf *bytes.Buffer, name string, st *sqlTool, imports map[strin
 		call += ", arg"
 	}
 	call += ")"
-	failed := "if err != nil {\nreturn \"\", &aftool.Error{Msg: \"internal error\", Err: err}\n}\n"
+	// The model learns what it can fix, such as a value a constraint
+	// rejected, and nothing of other failures.
+	imports[AfhttpImport] = true
+	failed := "if err != nil {\nreturn \"\", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}\n}\n"
 	empty := strconv.Quote("not found")
 	if t.Empty != nil {
 		if q.Kind != sqlcgo.One && q.Kind != sqlcgo.ExecRows {
@@ -375,7 +378,7 @@ func writeSQLTool(buf *bytes.Buffer, name string, st *sqlTool, imports map[strin
 		buf.WriteString("return fmt.Sprintf(`{\"rows_affected\":%d}`, n), nil\n}\n\n")
 		imports["fmt"] = true
 	default:
-		fmt.Fprintf(buf, "if err := %s; err != nil {\nreturn \"\", &aftool.Error{Msg: \"internal error\", Err: err}\n}\n", call)
+		fmt.Fprintf(buf, "if err := %s; err != nil {\nreturn \"\", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}\n}\n", call)
 		buf.WriteString("return `{\"ok\":true}`, nil\n}\n\n")
 	}
 	return nil

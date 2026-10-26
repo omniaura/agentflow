@@ -154,6 +154,9 @@ func (failingQueries) ListNotesTool(context.Context, string) ([]db.ListNotesTool
 func (failingQueries) FindNotesTool(context.Context, db.FindNotesToolParams) ([]db.FindNotesToolRow, error) {
 	return nil, errors.New("dial tcp: connection refused")
 }
+func (failingQueries) AddNoteTool(context.Context, db.AddNoteToolParams) (db.AddNoteToolRow, error) {
+	return db.AddNoteToolRow{}, errors.New("dial tcp: connection refused")
+}
 func (failingQueries) PinNoteTool(context.Context, db.PinNoteToolParams) (int64, error) {
 	return 0, errors.New("dial tcp: connection refused")
 }

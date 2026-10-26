@@ -118,7 +118,7 @@ func (t *TodoToolsSQLTools) GetTodo(ctx context.Context, args GetTodoArgs) (stri
 		return "", &aftool.Error{Msg: "not found", Err: err}
 	}
 	if err != nil {
-		return "", &aftool.Error{Msg: "internal error", Err: err}
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
 	}
 	b, err := json.Marshal(row)
 	return string(b), err
@@ -139,7 +139,7 @@ func (t *TodoToolsSQLTools) FinishTodo(ctx context.Context, args FinishTodoArgs)
 	arg.Done = args.Done
 	n, err := t.Queries.SetTodoDone(ctx, arg)
 	if err != nil {
-		return "", &aftool.Error{Msg: "internal error", Err: err}
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
 	}
 	if n == 0 {
 		return "", &aftool.Error{Msg: "not found"}
@@ -165,7 +165,7 @@ func (t *TodoToolsSQLTools) ListTodos(ctx context.Context, args ListTodosArgs) (
 	}
 	rows, err := t.Queries.ListTodos(ctx, arg)
 	if err != nil {
-		return "", &aftool.Error{Msg: "internal error", Err: err}
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
 	}
 	if rows == nil {
 		rows = []db.Todo{}
@@ -188,7 +188,7 @@ func (t *TodoToolsSQLTools) SearchTodos(ctx context.Context, args SearchTodosArg
 	arg.Text = args.Text
 	rows, err := t.Queries.SearchTodos(ctx, arg)
 	if err != nil {
-		return "", &aftool.Error{Msg: "internal error", Err: err}
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
 	}
 	if rows == nil {
 		rows = []db.SearchTodosRow{}

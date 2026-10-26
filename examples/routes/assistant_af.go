@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/omniaura/agentflow/examples/routes/db"
 	"github.com/omniaura/agentflow/runtime/afagent"
 	"github.com/omniaura/agentflow/runtime/afhttp"
@@ -44,6 +45,22 @@ var FindNotesTool = &aftool.Def[FindNotesArgs]{
 	Schema:      []byte(`{"type":"object","properties":{"text":{"type":"string","description":"The words to look for."}},"required":["text"],"additionalProperties":false}`),
 	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
 		{Name: "text", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
+	}},
+}
+
+// AddNoteArgs are the arguments of the add_note tool.
+type AddNoteArgs struct {
+	Body string `json:"body"`
+}
+
+// AddNoteTool is the add_note tool. Its Decode method checks and decodes the
+// arguments of a call into AddNoteArgs.
+var AddNoteTool = &aftool.Def[AddNoteArgs]{
+	Name:        "add_note",
+	Description: `Adds a note for the caller.`,
+	Schema:      []byte(`{"type":"object","properties":{"body":{"type":"string"}},"required":["body"],"additionalProperties":false}`),
+	Shape: aftool.Shape{Kind: aftool.Object, Fields: []aftool.Field{
+		{Name: "body", Required: true, Shape: aftool.Shape{Kind: aftool.String}},
 	}},
 }
 
@@ -84,6 +101,7 @@ var UnpinNotesTool = &aftool.Def[UnpinNotesArgs]{
 type AssistantToolQueries interface {
 	ListNotesTool(ctx context.Context, arg string) ([]db.ListNotesToolRow, error)
 	FindNotesTool(ctx context.Context, arg db.FindNotesToolParams) ([]db.FindNotesToolRow, error)
+	AddNoteTool(ctx context.Context, arg db.AddNoteToolParams) (db.AddNoteToolRow, error)
 	PinNoteTool(ctx context.Context, arg db.PinNoteToolParams) (int64, error)
 	UnpinNotesTool(ctx context.Context, arg db.UnpinNotesToolParams) (int64, error)
 }
@@ -111,7 +129,7 @@ func (t *AssistantSQLTools) ListNotes(ctx context.Context, args ListNotesArgs) (
 	arg = caller.OwnerID
 	rows, err := t.Queries.ListNotesTool(ctx, arg)
 	if err != nil {
-		return "", &aftool.Error{Msg: "internal error", Err: err}
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
 	}
 	if rows == nil {
 		rows = []db.ListNotesToolRow{}
@@ -134,12 +152,35 @@ func (t *AssistantSQLTools) FindNotes(ctx context.Context, args FindNotesArgs) (
 	arg.Text = args.Text
 	rows, err := t.Queries.FindNotesTool(ctx, arg)
 	if err != nil {
-		return "", &aftool.Error{Msg: "internal error", Err: err}
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
 	}
 	if rows == nil {
 		rows = []db.FindNotesToolRow{}
 	}
 	b, err := json.Marshal(rows)
+	return string(b), err
+}
+
+// AddNote runs the add_note tool: query AddNoteTool.
+func (t *AssistantSQLTools) AddNote(ctx context.Context, args AddNoteArgs) (string, error) {
+	if t.Caller == nil {
+		return "", &aftool.Error{Msg: "internal error", Err: errors.New("AssistantSQLTools.Caller is not set")}
+	}
+	caller, err := t.Caller(ctx)
+	if err != nil {
+		return "", &aftool.Error{Msg: "unauthorized", Err: err}
+	}
+	var arg db.AddNoteToolParams
+	arg.OwnerID = caller.OwnerID
+	arg.Body = args.Body
+	row, err := t.Queries.AddNoteTool(ctx, arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", &aftool.Error{Msg: "not found", Err: err}
+	}
+	if err != nil {
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
+	}
+	b, err := json.Marshal(row)
 	return string(b), err
 }
 
@@ -157,7 +198,7 @@ func (t *AssistantSQLTools) PinNote(ctx context.Context, args PinNoteArgs) (stri
 	arg.OwnerID = caller.OwnerID
 	n, err := t.Queries.PinNoteTool(ctx, arg)
 	if err != nil {
-		return "", &aftool.Error{Msg: "internal error", Err: err}
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
 	}
 	if n == 0 {
 		return "", &aftool.Error{Msg: "no note of yours has that id"}
@@ -182,7 +223,7 @@ func (t *AssistantSQLTools) UnpinNotes(ctx context.Context, args UnpinNotesArgs)
 	arg.OwnerID = caller.OwnerID
 	n, err := t.Queries.UnpinNotesTool(ctx, arg)
 	if err != nil {
-		return "", &aftool.Error{Msg: "internal error", Err: err}
+		return "", &aftool.Error{Msg: afhttp.ToolMessage(afhttp.QueryFailed(ctx, err)), Err: err}
 	}
 	if n == 0 {
 		return "", &aftool.Error{Msg: "not found"}
@@ -197,6 +238,8 @@ type NotesTools interface {
 	ListNotes(ctx context.Context, args ListNotesArgs) (string, error)
 	// FindNotes: Finds the caller's notes that contain the text.
 	FindNotes(ctx context.Context, args FindNotesArgs) (string, error)
+	// AddNote: Adds a note for the caller.
+	AddNote(ctx context.Context, args AddNoteArgs) (string, error)
 	// PinNote: Pins one of the caller's notes.
 	PinNote(ctx context.Context, args PinNoteArgs) (string, error)
 	// UnpinNotes: Unpins some of the caller's notes.
@@ -232,6 +275,7 @@ type NotesAgent struct {
 var NotesAgentTools = []afagent.ToolSpec{
 	{Name: ListNotesTool.Name, Description: ListNotesTool.Description, Schema: ListNotesTool.Schema},
 	{Name: FindNotesTool.Name, Description: FindNotesTool.Description, Schema: FindNotesTool.Schema},
+	{Name: AddNoteTool.Name, Description: AddNoteTool.Description, Schema: AddNoteTool.Schema},
 	{Name: PinNoteTool.Name, Description: PinNoteTool.Description, Schema: PinNoteTool.Schema},
 	{Name: UnpinNotesTool.Name, Description: UnpinNotesTool.Description, Schema: UnpinNotesTool.Schema},
 }
@@ -294,6 +338,12 @@ func (a *NotesAgent) dispatch(ctx context.Context, call afagent.ToolCall) (strin
 			return "", err
 		}
 		return a.Tools.FindNotes(ctx, args)
+	case AddNoteTool.Name:
+		args, err := AddNoteTool.Decode(call.Arguments)
+		if err != nil {
+			return "", err
+		}
+		return a.Tools.AddNote(ctx, args)
 	case PinNoteTool.Name:
 		args, err := PinNoteTool.Decode(call.Arguments)
 		if err != nil {
