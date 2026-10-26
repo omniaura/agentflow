@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -65,23 +66,24 @@ func run(ctx context.Context) error {
 
 	addr := ":" + envOr("PORT", "8080")
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	stopped := make(chan struct{})
+	stopped := make(chan error, 1)
 	go func() {
-		defer close(stopped)
 		<-ctx.Done()
 		// Stop taking requests, then let runs finish, for up to 30s.
 		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdown)
-		threads.Shutdown(shutdown)
+		stopped <- errors.Join(srv.Shutdown(shutdown), threads.Shutdown(shutdown))
 	}()
 	log.Printf("listening on %s", addr)
 	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	// ListenAndServe returns as Shutdown starts: wait for the runs, which
-	// still use the pool.
-	<-stopped
+	// still use the pool. Past the deadline, the error says what was cut
+	// short.
+	if err := <-stopped; err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
 	return nil
 }
 

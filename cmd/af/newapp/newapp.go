@@ -61,15 +61,25 @@ Next:
 Then see README.md to talk to the agent.
 `
 
+// render generates an .af file's Go code; tests replace it.
+var render = prompts.Render
+
 // Create writes the backend into dir, which must be empty or missing,
-// with module path module.
-func Create(dir, module string) error {
+// with module path module. When it fails, it leaves dir as it was, so
+// running it again can succeed.
+func Create(dir, module string) (err error) {
 	if !validModule.MatchString(module) {
 		return fmt.Errorf("af new: %q is not a module path", module)
 	}
-	if err := emptyDir(dir); err != nil {
+	created, err := emptyDir(dir)
+	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			undo(dir, created)
+		}
+	}()
 	data := struct{ Module, Name string }{module, name(module)}
 	entries, err := templates.ReadDir("template")
 	if err != nil {
@@ -94,31 +104,47 @@ func Create(dir, module string) error {
 	if err != nil {
 		return err
 	}
-	out, code, err := prompts.Render(af, src)
+	out, code, err := render(af, src)
 	if err != nil {
 		return fmt.Errorf("af new: generate %s: %w", af, err)
 	}
 	return os.WriteFile(out, code, 0o644)
 }
 
-// validModule is a module path without spaces or quotes.
-var validModule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~/-]*$`)
+// validModule is a module path without spaces or quotes, whose elements
+// are not empty.
+var validModule = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._~-]*(/[A-Za-z0-9][A-Za-z0-9._~-]*)*$`)
 
 // name is the module's last element, as the app calls itself.
 func name(module string) string {
 	return module[strings.LastIndex(module, "/")+1:]
 }
 
-func emptyDir(dir string) error {
+// emptyDir checks that dir is empty, creating it when it is missing, and
+// reports whether it did.
+func emptyDir(dir string) (bool, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return os.MkdirAll(dir, 0o755)
+		return true, os.MkdirAll(dir, 0o755)
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(entries) > 0 {
-		return fmt.Errorf("af new: %s is not empty", dir)
+		return false, fmt.Errorf("af new: %s is not empty", dir)
 	}
-	return nil
+	return false, nil
+}
+
+// undo removes what a failed Create wrote into dir, which was empty, and
+// dir itself when Create made it.
+func undo(dir string, created bool) {
+	if created {
+		os.RemoveAll(dir)
+		return
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		os.RemoveAll(filepath.Join(dir, e.Name()))
+	}
 }

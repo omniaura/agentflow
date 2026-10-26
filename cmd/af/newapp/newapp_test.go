@@ -3,6 +3,7 @@ package newapp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/omniaura/agentflow/cmd/af/gen/prompts"
 )
 
 func TestCreate(t *testing.T) {
@@ -46,8 +49,34 @@ func TestCreate(t *testing.T) {
 	if err := Create(dir, "x"); err == nil || !strings.Contains(err.Error(), "not empty") {
 		t.Errorf("Create into a full directory: %v", err)
 	}
-	if err := Create(t.TempDir(), `bad "module"`); err == nil {
-		t.Error("Create with a bad module path succeeded")
+	for _, bad := range []string{`bad "module"`, "example.com/acme/", "example.com//bot", "/bot"} {
+		if err := Create(t.TempDir(), bad); err == nil {
+			t.Errorf("Create with module path %q succeeded", bad)
+		}
+	}
+}
+
+// A failed Create leaves the directory as it found it, so a retry works.
+func TestCreateFailureCleansUp(t *testing.T) {
+	render = func(string, []byte) (string, []byte, error) { return "", nil, errors.New("boom") }
+	defer func() { render = prompts.Render }()
+	missing := filepath.Join(t.TempDir(), "app")
+	if err := Create(missing, "app"); err == nil {
+		t.Fatal("Create succeeded")
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Errorf("the directory Create made is still there: %v", err)
+	}
+	empty := t.TempDir()
+	if err := Create(empty, "app"); err == nil {
+		t.Fatal("Create succeeded")
+	}
+	if entries, _ := os.ReadDir(empty); len(entries) != 0 {
+		t.Errorf("files left behind: %v", entries)
+	}
+	render = prompts.Render
+	if err := Create(empty, "app"); err != nil {
+		t.Errorf("retry: %v", err)
 	}
 }
 
@@ -150,7 +179,15 @@ func TestScaffoldRuns(t *testing.T) {
 	}
 	// SIGTERM shuts the server down cleanly.
 	app.Process.Signal(syscall.SIGTERM)
-	if err := app.Wait(); err != nil {
-		t.Errorf("exit after SIGTERM: %v", err)
+	exited := make(chan error, 1)
+	go func() { exited <- app.Wait() }()
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Errorf("exit after SIGTERM: %v", err)
+		}
+	case <-time.After(time.Minute):
+		app.Process.Kill()
+		t.Error("the app didn't exit after SIGTERM")
 	}
 }
