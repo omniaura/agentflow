@@ -209,6 +209,9 @@ Answers customer questions about their orders.
 - `BeforeTurn func(ctx, turn, messages) ([]Message, error)` on a generated agent replaces the
   conversation before each model call: compaction and context-budget checks go there, not in a
   hand-written loop.
+- A new agent backend from scratch: `af new <dir> --module <path>` writes a module with an
+  `.af` agent, its generated code, Postgres threads (afthreadpg) and the thread HTTP API.
+  Start from it rather than wiring stores, workers and servers by hand.
 - Conversations that live in the database: `runtime/afthread`. A new backend can use the Postgres
   store `adapters/afthreadpg` (migrations, applied by your tool or `afthreadpg.Migrate`). Otherwise implement `afthread.Store` over
   the existing tables (don't create new ones if threads and a message queue exist), check it

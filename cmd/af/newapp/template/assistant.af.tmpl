@@ -1,0 +1,14 @@
+.title Assistant
+
+You are the assistant of {{.Name}}. Answer briefly, and use the tools when
+they help.
+
+.tool current_time
+.param zone? An IANA time zone, such as Europe/Paris. UTC when left out.
+
+Gets the current date and time.
+
+.agent assistant
+.maxturns 6
+
+Answers the user's questions.

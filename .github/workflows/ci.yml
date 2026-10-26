@@ -27,6 +27,7 @@ jobs:
     # examples/routes is its own module (it needs pgx); test it against a
     # real Postgres with its sqlc-generated queries.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:17-alpine
@@ -53,6 +54,13 @@ jobs:
         env:
           AF_TEST_DATABASE_URL: postgres://postgres:pw@localhost:5432/postgres?sslmode=disable
         run: go test -race ./...
+
+      - name: Build and run an app from af new
+        working-directory: .
+        env:
+          AF_TEST_SCAFFOLD: "1"
+          AF_TEST_DATABASE_URL: postgres://postgres:pw@localhost:5432/postgres?sslmode=disable
+        run: go test -count=1 -timeout 10m -run TestScaffoldRuns ./cmd/af/newapp
 
   afthreadpg:
     # adapters/afthreadpg is its own module (it needs pgx): check its sqlc

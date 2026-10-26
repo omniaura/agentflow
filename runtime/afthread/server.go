@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,10 @@ type Server struct {
 	// Worker answers sent messages. Nil leaves them queued, for workers
 	// of your own.
 	Worker *Worker
+	// Agents, when set, are the agents a client may start a thread with:
+	// POST {prefix} creates one. Nil leaves creating threads to you, with
+	// Store.Create.
+	Agents []string
 	// Owner authenticates the request and returns whose threads it may
 	// use. Its error fails the request as it is when it is an
 	// *errs.Error; wrap authentication failures with afhttp.Unauthorized.
@@ -65,6 +70,21 @@ type Server struct {
 
 // errShuttingDown refuses messages once Shutdown has begun.
 var errShuttingDown = errs.NewFactory(http.StatusServiceUnavailable, "the server is shutting down", errs.WithCode("shutting_down"), errs.WithAction(errs.ActionRetry))
+
+// NewThread is the body of POST {prefix}.
+type NewThread struct {
+	// Agent is one of the server's Agents.
+	Agent string `json:"agent"`
+	Title string `json:"title,omitempty"`
+}
+
+// ThreadView is a thread, as a client sees it.
+type ThreadView struct {
+	ID      string    `json:"id"`
+	Agent   string    `json:"agent"`
+	Title   string    `json:"title,omitempty"`
+	Created time.Time `json:"created"`
+}
 
 // SendRequest is the body of POST {prefix}/{thread}/messages.
 type SendRequest struct {
@@ -131,6 +151,7 @@ type RunEvents struct {
 
 // Register adds to mux, under prefix such as "/threads":
 //
+//	POST {prefix}                             with Agents: creates the caller's thread for a NewThread: 201 and the ThreadView
 //	POST {prefix}/{thread}/messages           queues a SendRequest for the thread's agent: 202 and the SentMessage
 //	GET  {prefix}/{thread}/messages           the conversation: 200 and ThreadMessages
 //	GET  {prefix}/{thread}/runs               the thread's latest runs, newest first: ThreadRunList
@@ -157,6 +178,9 @@ func (s *Server) Register(mux *http.ServeMux, prefix string) {
 		panic("afthread: Server.Owner is not set")
 	}
 	prefix = strings.TrimSuffix(prefix, "/")
+	if len(s.Agents) > 0 {
+		mux.HandleFunc("POST "+prefix, s.create)
+	}
 	mux.HandleFunc("POST "+prefix+"/{thread}/messages", s.send)
 	mux.HandleFunc("GET "+prefix+"/{thread}/messages", s.messages)
 	mux.HandleFunc("GET "+prefix+"/{thread}/runs", s.runs)
@@ -241,6 +265,37 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	afhttp.WriteError(w, r, err)
 }
 
+func (s *Server) maxBytes() int64 {
+	if s.MaxBytes > 0 {
+		return s.MaxBytes
+	}
+	return 1 << 20
+}
+
+func (s *Server) create(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	owner, err := s.Owner(r)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	var body NewThread
+	if err := afhttp.DecodeBody(w, r, s.maxBytes(), &body); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !slices.Contains(s.Agents, body.Agent) {
+		s.fail(w, r, afhttp.ErrInvalidRequest.New(ctx).Field("agent", "must be one of "+strings.Join(s.Agents, ", ")))
+		return
+	}
+	t, err := s.Store.Create(ctx, Thread{Owner: owner, Agent: body.Agent, Title: body.Title})
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	afhttp.WriteJSON(w, r, http.StatusCreated, ThreadView{ID: t.ID, Agent: t.Agent, Title: t.Title, Created: t.Created})
+}
+
 func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if !s.enter() {
@@ -253,12 +308,8 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	maxBytes := s.MaxBytes
-	if maxBytes <= 0 {
-		maxBytes = 1 << 20
-	}
 	var body SendRequest
-	if err := afhttp.DecodeBody(w, r, maxBytes, &body); err != nil {
+	if err := afhttp.DecodeBody(w, r, s.maxBytes(), &body); err != nil {
 		s.fail(w, r, err)
 		return
 	}

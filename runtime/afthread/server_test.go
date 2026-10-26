@@ -712,3 +712,42 @@ func TestServerFollowTimeout(t *testing.T) {
 		t.Errorf("stream = %q", w.Body)
 	}
 }
+
+func TestServerCreatesThreads(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	srv, mux := newServer(t, s, toolThenAnswer())
+	// Without Agents, threads are the app's to create.
+	if w := do(mux, "POST", "/threads", "ann", `{"agent":"support"}`); w.Code == http.StatusCreated {
+		t.Fatalf("created without Agents: %s", w.Body)
+	}
+	srv.Agents = []string{"support", "billing"}
+	mux = http.NewServeMux()
+	srv.Register(mux, "/threads")
+	w := do(mux, "POST", "/threads", "ann", `{"agent":"billing","title":"Invoice"}`)
+	var th afthread.ThreadView
+	json.Unmarshal(w.Body.Bytes(), &th)
+	if w.Code != http.StatusCreated || th.ID == "" || th.Agent != "billing" || th.Title != "Invoice" || th.Created.IsZero() {
+		t.Fatalf("create: %d %s", w.Code, w.Body)
+	}
+	if got, err := s.Get(ctx, "ann", th.ID); err != nil || got.Agent != "billing" {
+		t.Errorf("stored thread = %+v, %v", got, err)
+	}
+	// It's the caller's: another owner can't use it.
+	if w := do(mux, "GET", "/threads/"+th.ID+"/messages", "bob", ""); w.Code != 404 {
+		t.Errorf("another owner reads: %d", w.Code)
+	}
+	for _, tt := range []struct {
+		name, user, body string
+		status           int
+	}{
+		{"unknown agent", "ann", `{"agent":"admin"}`, 400},
+		{"no agent", "ann", `{}`, 400},
+		{"no user", "", `{"agent":"support"}`, 401},
+		{"unknown field", "ann", `{"agent":"support","owner":"bob"}`, 400},
+	} {
+		if w := do(mux, "POST", "/threads", tt.user, tt.body); w.Code != tt.status {
+			t.Errorf("%s: %d %s", tt.name, w.Code, w.Body)
+		}
+	}
+}

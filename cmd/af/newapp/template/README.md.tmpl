@@ -1,0 +1,45 @@
+# {{.Name}}
+
+An agent served over HTTP, made with [agentflow](https://github.com/omniaura/agentflow).
+`assistant.af` declares the agent and its tools; `af gen` turns it into
+`assistant_af.go`. Conversations live in Postgres, so any server can answer
+any thread and a restart loses nothing.
+
+## Run
+
+```sh
+go get github.com/omniaura/agentflow@latest github.com/omniaura/agentflow/adapters/afthreadpg@latest
+go mod tidy
+docker run -d --name {{.Name}}-pg -e POSTGRES_PASSWORD=pw -p 5432:5432 postgres:17-alpine
+export DATABASE_URL=postgres://postgres:pw@localhost:5432/postgres?sslmode=disable
+export ANTHROPIC_API_KEY=...          # or OPENAI_API_KEY and OPENAI_MODEL
+export APP_TOKEN=$(openssl rand -hex 16)
+go run .
+```
+
+It creates its tables on start (`afthreadpg.Migrate`).
+
+## Talk to it
+
+```sh
+auth="Authorization: Bearer $APP_TOKEN"
+# Start a thread.
+thread=$(curl -s -H "$auth" -d '{"agent":"assistant"}' localhost:8080/threads | jq -r .id)
+# Send a message and stream the answer.
+curl -N -H "$auth" -H 'Accept: text/event-stream' -d '{"message":"What time is it in Tokyo?"}' localhost:8080/threads/$thread/messages
+# Or send it, and read the conversation once it's answered.
+curl -s -H "$auth" -d '{"message":"And in Paris?"}' localhost:8080/threads/$thread/messages
+curl -s -H "$auth" localhost:8080/threads/$thread/messages
+```
+
+`GET /threads/{thread}/runs` lists the agent's runs, and
+`GET /threads/{thread}/runs/{run}/events` follows one, resumable with
+`Last-Event-ID`.
+
+## Change it
+
+- **The agent**: edit `assistant.af`, then run `go tool af gen prompts .` (or `af gen prompts .`).
+- **Tools**: add a `.tool` to `assistant.af`; `af gen` adds a method to
+  `AssistantTools`, which you write in `tools.go`.
+- **Users**: `owner` in `main.go` lets in one user holding `APP_TOKEN`.
+  Replace it with your authentication; each user's threads are their own.
