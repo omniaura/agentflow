@@ -3,6 +3,7 @@ package gogen
 import (
 	"bytes"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -456,6 +457,28 @@ func TestGenRoutesSwagMapShapes(t *testing.T) {
 	for _, want := range []string{"// @Success 200 {object} Board\n", "// @Success 200 {array} Card\n"} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+func TestMapFuncFor(t *testing.T) {
+	for _, tt := range []struct {
+		row, typ string
+		want     []string
+	}{
+		{"db.Todo", "[]db.Todo", []string{"caller", "rows"}},
+		// The query's row is a slice: the parameter is one row.
+		{"[]byte", "[]byte", []string{"caller", "row"}},
+		// Through another import name of the same package.
+		{"[]db.Blob", "[]store.Blob", []string{"caller", "row"}},
+		{"db.Blob", "[]store.Blob", []string{"caller", "rows"}},
+	} {
+		f := MapFunc{Params: []string{"caller", "rows"}, Row: tt.typ}
+		if got := f.For(tt.row).Params; !slices.Equal(got, tt.want) {
+			t.Errorf("%s for row %s: %v, want %v", tt.typ, tt.row, got, tt.want)
+		}
+		if f.Params[1] != "rows" {
+			t.Fatal("For changed the func it was called on")
 		}
 	}
 }

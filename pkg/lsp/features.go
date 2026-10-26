@@ -750,7 +750,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 
 // mapCall describes how route s, of the .af file at path, calls its .map
 // func, as its signature in the package says.
-func mapCall(path string, s *decl.Route, qk sqlcgo.Kind) string {
+func mapCall(path string, s *decl.Route, q *sqlcgo.Query) string {
 	f := gogen.MapFunc{Params: []string{"row"}}
 	funcs, err := gogen.ReadMapFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{s}})
 	switch {
@@ -761,14 +761,14 @@ func mapCall(path string, s *decl.Route, qk sqlcgo.Kind) string {
 		return s.Map + " (its signature can't be read now)"
 	}
 	if fn, ok := funcs[s.Map]; ok {
-		f = fn
+		f = fn.For(q.Result.Expr)
 	}
 	var args []string
 	for _, p := range f.Params {
 		args = append(args, map[string]string{"row": "row", "rows": "rows", "caller": "caller", "ctx": "ctx", "request": "r"}[p])
 	}
 	call := s.Map + "(" + strings.Join(args, ", ") + ")"
-	if qk == sqlcgo.Many && slices.Contains(f.Params, "row") {
+	if q.Kind == sqlcgo.Many && slices.Contains(f.Params, "row") {
 		return "[" + call + " for each row]"
 	}
 	return call
@@ -855,7 +855,7 @@ func (d *Document) SectionHover(pos Position) string {
 				v = "rows"
 			}
 			if s.Map != "" {
-				v = mapCall(p, s, q.Kind)
+				v = mapCall(p, s, q)
 			}
 			if s.Wrap != "" {
 				v = fmt.Sprintf("{%q: %s}", s.Wrap, v)

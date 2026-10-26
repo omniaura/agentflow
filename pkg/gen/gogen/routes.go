@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/omniaura/agentflow/pkg/ast"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -51,6 +52,27 @@ type MapFunc struct {
 	// Result is the response's type, the first result, as the package
 	// writes it.
 	Result string
+}
+
+// For returns f as a route whose query's row type is row calls it: a slice
+// parameter is all the rows, unless its type is row itself, such as []byte.
+// Types compare without their package names, which imports may alias.
+func (f MapFunc) For(row string) MapFunc {
+	i := slices.Index(f.Params, "rows")
+	if i < 0 || unqualified(f.Row) != unqualified(row) {
+		return f
+	}
+	f.Params = slices.Clone(f.Params)
+	f.Params[i] = "row"
+	return f
+}
+
+// qualifierRE matches the package name of a qualified type, db. in db.Todo.
+var qualifierRE = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*\.`)
+
+// unqualified is the type expression t without its package names.
+func unqualified(t string) string {
+	return qualifierRE.ReplaceAllString(strings.ReplaceAll(t, " ", ""), "")
 }
 
 // simple reports whether f takes only the row and can't fail.
@@ -128,12 +150,7 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		if b.r.Map != "" {
 			b.mapFn = MapFunc{Params: []string{"row"}}
 			if f, ok := opts.MapFuncs[b.r.Map]; ok {
-				b.mapFn = f
-				if i := slices.Index(f.Params, "rows"); i >= 0 && f.Row == b.q.Result.Expr {
-					// A slice that is the query's row, such as []byte.
-					b.mapFn.Params = slices.Clone(f.Params)
-					b.mapFn.Params[i] = "row"
-				}
+				b.mapFn = f.For(b.q.Result.Expr)
 			}
 			if slices.Contains(b.mapFn.Params, "rows") && b.q.Kind != sqlcgo.Many {
 				return &RouteError{Offset: b.r.MapOffset, Err: fmt.Errorf(".map %s takes the whole result, a slice; query %s is %s, so it gets one row", b.r.Map, b.q.Name, b.q.Kind)}
