@@ -164,6 +164,13 @@ func TestTodoRoutes(t *testing.T) {
 
 	expect("PUT", "/todos/1/done", "ann", `{"done":true}`, 204, "")
 	expect("PUT", "/todos/1/done", "bob", `{"done":true}`, 404, "")
+	// .bind: the path parameter and body field go by other names.
+	expect("POST", "/todos/1/status", "ann", `{"completed":false}`, 204, "")
+	if _, got := do("GET", "/todos?done=true", "ann", ""); got != "[]" {
+		t.Fatalf("after completed=false, done=true lists %s", got)
+	}
+	expect("POST", "/todos/1/status", "ann", `{"done":true}`, 400, `unknown field`)
+	expect("POST", "/todos/1/status", "ann", `{"completed":true}`, 204, "")
 	expect("GET", "/todos?done=true", "ann", "", 200, `"done":true`)
 	if _, got := do("GET", "/todos?done=false", "ann", ""); got != "[]" {
 		t.Fatalf("done=false lists %s, want []", got)

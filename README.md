@@ -376,9 +376,19 @@ Nothing else is declared. Each query argument is bound by name, with `user_id`, 
 
 Arguments named by the path or by `.auth` never come from the request body, so a client can't set `owner_id`.
 
+When the API's name for an argument differs from the query's, `.bind arg = name` reads the argument from `name` instead. It follows the same order: a `{name}` path parameter when the path has one, otherwise the body or query string field `name`. The query's own name then no longer matches, so an existing API can keep its names over a query written for another:
+
+```af
+.route POST /todos/{todo_id}/status SetTodoDone
+.auth owner_id
+.bind id = todo_id
+.bind done = completed
+```
+
 | Directive | Meaning |
 | --- | --- |
 | `.auth a, b` | Arguments read from the caller's fields. |
+| `.bind arg = name` | Read argument `arg` from the path parameter or field `name`. |
 | `.public` | Skip authentication. Routes authenticate by default. |
 | `.status 201` | The success status. |
 | `.maxbytes n` | Cap the request body (default 1 MiB). |

@@ -3,6 +3,7 @@ package decl
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -59,6 +60,12 @@ func TestParseRouteErrors(t *testing.T) {
 		{"wrap dash", ".route GET /x Q\n.wrap my-todos\n", "usage: .wrap key"},
 		{"wrap twice", ".route GET /x Q\n.wrap a\n.wrap b\n", "only one .wrap line"},
 		{"wrap after sql", ".route GET /x Q\n.sql :many\nSELECT 1\n.wrap rows\n", ".wrap must come before .sql"},
+		{"bind no equals", ".route GET /x Q\n.bind id memory_id\n", "usage: .bind arg = name"},
+		{"bind blank name", ".route GET /x Q\n.bind id =\n", "usage: .bind arg = name"},
+		{"bind dash", ".route GET /x Q\n.bind id = memory-id\n", "usage: .bind arg = name"},
+		{"bind arg twice", ".route GET /x Q\n.bind id = a\n.bind id = b\n", "id is bound twice"},
+		{"bind name twice", ".route GET /x Q\n.bind a = x\n.bind b = x\n", "x already binds a"},
+		{"bind auth", ".route GET /x Q\n.bind owner_id = user\n.auth owner_id\n", "owner_id comes from .auth"},
 		{"empty after sql", ".route GET /x Q\n.sql :one\nSELECT 1\n.empty gone\n", ".empty must come before .sql"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -187,5 +194,17 @@ func TestParseRouteMap(t *testing.T) {
 		if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q: got %v, want %q", src, err, want)
 		}
+	}
+}
+
+func TestParseRouteBind(t *testing.T) {
+	src := ".route GET /memories/{memory_id} GetMemory\n.bind id = memory_id\n.bind owner = user_id\n"
+	f, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Bind{{Arg: "id", Name: "memory_id", Offset: strings.Index(src, ".bind id")}, {Arg: "owner", Name: "user_id", Offset: strings.Index(src, ".bind owner")}}
+	if got := f.Routes[0].Binds; !slices.Equal(got, want) {
+		t.Fatalf("Binds = %+v, want %+v", got, want)
 	}
 }

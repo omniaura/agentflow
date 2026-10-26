@@ -198,11 +198,11 @@ func writeSwag(buf *bytes.Buffer, b *boundRoute, bodyType string, sw *Swag, impo
 		switch b.sources[i] {
 		case "path":
 			inputs = true
-			name := pathName(r, a)
+			name := b.names[i]
 			line("Param %s path %s true %q", name, swagType(a.Type.Expr), name)
 		case "query":
 			inputs = true
-			line("Param %s query %s %t %q", a.JSON, swagType(a.Type.Expr), !nullable(a.Type.Expr), a.JSON)
+			line("Param %s query %s %t %q", b.names[i], swagType(a.Type.Expr), !nullable(a.Type.Expr), b.names[i])
 		}
 	}
 	if bodyType != "" {

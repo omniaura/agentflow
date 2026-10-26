@@ -286,7 +286,9 @@ Creates a todo for the caller.
   handlers that only decode a request, call one query and write JSON.
 - Arguments bind by name, in order: `{path}` parameters, then `.auth` names (fields of
   your `Caller` type), then the JSON body (or the query string for GET, HEAD and
-  DELETE). `user_id`, `userId` and `UserID` all match one argument.
+  DELETE). `user_id`, `userId` and `UserID` all match one argument. When the API's name
+  differs from the query's, `.bind id = memory_id` reads `id` from `{memory_id}`, or the
+  `memory_id` field, instead of writing a handler to rename it.
 - Routes authenticate by default; `.public` skips it. `.status`, `.maxbytes` and a
   description (which becomes the doc comment) are optional.
 - `.wrap notes` responds `{"notes": [...]}` instead of the bare array (`:one` and `:many`

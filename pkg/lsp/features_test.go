@@ -204,6 +204,12 @@ func TestDefinitionRouteQuery(t *testing.T) {
 	if !strings.Contains(hover, "- `title` string ← JSON body") {
 		t.Errorf("create hover:\n%s", hover)
 	}
+	// A bound argument shows the request's name for it.
+	doc = openAt(t, path, string(src)+"\n.route GET /bound/{note_id} GetTodo\n.bind id = note_id\n.auth owner_id\n")
+	hover = doc.SectionHover(at(t, doc, "{note_id} GetTodo", 0))
+	if !strings.Contains(hover, "- `id` int64 ← path `note_id`") {
+		t.Errorf("bound hover:\n%s", hover)
+	}
 }
 
 func applyEdits(t *testing.T, doc *Document, edit *protocol.WorkspaceEdit) string {
@@ -439,7 +445,7 @@ func TestRouteCompletionsFollowQueryKind(t *testing.T) {
 		{"inline :exec", ".route POST /a TouchX\n.\n.sql :exec\nSELECT 1\n", 1, []string{".status"}, []string{".wrap", ".map", ".empty", ".cache"}},
 		// The kind from sqlc's output: ListTodos is :many, GetTodo :one.
 		{"sqlc :many", ".route GET /todos ListTodos\n.\n", 1, []string{".wrap"}, []string{".empty"}},
-		{"sqlc :one", ".route GET /todos/{id} GetTodo\n.\n", 1, []string{".wrap", ".empty"}, nil},
+		{"sqlc :one", ".route GET /todos/{id} GetTodo\n.\n", 1, []string{".wrap", ".empty", ".bind"}, nil},
 		// A kind .sql doesn't take is unknown, not a filter.
 		{"typo kind", ".route GET /a ListX\n.\n.sql :mnay\nSELECT 1\n", 1, []string{".wrap", ".empty"}, nil},
 		// An unknown query offers both.
