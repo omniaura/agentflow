@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/omniaura/agentflow/pkg/assert/require"
+	"github.com/omniaura/agentflow/pkg/decl"
+	"github.com/omniaura/agentflow/pkg/sqlcgo"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
@@ -203,6 +205,29 @@ func TestDefinitionRouteQuery(t *testing.T) {
 	hover = doc.SectionHover(at(t, doc, "CreateTodo", 0))
 	if !strings.Contains(hover, "- `title` string ← JSON body") {
 		t.Errorf("create hover:\n%s", hover)
+	}
+	// A .map func's signature says what it is passed.
+	boardPath := filepath.Join(filepath.Dir(path), "board.af")
+	boardSrc, err := os.ReadFile(boardPath)
+	require.NoError(t, err)
+	board := openAt(t, boardPath, string(boardSrc))
+	if hover := board.SectionHover(at(t, board, "ListTodos", 0)); !strings.Contains(hover, "Responds `todoBoard(ctx, caller, rows)`.") {
+		t.Errorf("board hover:\n%s", hover)
+	}
+	// A signature af can't use, or can't read, is said so, not guessed.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(n int64) error { return nil }\n"), 0o644)
+	if got := mapCall(filepath.Join(dir, "m.af"), &decl.Route{Map: "view"}, &sqlcgo.Query{Kind: sqlcgo.One}); !strings.Contains(got, "it returns only an error") {
+		t.Errorf("bad signature: %s", got)
+	}
+	// A slice parameter that is the query's row type is each row.
+	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(b []byte) string { return \"\" }\n"), 0o644)
+	if got := mapCall(filepath.Join(dir, "m.af"), &decl.Route{Map: "view"}, &sqlcgo.Query{Kind: sqlcgo.Many, Result: sqlcgo.Type{Expr: "[]byte"}}); got != "[view(row) for each row]" {
+		t.Errorf("slice rows: %s", got)
+	}
+	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(\n"), 0o644)
+	if got := mapCall(filepath.Join(dir, "m.af"), &decl.Route{Map: "view"}, &sqlcgo.Query{Kind: sqlcgo.One}); got != "view (its signature can't be read now)" {
+		t.Errorf("unparsable package: %s", got)
 	}
 	// A bound argument shows the request's name for it.
 	doc = openAt(t, path, string(src)+"\n.route GET /bound/{note_id} GetTodo\n.bind id = note_id\n.auth owner_id\n")

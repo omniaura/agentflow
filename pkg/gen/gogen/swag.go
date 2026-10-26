@@ -19,9 +19,6 @@ type Swag struct {
 	Security string
 	// Tags groups the file's routes, such as its file name.
 	Tags string
-	// MapTypes are the result types of .map funcs by name, such as
-	// TodoCard, when the parser could tell.
-	MapTypes map[string]string
 }
 
 func lowerFirst(s string) string {
@@ -218,8 +215,15 @@ func writeSwag(buf *bytes.Buffer, b *boundRoute, bodyType string, sw *Swag, impo
 			kind = "array"
 		}
 		if r.Map != "" {
-			if typ = sw.MapTypes[r.Map]; typ == "" {
+			if typ = b.mapFn.Result; typ == "" {
 				typ = "object"
+			}
+			if slices.Contains(b.mapFn.Params, "rows") {
+				// The func makes the whole response from all the rows.
+				kind = "object"
+				if elem, ok := strings.CutPrefix(typ, "[]"); ok {
+					kind, typ = "array", elem
+				}
 			}
 		}
 		if r.Wrap != "" {

@@ -189,6 +189,19 @@ func Map[Row, T any](rows []Row, fn func(Row) T) []T {
 	return out
 }
 
+// MapErr is Map with a func that can fail: it stops at the first error.
+func MapErr[Row, T any](rows []Row, fn func(Row) (T, error)) ([]T, error) {
+	out := make([]T, len(rows))
+	for i, row := range rows {
+		v, err := fn(row)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
 // WriteJSON writes v as JSON with status, the response to r.
 func WriteJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
 	b, err := json.Marshal(v)

@@ -3,10 +3,6 @@ package prompts
 import (
 	"bufio"
 	"bytes"
-	"go/ast"
-	"go/parser"
-	"go/printer"
-	gotoken "go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,7 +25,7 @@ func swagOptions(name string, f afast.File) *gogen.Swag {
 	if root == "" || !usesSwag(filepath.Join(root, "go.mod")) {
 		return nil
 	}
-	sw := &gogen.Swag{Tags: strings.TrimSuffix(filepath.Base(name), ".af"), MapTypes: mapTypes(name, f)}
+	sw := &gogen.Swag{Tags: strings.TrimSuffix(filepath.Base(name), ".af")}
 	for dir := filepath.Dir(name); ; dir = filepath.Dir(dir) {
 		if names := securityNames(dir, false); len(names) > 0 {
 			sw.Security = names[0]
@@ -113,40 +109,4 @@ func securityNames(dir string, deep bool) []string {
 		return nil
 	})
 	return names
-}
-
-// mapTypes returns the result types of the file's .map funcs, as written
-// in the Go package next to it.
-func mapTypes(name string, f afast.File) map[string]string {
-	want := map[string]bool{}
-	for _, r := range f.Routes {
-		if r.Map != "" {
-			want[r.Map] = true
-		}
-	}
-	if len(want) == 0 {
-		return nil
-	}
-	out := map[string]string{}
-	paths, _ := filepath.Glob(filepath.Join(filepath.Dir(name), "*.go"))
-	fset := gotoken.NewFileSet()
-	for _, p := range paths {
-		if strings.HasSuffix(p, "_test.go") || p == OutputPath(name) {
-			continue
-		}
-		gf, err := parser.ParseFile(fset, p, nil, parser.SkipObjectResolution)
-		if err != nil {
-			continue
-		}
-		for _, d := range gf.Decls {
-			fn, ok := d.(*ast.FuncDecl)
-			if !ok || fn.Recv != nil || !want[fn.Name.Name] || fn.Type.Results == nil || len(fn.Type.Results.List) != 1 {
-				continue
-			}
-			var b bytes.Buffer
-			printer.Fprint(&b, fset, fn.Type.Results.List[0].Type)
-			out[fn.Name.Name] = b.String()
-		}
-	}
-	return out
 }

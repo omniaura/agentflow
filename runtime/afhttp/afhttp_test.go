@@ -300,3 +300,28 @@ func TestMap(t *testing.T) {
 		t.Fatalf("no rows = %s", b)
 	}
 }
+
+func TestMapErr(t *testing.T) {
+	half := func(n int) (int, error) {
+		if n%2 != 0 {
+			return 0, fmt.Errorf("%d is odd", n)
+		}
+		return n / 2, nil
+	}
+	if got, err := afhttp.MapErr([]int{2, 4}, half); err != nil || !reflect.DeepEqual(got, []int{1, 2}) {
+		t.Fatalf("got %v, %v", got, err)
+	}
+	if got, err := afhttp.MapErr([]int{2, 3, 4}, half); err == nil || got != nil {
+		t.Fatalf("odd: got %v, %v", got, err)
+	}
+	if b, _ := json.Marshal(must(afhttp.MapErr([]int(nil), half))); string(b) != "[]" {
+		t.Fatalf("no rows = %s", b)
+	}
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}

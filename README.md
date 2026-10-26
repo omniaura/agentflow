@@ -407,7 +407,7 @@ When the API's name for an argument differs from the query's, `.bind arg = name`
 | `.maxbytes n` | Cap the request body (default 1 MiB). |
 | `.empty [4xx] message` | The error when a `:one` query finds no row, or an `:execrows` query changes none (default `404 not found`). |
 | `.wrap key` | Respond with a `:one` or `:many` result as the one field of an object: `.wrap notes` gives `{"notes": [...]}`. |
-| `.map fn` | Respond with `fn(row)`, a func of the package, for a `:one` result, or with `fn` applied to each row of a `:many` one. |
+| `.map fn` | Respond with what `fn`, a func of the package, makes of the result: each row, or all of them when it takes a slice, with the caller or request when it takes them. |
 | `.cache 5m` | Let caches keep a `GET` result, for at most a year: `private, max-age=300` (with `Vary: Authorization, Cookie`), or `public, max-age=300` on a `.public` route. Any other value is sent as written: `.cache no-cache`. |
 
 The text that isn't a directive becomes the handler's doc comment.
@@ -431,7 +431,35 @@ func todoCard(t db.Todo) TodoCard {
 }
 ```
 
-`af gen` reports a `.map` that names no func of the package at its line.
+The func's signature says what the handler passes it, so there is nothing more to declare:
+
+| The func takes | It gets |
+| --- | --- |
+| the row's type | one row, or each row of a `:many` result |
+| a slice of it | all the rows at once, to group, count or wrap them as you like |
+| `Caller` | the authenticated caller, to shape the response for them |
+| `context.Context`, `*http.Request` | the request's context, or the request |
+
+It returns the response, or the response and an `error`. An error fails the request as `WriteError` writes it: return a go-kit `errs` error for a status of your own. For example, a board of the caller's todos in columns:
+
+```af
+.route GET /board ListTodos
+.auth owner_id
+.map todoBoard
+```
+
+```go
+func todoBoard(ctx context.Context, c Caller, todos []db.Todo) (TodoBoard, error) {
+	if len(todos) > maxBoard {
+		return TodoBoard{}, errBoardTooBig.New(ctx)
+	}
+	b := TodoBoard{Owner: c.OwnerID, Open: []TodoCard{}, Done: []TodoCard{}}
+	// ... one card per todo, in its column
+	return b, nil
+}
+```
+
+`af gen` reports, at its line, a `.map` that names no func of the package, or one whose signature doesn't fit.
 
 Responses of authenticated `:one` and `:many` routes, errors included, are sent with `Cache-Control: no-store` unless `.cache` says otherwise, so no browser or proxy keeps one caller's data. A `.cache` duration goes on successful responses only, so an error is never cached. On an authenticated route it also adds `Vary: Authorization, Cookie`: a browser shares one private cache between the accounts signed in to it, and this makes it ask again after a switch of accounts.
 

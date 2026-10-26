@@ -182,7 +182,7 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 		if err := checkSQLRoutes(name, ff, repo); err != nil {
 			return "", nil, err
 		}
-		if err := checkMapFuncs(name, ff); err != nil {
+		if opts.MapFuncs, err = gogen.ReadMapFuncs(name, OutputPath(name), ff); err != nil {
 			return "", nil, err
 		}
 		if len(ff.Routes) > 0 {

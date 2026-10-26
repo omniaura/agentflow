@@ -748,6 +748,32 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 	return items
 }
 
+// mapCall describes how route s, of the .af file at path, calls its .map
+// func, as its signature in the package says.
+func mapCall(path string, s *decl.Route, q *sqlcgo.Query) string {
+	f := gogen.MapFunc{Params: []string{"row"}}
+	funcs, err := gogen.ReadMapFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{s}})
+	switch {
+	case err != nil:
+		return s.Map + " (" + err.Error() + ")"
+	case funcs == nil:
+		// A Go file of the package doesn't parse.
+		return s.Map + " (its signature can't be read now)"
+	}
+	if fn, ok := funcs[s.Map]; ok {
+		f = fn.For(q.Result.Expr)
+	}
+	var args []string
+	for _, p := range f.Params {
+		args = append(args, map[string]string{"row": "row", "rows": "rows", "caller": "caller", "ctx": "ctx", "request": "r"}[p])
+	}
+	call := s.Map + "(" + strings.Join(args, ", ") + ")"
+	if q.Kind == sqlcgo.Many && slices.Contains(f.Params, "row") {
+		return "[" + call + " for each row]"
+	}
+	return call
+}
+
 // SectionHover describes the .tool or .route header at pos in Markdown:
 // a tool's parameters, or how a route binds its query's arguments.
 func (d *Document) SectionHover(pos Position) string {
@@ -828,11 +854,8 @@ func (d *Document) SectionHover(pos Position) string {
 			if q.Kind == sqlcgo.Many {
 				v = "rows"
 			}
-			switch {
-			case s.Map != "" && q.Kind == sqlcgo.Many:
-				v = "[" + s.Map + "(row) for each row]"
-			case s.Map != "":
-				v = s.Map + "(row)"
+			if s.Map != "" {
+				v = mapCall(p, s, q)
 			}
 			if s.Wrap != "" {
 				v = fmt.Sprintf("{%q: %s}", s.Wrap, v)
