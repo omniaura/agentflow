@@ -301,9 +301,9 @@ Creates a todo for the caller.
 - Put checks in the SQL, not in Go: ownership, limits and states go in the `WHERE` of
   one statement (`UPDATE ... WHERE id = @id AND owner_id = @owner_id`, `INSERT ...
   SELECT ... WHERE (SELECT count(*) ...) < 5`). Validate input with schema constraints
-  (`NOT NULL`, `CHECK (title <> '')`, `CHECK (length(title) <= 200)`, `varchar(n)`) instead of
-  Go checks: a rejected value is a 400 with the column as the field, and SQL tools tell the
-  model what to fix. Then `.empty [4xx] message` names the
+  (`NOT NULL`, `CHECK (title <> '')`, `CHECK (length(title) <= 200)`; not `varchar(n)`) instead
+  of Go checks: a violation is a 400 with the column as the field, and SQL tools tell the model
+  what to fix. Then `.empty [4xx] message` names the
   failure when a `:one` finds no row or an `:execrows` changes none (default 404). On a
   SQL tool, `.empty message` is what the model is told instead of "not found".
 - The generated code is a `<File>Queries` interface and a `<File>Routes` struct. Declare

@@ -198,13 +198,12 @@ func TestQueryFailedRejectedValues(t *testing.T) {
 		// A constraint of its own name, or on the table, names no field.
 		{"check, own name", &pgxError{Code: "23514", TableName: "todos", ConstraintName: "title_not_blank"}, invalid(nil)},
 		{"check, no table", &pgxError{Code: "23514", ConstraintName: "todos_title_check"}, invalid(nil)},
-		{"too long", &pgxError{Code: "22001"}, invalid(nil)},
-		{"out of range", &pgxError{Code: "22003", ColumnName: "quantity"}, invalid(map[string]string{"quantity": "is out of range"})},
-		{"bad date", &pgxError{Code: "22007"}, invalid(nil)},
-		{"bad uuid", &pgxError{Code: "22P02"}, invalid(nil)},
 		{"lib/pq", &pqError{Code: "23502", Column: "body", Table: "notes"}, invalid(map[string]string{"body": "is required"})},
 		{"lib/pq check", &pqError{Code: "23514", Table: "notes", Constraint: "notes_body_check"}, invalid(map[string]string{"body": "is invalid"})},
-		// Not the client's to fix.
+		// Not the client's to fix, or not surely: a read of stored data
+		// raises data exceptions too.
+		{"too long", &pgxError{Code: "22001"}, errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
+		{"bad uuid", &pgxError{Code: "22P02"}, errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
 		{"foreign key", &pgxError{Code: "23503", ConstraintName: "todos_list_id_fkey"}, errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
 		{"division by zero", &pgxError{Code: "22012"}, errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
 	} {
@@ -224,7 +223,7 @@ func TestToolMessage(t *testing.T) {
 	}{
 		{&pgxError{Code: "23502", ColumnName: "title"}, "invalid request; title is required"},
 		{&pgxError{Code: "23505"}, "already exists"},
-		{&pgxError{Code: "22001"}, "invalid request"},
+		{&pgxError{Code: "23514"}, "invalid request"},
 		{errors.New("connection refused"), "internal error"},
 	} {
 		if got := afhttp.ToolMessage(afhttp.QueryFailed(ctx, tt.err)); got != tt.want {

@@ -483,7 +483,7 @@ Errors are [go-kit errs](https://github.com/omniaura/go-kit/tree/main/errs) erro
 
 The runtime declares a factory for each failure: `ErrInvalidRequest` (400, with a field for each bad input), `ErrTooLarge` (413), `ErrUnauthorized` (401, when `Auth` fails), `ErrNotFound` (404), `ErrConflict` (409, for a unique violation) and `ErrModelFailed` (502). Any other query failure is `errs.Unknown`, a 500 whose message says nothing of the cause.
 
-Validate input with constraints in the schema, not Go code: a value the database rejects is a 400 `ErrInvalidRequest`. That covers `NOT NULL`, `CHECK`, a `varchar(n)` overflow, a number out of range, and a date or ID it can't read. The field is the column, when the driver names it or a `CHECK` has Postgres's default name:
+Validate input with constraints in the schema, not Go code: a `NOT NULL` or `CHECK` violation is a 400 `ErrInvalidRequest`. The field is the column, when the driver names it or a `CHECK` has Postgres's default name. Bound lengths with a `CHECK`, not `varchar(n)`: Postgres reports its overflow without a column, like other data errors that reading stored data raises too, and those stay 500. For example:
 
 ```sql
 body text NOT NULL CHECK (body <> '') CHECK (length(body) <= 2000)

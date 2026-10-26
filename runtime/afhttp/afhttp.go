@@ -50,9 +50,9 @@ func Unauthorized(ctx context.Context, err error) *errs.Error {
 }
 
 // QueryFailed wraps a failed query: ErrConflict for a unique violation,
-// and ErrInvalidRequest for a value the database rejects, so constraints
-// in the schema (NOT NULL, CHECK, varchar(n)) validate input: see
-// invalidValues. The field is the column, when the driver names it (pgx's
+// and ErrInvalidRequest for a NOT NULL or CHECK violation, so constraints
+// in the schema validate input. The field is the column, when the driver
+// names it (pgx's
 // PgError.ColumnName, lib/pq's Error.Column) or a CHECK constraint has
 // Postgres's default name, <table>_<column>_check (or _check1, ...). An *errs.Error the
 // queries return, such as a permission check in a wrapper around them,
@@ -82,16 +82,14 @@ func QueryFailed(ctx context.Context, err error) *errs.Error {
 	return out
 }
 
-// invalidValues are the Postgres SQLSTATEs of a value the database
-// rejects, with what a client is told is wrong with it.
+// invalidValues are the Postgres SQLSTATEs of a value a write's
+// constraint rejects, with what a client is told is wrong with it. Data
+// exceptions (class 22, such as a varchar(n) overflow) are left out: a read
+// of stored data raises them too, and Postgres names no column for them.
+// Bound a length with a CHECK instead.
 var invalidValues = map[string]string{
-	"23502": "is required",              // not_null_violation
-	"23514": "is invalid",               // check_violation
-	"22001": "is too long",              // string_data_right_truncation
-	"22003": "is out of range",          // numeric_value_out_of_range
-	"22007": "is not a valid date",      // invalid_datetime_format
-	"22008": "is not a valid date",      // datetime_field_overflow
-	"22P02": "is not in a valid format", // invalid_text_representation
+	"23502": "is required", // not_null_violation
+	"23514": "is invalid",  // check_violation
 }
 
 // rejectedColumn names the column a database error is about, from the
