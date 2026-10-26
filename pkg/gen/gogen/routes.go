@@ -26,12 +26,33 @@ type Options struct {
 	Queries func(name string) (*sqlcgo.Package, *sqlcgo.Query, error)
 	// Swag, when set, writes swag annotations on route handlers.
 	Swag *Swag
+	// MapFuncs are the signatures of the package's .map funcs, by name. A
+	// func missing from it takes the row and returns the response.
+	MapFuncs map[string]MapFunc
 	// SiblingTools are the tools of the other .af files of the package,
 	// which an agent's .tools may name.
 	SiblingTools []ast.SiblingTool
 	// Imports replaces import paths in generated code, such as a runtime
 	// package with the copy af eject wrote into the repository.
 	Imports map[string]string
+}
+
+// MapFunc is the signature of a .map func, as af reads it in the package.
+type MapFunc struct {
+	// Params are what the func takes, in order: the "row" (each row of a
+	// :many result), the "rows" (the whole :many result, a slice), the
+	// authenticated "caller", the request's "ctx" or the "request".
+	Params []string
+	// Err reports a second result, an error, which fails the request.
+	Err bool
+	// Result is the response's type, the first result, as the package
+	// writes it.
+	Result string
+}
+
+// simple reports whether f takes only the row and can't fail.
+func (f MapFunc) simple() bool {
+	return !f.Err && len(f.Params) == 1 && f.Params[0] == "row"
 }
 
 // DeclError reports a declaration section that cannot be generated, such
@@ -59,6 +80,8 @@ type boundRoute struct {
 	// names of the arguments in the request, by index: the {path}
 	// parameter, query string or body field each is read from.
 	names []string
+	// mapFn is the signature of the route's .map func.
+	mapFn MapFunc
 }
 
 // genRoutes writes the routes type of file name: an interface of the sqlc
@@ -98,6 +121,18 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 		}
 		if b.r.Map != "" && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
 			return &RouteError{Offset: b.r.MapOffset, Err: fmt.Errorf(".map turns a :one or :many result into the response; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
+		}
+		if b.r.Map != "" {
+			b.mapFn = MapFunc{Params: []string{"row"}}
+			if f, ok := opts.MapFuncs[b.r.Map]; ok {
+				b.mapFn = f
+			}
+			if slices.Contains(b.mapFn.Params, "rows") && b.q.Kind != sqlcgo.Many {
+				return &RouteError{Offset: b.r.MapOffset, Err: fmt.Errorf(".map %s takes the whole result, a slice; query %s is %s, so it gets one row", b.r.Map, b.q.Name, b.q.Kind)}
+			}
+			if slices.Contains(b.mapFn.Params, "caller") && b.r.Public {
+				return &RouteError{Offset: b.r.MapOffset, Err: fmt.Errorf(".map %s takes the Caller, which a .public route has none of", b.r.Map)}
+			}
 		}
 		if b.r.Wrap != "" && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
 			return &RouteError{Offset: b.r.WrapOffset, Err: fmt.Errorf(".wrap puts a :one or :many result in an object; query %s is %s, which responds 204 with no body", b.q.Name, b.q.Kind)}
@@ -195,19 +230,63 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 	return nil
 }
 
-// wrap is the value a route responds with: v, passed through the route's
-// .map func, or an object holding that under the route's .wrap key.
-func (b *boundRoute) wrap(v string) string {
-	switch {
-	case b.r.Map != "" && b.q.Kind == sqlcgo.Many:
-		v = fmt.Sprintf("afhttp.Map(%s, %s)", v, b.r.Map)
-	case b.r.Map != "":
-		v = fmt.Sprintf("%s(%s)", b.r.Map, v)
+// respond writes what turns the query's result v into the response, and
+// returns the value to respond with: v, passed through the route's .map
+// func, or an object holding that under the route's .wrap key. A .map
+// func that fails fails the request.
+func (b *boundRoute) respond(buf *bytes.Buffer, v string) string {
+	if b.r.Map != "" {
+		v = b.mapped(buf, v)
 	}
 	if b.r.Wrap == "" {
 		return v
 	}
 	return fmt.Sprintf("map[string]any{%s: %s}", strconv.Quote(b.r.Wrap), v)
+}
+
+// mapped returns v passed through the route's .map func, writing the call
+// first when the func can fail.
+func (b *boundRoute) mapped(buf *bytes.Buffer, v string) string {
+	f, fn := b.mapFn, b.r.Map
+	if f.simple() {
+		if b.q.Kind == sqlcgo.Many {
+			return fmt.Sprintf("afhttp.Map(%s, %s)", v, fn)
+		}
+		return fmt.Sprintf("%s(%s)", fn, v)
+	}
+	call := func(row string) string {
+		var args []string
+		for _, p := range f.Params {
+			switch p {
+			case "row", "rows":
+				args = append(args, row)
+			case "caller":
+				args = append(args, "caller")
+			case "ctx":
+				args = append(args, "r.Context()")
+			case "request":
+				args = append(args, "r")
+			}
+		}
+		return fn + "(" + strings.Join(args, ", ") + ")"
+	}
+	expr := call(v)
+	if b.q.Kind == sqlcgo.Many && slices.Contains(f.Params, "row") {
+		// Each row, with what else the func takes. The response is only
+		// encoded, so its elements can be any: the closure needn't name
+		// the func's result type, nor import its package.
+		if f.Err {
+			expr = fmt.Sprintf("afhttp.MapErr(%s, func(row %s) (any, error) {\nreturn %s\n})", v, b.q.Result.Expr, call("row"))
+		} else {
+			expr = fmt.Sprintf("afhttp.Map(%s, func(row %s) any {\nreturn %s\n})", v, b.q.Result.Expr, call("row"))
+		}
+	}
+	if !f.Err {
+		return expr
+	}
+	fmt.Fprintf(buf, "resp, err := %s\n", expr)
+	buf.WriteString("if err != nil {\nrt.fail(w, r, err)\nreturn\n}\n")
+	return "resp"
 }
 
 // emptyErr is the errs factory for a query that finds no row or changes
@@ -389,7 +468,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 		// On every response, errors too: none of them may be kept.
 		fmt.Fprintf(buf, "w.Header().Set(\"Cache-Control\", %q)\n", cc)
 	}
-	usesCaller := slices.Contains(b.sources, "auth")
+	usesCaller := slices.Contains(b.sources, "auth") || slices.Contains(b.mapFn.Params, "caller")
 	if !r.Public {
 		// An unset Auth fails closed rather than panicking.
 		buf.WriteString("if rt.Auth == nil {\nrt.fail(w, r, errors.New(\"afhttp: Auth is not set\"))\nreturn\n}\n")
@@ -471,14 +550,16 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 		fmt.Fprintf(buf, "row, err := %s\n", call)
 		fmt.Fprintf(buf, "if errors.Is(err, %s) {\nrt.fail(w, r, %s.New(r.Context()).AddError(err))\nreturn\n}\n", expr, b.emptyErr())
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
+		resp := b.respond(buf, "row")
 		buf.WriteString(cache)
-		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), b.wrap("row"))
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), resp)
 	case sqlcgo.Many:
 		fmt.Fprintf(buf, "rows, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		fmt.Fprintf(buf, "if rows == nil {\nrows = []%s{}\n}\n", q.Result.Expr)
+		resp := b.respond(buf, "rows")
 		buf.WriteString(cache)
-		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), b.wrap("rows"))
+		fmt.Fprintf(buf, "afhttp.WriteJSON(w, r, %s, %s)\n", status("http.StatusOK"), resp)
 	case sqlcgo.ExecRows:
 		fmt.Fprintf(buf, "n, err := %s\n", call)
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")

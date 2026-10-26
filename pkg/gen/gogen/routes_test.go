@@ -281,7 +281,7 @@ func TestGenRoutesSwagMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	var buf bytes.Buffer
-	if err := GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup, Swag: &Swag{MapTypes: map[string]string{"todoCard": "TodoCard"}}}); err != nil {
+	if err := GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup, MapFuncs: map[string]MapFunc{"todoCard": {Params: []string{"row"}, Result: "TodoCard"}}, Swag: &Swag{}}); err != nil {
 		t.Fatal(err)
 	}
 	// The .map func's result type, when known; otherwise a plain object.
@@ -367,6 +367,90 @@ func TestGenRoutesSwagBind(t *testing.T) {
 	for _, want := range []string{"// @Param note_id path integer true \"note_id\"", "// @Param q query string true \"q\""} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("missing %q in\n%s", want, buf.String())
+		}
+	}
+}
+
+// A .map func's signature says what the handler passes it and whether it
+// can fail.
+func TestGenRoutesMapShapes(t *testing.T) {
+	repo, err := sqlcgo.Find("../../../examples/routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := func(src string, funcs map[string]MapFunc) (string, error) {
+		f, err := ast.NewFile("cards.af", []byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		err = GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup, MapFuncs: funcs})
+		return buf.String(), err
+	}
+	code, err := gen(".route GET /a ListTodos\n.auth owner_id\n.map board\n.wrap board\n\n.route GET /b ListNotes\n.auth owner_id\n.map noteView\n\n.route GET /c/{id} GetTodo\n.auth owner_id\n.map todoView\n\n.route GET /d/{id} GetTodoTitle\n.public\n.map titleView\n\n.route POST /e/{id} GetTodoTitle\n.map titleFor\n", map[string]MapFunc{
+		"titleFor":  {Params: []string{"row", "caller"}},
+		"board":     {Params: []string{"caller", "rows"}, Err: true},
+		"noteView":  {Params: []string{"ctx", "row", "caller"}, Err: true},
+		"todoView":  {Params: []string{"row", "caller"}},
+		"titleView": {Params: []string{"request", "row"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// The whole result, with the caller; its error fails the request.
+		"resp, err := board(caller, rows)\n\tif err != nil {\n\t\trt.fail(w, r, err)\n\t\treturn\n\t}\n\tafhttp.WriteJSON(w, r, http.StatusOK, map[string]any{\"board\": resp})",
+		// Each row, with the context and caller.
+		"resp, err := afhttp.MapErr(rows, func(row db.Note) (any, error) {\n\t\treturn noteView(r.Context(), row, caller)\n\t})",
+		"afhttp.WriteJSON(w, r, http.StatusOK, todoView(row, caller))",
+		"afhttp.WriteJSON(w, r, http.StatusOK, titleView(r, row))",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q in\n%s", want, code)
+		}
+	}
+	// A route whose only use of the caller is its .map still reads it.
+	handler := code[strings.Index(code, "func (rt *CardsRoutes) GetTodoTitlePost("):]
+	if !strings.Contains(handler, "caller, err := rt.Auth(r)") || !strings.Contains(handler, "titleFor(row, caller)") {
+		t.Errorf("the caller isn't read for the .map:\n%s", handler)
+	}
+	for _, tt := range []struct{ name, src, msg string }{
+		{"rows of a :one", ".route GET /c/{id} GetTodo\n.auth owner_id\n.map board\n", ".map board takes the whole result, a slice; query GetTodo is :one"},
+		{"caller on a public route", ".route GET /d/{id} GetTodoTitle\n.public\n.map todoView\n", ".map todoView takes the Caller, which a .public route has none of"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := gen(tt.src, map[string]MapFunc{"board": {Params: []string{"rows"}}, "todoView": {Params: []string{"row", "caller"}}})
+			var re *RouteError
+			if !errors.As(err, &re) || !strings.Contains(err.Error(), tt.msg) || !strings.HasPrefix(tt.src[re.Offset:], ".map") {
+				t.Fatalf("got %v, want %q at .map", err, tt.msg)
+			}
+		})
+	}
+}
+
+// A .map func of all the rows makes the whole response: swag documents
+// its type as it is, not as an array of it.
+func TestGenRoutesSwagMapShapes(t *testing.T) {
+	repo, err := sqlcgo.Find("../../../examples/routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := ast.NewFile("cards.af", []byte(".route GET /board ListTodos\n.auth owner_id\n.map board\n\n.route GET /cards ListNotes\n.auth owner_id\n.map cards\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	err = GenFileOptions(&buf, f, "api", Options{
+		Queries:  repo.Lookup,
+		MapFuncs: map[string]MapFunc{"board": {Params: []string{"rows"}, Err: true, Result: "Board"}, "cards": {Params: []string{"rows"}, Result: "[]Card"}},
+		Swag:     &Swag{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"// @Success 200 {object} Board\n", "// @Success 200 {array} Card\n"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("missing %q", want)
 		}
 	}
 }

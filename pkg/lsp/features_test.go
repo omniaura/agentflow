@@ -204,6 +204,14 @@ func TestDefinitionRouteQuery(t *testing.T) {
 	if !strings.Contains(hover, "- `title` string ← JSON body") {
 		t.Errorf("create hover:\n%s", hover)
 	}
+	// A .map func's signature says what it is passed.
+	boardPath := filepath.Join(filepath.Dir(path), "board.af")
+	boardSrc, err := os.ReadFile(boardPath)
+	require.NoError(t, err)
+	board := openAt(t, boardPath, string(boardSrc))
+	if hover := board.SectionHover(at(t, board, "ListTodos", 0)); !strings.Contains(hover, "Responds `todoBoard(ctx, caller, rows)`.") {
+		t.Errorf("board hover:\n%s", hover)
+	}
 	// A bound argument shows the request's name for it.
 	doc = openAt(t, path, string(src)+"\n.route GET /bound/{note_id} GetTodo\n.bind id = note_id\n.auth owner_id\n")
 	hover = doc.SectionHover(at(t, doc, "{note_id} GetTodo", 0))

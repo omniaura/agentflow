@@ -202,30 +202,36 @@ func TestGenerateSQLRunsSqlcForUngeneratedQueries(t *testing.T) {
 
 func TestRenderChecksMapFuncs(t *testing.T) {
 	src := ".route GET /x/{id} db.GetX\n.public\n.map xCard\n"
-	for _, tt := range []struct{ name, goSrc, msg string }{
-		{"func", "func xCard(n int64) string { return \"\" }", ""},
-		{"var", "var xCard = func(n int64) string { return \"\" }", ""},
-		{"missing", "func other() {}", "package api declares no func xCard"},
+	for _, tt := range []struct{ name, goSrc, msg, call string }{
+		{"func", "func xCard(n int64) string { return \"\" }", "", ""},
+		{"var", "var xCard = func(n int64) string { return \"\" }", "", ""},
+		{"missing", "func other() {}", "package api declares no func xCard", ""},
 		// A method is not callable by name; nor is a func only tests see.
-		{"method", "type T struct{}\n\nfunc (T) xCard(n int64) string { return \"\" }", "declares no func xCard"},
-		{"typed var", "var xCard func(int64) string", ""},
-		{"not a func", "var xCard int", "xCard must be a func taking the query's row"},
+		{"method", "type T struct{}\n\nfunc (T) xCard(n int64) string { return \"\" }", "declares no func xCard", ""},
+		{"typed var", "var xCard func(int64) string", "", ""},
+		{"not a func", "var xCard int", "xCard must be a func taking the query's row", ""},
 		// Vars the compiler may accept are left to it.
-		{"var of another func", "var xCard = other\n\nfunc other(n int64) string { return \"\" }", ""},
-		{"var of a named func type", "type mapper func(int64) string\n\nvar xCard mapper = func(n int64) string { return \"\" }", ""},
-		{"var of a literal", "var xCard = 3", "xCard must be a func"},
+		{"var of another func", "var xCard = other\n\nfunc other(n int64) string { return \"\" }", "", ""},
+		{"var of a named func type", "type mapper func(int64) string\n\nvar xCard mapper = func(n int64) string { return \"\" }", "", ""},
+		{"var of a literal", "var xCard = 3", "xCard must be a func", ""},
 		// Local named types resolve, through chains, wherever they're declared.
-		{"var of a named int", "var xCard mapper\n\ntype mapper int", "xCard must be a func"},
-		{"var of a named struct", "type mapper struct{}\n\nvar xCard mapper", "xCard must be a func"},
-		{"var of a type chain", "type m1 m2\n\ntype m2 func(int64) string\n\nvar xCard m1", ""},
-		{"var of a named two-result func", "type mapper func(int64) (string, error)\n\nvar xCard mapper", "xCard must be a func"},
-		{"var of a type cycle", "type a b\n\ntype b a\n\nvar xCard a", ""},
-		{"var of a map", "var xCard map[int64]string", "xCard must be a func"},
-		{"no result", "func xCard(n int64) {}", "xCard must be a func"},
-		{"two params", "func xCard(a, b int64) string { return \"\" }", "xCard must be a func"},
-		{"two results", "func xCard(n int64) (string, error) { return \"\", nil }", "xCard must be a func"},
+		{"var of a named int", "var xCard mapper\n\ntype mapper int", "xCard must be a func", ""},
+		{"var of a named struct", "type mapper struct{}\n\nvar xCard mapper", "xCard must be a func", ""},
+		{"var of a type chain", "type m1 m2\n\ntype m2 func(int64) string\n\nvar xCard m1", "", ""},
+		{"var of a named fallible func", "type mapper func(int64) (string, error)\n\nvar xCard mapper", "", "resp, err := xCard(row)"},
+		{"var of a named two-result func", "type mapper func(int64) (string, int)\n\nvar xCard mapper", "it returns 2 values", ""},
+		{"var of a type cycle", "type a b\n\ntype b a\n\nvar xCard a", "", ""},
+		{"var of a map", "var xCard map[int64]string", "xCard must be a func", ""},
+		{"no result", "func xCard(n int64) {}", "xCard must be a func", ""},
+		{"two params", "func xCard(a, b int64) string { return \"\" }", "it takes more than one row", ""},
+		{"fallible", "func xCard(n int64) (string, error) { return \"\", nil }", "", "resp, err := xCard(row)\n\tif err != nil {\n\t\trt.fail(w, r, err)"},
+		{"two results", "func xCard(n int64) (string, int) { return \"\", 0 }", "it returns 2 values", ""},
+		{"caller on a public route", "type Caller struct{}\n\nfunc xCard(c Caller, n int64) string { return \"\" }", "which a .public route has none of", ""},
+		{"context and request", "func xCard(ctx context.Context, n int64, r *http.Request) string { return \"\" }", "", "afhttp.WriteJSON(w, r, http.StatusOK, xCard(r.Context(), row, r))"},
+		{"no row", "type Caller struct{}\n\nfunc xCard(c Caller) string { return \"\" }", "it takes no row", ""},
+		{"caller twice", "type Caller struct{}\n\nfunc xCard(a, b Caller, n int64) string { return \"\" }", "it takes the Caller twice", ""},
 		// A file the build leaves out declares nothing.
-		{"build tag", "//go:build never\n\npackage api\n\nfunc xCard(n int64) string { return \"\" }", "declares no func xCard"},
+		{"build tag", "//go:build never\n\npackage api\n\nfunc xCard(n int64) string { return \"\" }", "declares no func xCard", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			root := writeModule(t, "db")
@@ -242,7 +248,11 @@ func TestRenderChecksMapFuncs(t *testing.T) {
 			name := filepath.Join(dir, "api.af")
 			_, code, err := Render(name, []byte(src))
 			if tt.msg == "" {
-				if err != nil || !bytes.Contains(code, []byte("afhttp.WriteJSON(w, r, http.StatusOK, xCard(row))")) {
+				call := tt.call
+				if call == "" {
+					call = "afhttp.WriteJSON(w, r, http.StatusOK, xCard(row))"
+				}
+				if err != nil || !bytes.Contains(code, []byte(call)) {
 					t.Fatalf("got %v\n%s", err, code)
 				}
 				return
@@ -307,5 +317,21 @@ func TestRenderSwag(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Swag documents a fallible .map func's response, its first result.
+func TestRenderSwagFallibleMap(t *testing.T) {
+	root := writeModule(t, "db")
+	os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.com/m\n\nrequire github.com/swaggo/swag v1.16.6\n"), 0o644)
+	dir := filepath.Join(root, "api")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "cards.go"), []byte("package api\n\ntype Card struct{}\n\nfunc xCard(n int64) (Card, error) { return Card{}, nil }\n"), 0o644)
+	_, code, err := Render(filepath.Join(dir, "api.af"), []byte(".route GET /x/{id} db.GetX\n.public\n.map xCard\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(code, []byte("// @Success 200 {object} Card\n")) {
+		t.Errorf("no Card response:\n%s", code)
 	}
 }

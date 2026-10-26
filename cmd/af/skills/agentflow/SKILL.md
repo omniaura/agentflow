@@ -300,6 +300,10 @@ Creates a todo for the caller.
   each row of a `:many` result (inside `.wrap` when both are set). Use it when the response
   isn't the row: renamed fields, computed URLs or statuses, hidden columns. Write it in a
   `.go` file of the same package and test it as a plain function; the handler stays generated.
+  Its signature says the rest: a slice parameter (`[]db.Todo`) gets all the rows, to group or
+  count them; a `Caller`, `context.Context` or `*http.Request` parameter gets that; returning
+  `(T, error)` lets it fail the request (return an `errs` error for its status). Use these
+  instead of hand-writing a handler for a caller-aware or whole-result response.
 - Authenticated `:one`/`:many` responses, errors included, get `Cache-Control: no-store`.
   `.cache 5m` lets caches keep a GET result (`private` plus `Vary: Authorization, Cookie`,
   or `public` on a `.public` route); any other value is sent as written (`.cache no-cache`).

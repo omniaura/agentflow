@@ -1,0 +1,5 @@
+.route GET /board ListTodos
+.auth owner_id
+.map todoBoard
+The caller's board: their todos in open and done columns. Filter with
+?done=true or ?done=false.
