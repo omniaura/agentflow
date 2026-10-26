@@ -725,6 +725,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 			break
 		}
 		add(".auth", "arguments read from the caller")
+		add(".bind", "read an argument from a request field of another name: .bind id = memory_id")
 		add(".public", "serve without authentication")
 		add(".status", "success status code")
 		add(".maxbytes", "cap the request body")
@@ -814,6 +815,9 @@ func (d *Document) SectionHover(pos Position) string {
 		fmt.Fprintf(&b, "`%s.%s` is `%s`.\n\n", pkg.Name, q.Name, q.Kind)
 		for _, bd := range bindings {
 			from := map[string]string{"path": "path", "auth": "caller", "query": "query string", "body": "JSON body"}[bd.Source]
+			if bd.Name != bd.Arg.JSON && bd.Source != "auth" {
+				from += " `" + bd.Name + "`"
+			}
 			fmt.Fprintf(&b, "- `%s` %s ← %s\n", bd.Arg.JSON, bd.Arg.Type.Expr, from)
 		}
 		if !s.Public {

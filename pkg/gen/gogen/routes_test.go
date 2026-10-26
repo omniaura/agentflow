@@ -312,3 +312,61 @@ func TestSwagFailureRules(t *testing.T) {
 		}
 	}
 }
+
+func TestGenRoutesBind(t *testing.T) {
+	code, err := genRoutesFile(t, ".route GET /notes/{note_id} GetTodo\n.bind id = note_id\n.auth owner_id\n\n.route POST /notes CreateNote\n.bind body = text\n.auth owner_id\n\n.route GET /find FindNotesTool\n.bind text = q\n.auth owner_id\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// A path parameter of another name.
+		`mux.HandleFunc("GET /notes/{note_id}", rt.GetTodo)`,
+		`afhttp.Parse("note_id", r.PathValue("note_id"), &arg.ID)`,
+		// A body field.
+		"Body string `json:\"text\"`",
+		// A query string parameter.
+		`afhttp.ParseQuery(r, "q", &arg.Text)`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q in\n%s", want, code)
+		}
+	}
+	for _, tt := range []struct{ name, src, msg, at string }{
+		{"no such argument", ".route GET /x/{id} GetTodo\n.auth owner_id\n.bind title = name\n", "query GetTodo has no argument title (id, ownerId)", ".bind"},
+		{"another argument's name", ".route POST /x CreateNote\n.bind body = owner_id\n", "owner_id is the name of another argument", ".bind"},
+		// The bound argument is read only by its new name.
+		{"old name in the path", ".route GET /x/{id} GetTodo\n.auth owner_id\n.bind id = note_id\n", "argument id of query GetTodo is read from note_id", "GetTodo"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := genRoutesFile(t, tt.src)
+			var re *RouteError
+			if !errors.As(err, &re) || !strings.Contains(err.Error(), tt.msg) {
+				t.Fatalf("got %v, want %q", err, tt.msg)
+			}
+			if !strings.HasPrefix(tt.src[re.Offset:], tt.at) {
+				t.Errorf("offset points at %q, want %q", tt.src[re.Offset:], tt.at)
+			}
+		})
+	}
+}
+
+// Swag names a bound argument as the request does.
+func TestGenRoutesSwagBind(t *testing.T) {
+	repo, err := sqlcgo.Find("../../../examples/routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := ast.NewFile("todos.af", []byte(".route GET /notes/{note_id} GetTodo\n.bind id = note_id\n.auth owner_id\n\n.route GET /find FindNotesTool\n.bind text = q\n.auth owner_id\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	if err := GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup, Swag: &Swag{Tags: "todos"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"// @Param note_id path integer true \"note_id\"", "// @Param q query string true \"q\""} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("missing %q in\n%s", want, buf.String())
+		}
+	}
+}

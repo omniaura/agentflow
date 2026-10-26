@@ -10,7 +10,7 @@ import (
 )
 
 // RouteDirectives are the directives allowed inside a route section.
-var RouteDirectives = []string{".auth", ".public", ".status", ".maxbytes", ".empty", ".wrap", ".map", ".cache", ".sql"}
+var RouteDirectives = []string{".auth", ".bind", ".public", ".status", ".maxbytes", ".empty", ".wrap", ".map", ".cache", ".sql"}
 
 // SQLKinds are the sqlc query commands a .sql line may name.
 var SQLKinds = []string{":one", ":many", ":exec", ":execrows"}
@@ -35,7 +35,10 @@ type Route struct {
 	// has several sqlc packages.
 	Query string
 	// Auth names the query arguments that come from the caller.
-	Auth   []string
+	Auth []string
+	// Binds, from .bind lines, read query arguments from request fields
+	// of other names.
+	Binds  []Bind
 	Public bool
 	// Status is the success status; 0 means the default for the query.
 	Status   int
@@ -69,6 +72,16 @@ type Route struct {
 	// Start and End delimit the section in the source; QueryOffset is the
 	// byte offset of the query name.
 	Start, End, QueryOffset int
+}
+
+// Bind is a .bind line: query argument Arg is read from the request field
+// Name, a path parameter when the path has {Name}, else a body or query
+// string field.
+//
+//	.bind id = memory_id
+type Bind struct {
+	Arg, Name string
+	Offset    int
 }
 
 var (
@@ -142,6 +155,21 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 					r.Auth = append(r.Auth, name)
 				}
 			}
+		case hasDirective(b, ".bind"):
+			arg, name, ok := strings.Cut(strings.TrimPrefix(l, ".bind"), "=")
+			arg, name = strings.TrimSpace(arg), strings.TrimSpace(name)
+			if !ok || !identRE.MatchString(arg) || !identRE.MatchString(name) {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf("usage: .bind arg = name, as in .bind id = memory_id to read the query's id from {memory_id} or a memory_id field; got %q", strings.TrimSpace(strings.TrimPrefix(l, ".bind")))}
+			}
+			for _, o := range r.Binds {
+				if sameName(o.Arg, arg) {
+					return nil, &Error{Offset: off, Msg: fmt.Sprintf("%s is bound twice", arg)}
+				}
+				if sameName(o.Name, name) {
+					return nil, &Error{Offset: off, Msg: fmt.Sprintf("%s already binds %s", name, o.Arg)}
+				}
+			}
+			r.Binds = append(r.Binds, Bind{Arg: arg, Name: name, Offset: off})
 		case hasDirective(b, ".public"):
 			r.Public = true
 		case hasDirective(b, ".status"):
@@ -198,6 +226,13 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 			desc = append(desc, l)
 		}
 	}
+	for _, bd := range r.Binds {
+		for _, a := range r.Auth {
+			if sameName(a, bd.Arg) || sameName(a, bd.Name) {
+				return nil, &Error{Offset: bd.Offset, Msg: fmt.Sprintf("%s comes from .auth, so it cannot be bound to a request field", a)}
+			}
+		}
+	}
 	if r.Public && len(r.Auth) > 0 {
 		return nil, &Error{Offset: start, Msg: "a .public route has no caller, so it cannot use .auth"}
 	}
@@ -206,6 +241,12 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 	}
 	r.Description = strings.TrimRight(trimLeadingBlankLines(strings.Join(desc, "\n")), " \t\n")
 	return r, nil
+}
+
+// sameName reports whether a and b name one argument, as routes match
+// names: user_id, userId and UserID are one name.
+func sameName(a, b string) bool {
+	return strings.EqualFold(strings.ReplaceAll(a, "_", ""), strings.ReplaceAll(b, "_", ""))
 }
 
 // maxCacheAge is the longest .cache duration: caches treat longer max-age

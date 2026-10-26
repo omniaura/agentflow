@@ -2,6 +2,7 @@ package gogen
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/omniaura/agentflow/pkg/ast"
 	"slices"
@@ -55,6 +56,9 @@ type boundRoute struct {
 	empty string
 	// source of each argument, by index: "path", "auth", "query" or "body".
 	sources []string
+	// names of the arguments in the request, by index: the {path}
+	// parameter, query string or body field each is read from.
+	names []string
 }
 
 // genRoutes writes the routes type of file name: an interface of the sqlc
@@ -72,6 +76,10 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 			return &RouteError{Offset: r.QueryOffset, Err: err}
 		}
 		b, err := bind(r, pkg, q)
+		var re *RouteError
+		if errors.As(err, &re) {
+			return re
+		}
 		if err != nil {
 			return &RouteError{Offset: r.QueryOffset, Err: err}
 		}
@@ -236,6 +244,9 @@ type Binding struct {
 	Arg sqlcgo.Field
 	// Source is "path", "auth", "query" or "body".
 	Source string
+	// Name is the request's name for it: the {path} parameter, query
+	// string or body field it is read from.
+	Name string
 }
 
 // Bind reports where route r reads each argument of query q from.
@@ -246,7 +257,7 @@ func Bind(r *decl.Route, pkg *sqlcgo.Package, q *sqlcgo.Query) ([]Binding, error
 	}
 	out := make([]Binding, len(q.Args))
 	for i, a := range q.Args {
-		out[i] = Binding{Arg: a, Source: b.sources[i]}
+		out[i] = Binding{Arg: a, Source: b.sources[i], Name: b.names[i]}
 	}
 	return out, nil
 }
@@ -258,20 +269,52 @@ func normalize(s string) string {
 }
 
 func bind(r *decl.Route, pkg *sqlcgo.Package, q *sqlcgo.Query) (*boundRoute, error) {
-	b := &boundRoute{r: r, pkg: pkg, q: q, sources: make([]string, len(q.Args))}
+	b := &boundRoute{r: r, pkg: pkg, q: q, sources: make([]string, len(q.Args)), names: make([]string, len(q.Args))}
 	var names []string
-	for _, a := range q.Args {
+	for i, a := range q.Args {
 		names = append(names, a.JSON)
+		b.names[i] = a.JSON
+	}
+	matches := func(a sqlcgo.Field, name string) bool {
+		return normalize(a.Name) == normalize(name) || normalize(a.JSON) == normalize(name)
+	}
+	// bound[i] is the .bind of argument i, if any: it is read only by
+	// that name.
+	bound := make([]*decl.Bind, len(q.Args))
+	for _, bd := range r.Binds {
+		found := false
+		for i, a := range q.Args {
+			if matches(a, bd.Arg) {
+				bound[i], found = &bd, true
+				b.names[i] = bd.Name
+			} else if matches(a, bd.Name) {
+				return nil, &RouteError{Offset: bd.Offset, Err: fmt.Errorf(".bind %s = %s: %s is the name of another argument of query %s", bd.Arg, bd.Name, bd.Name, q.Name)}
+			}
+		}
+		if !found {
+			return nil, &RouteError{Offset: bd.Offset, Err: fmt.Errorf(".bind %s = %s: query %s has no argument %s (%s)", bd.Arg, bd.Name, q.Name, bd.Arg, strings.Join(names, ", "))}
+		}
 	}
 	claim := func(name, source string) error {
 		for i, a := range q.Args {
-			if normalize(a.Name) == normalize(name) || normalize(a.JSON) == normalize(name) {
-				if b.sources[i] != "" {
-					return fmt.Errorf("%s is both %s and %s for query %s", name, b.sources[i], source, q.Name)
+			if bd := bound[i]; bd != nil {
+				if normalize(bd.Name) != normalize(name) {
+					if matches(a, name) {
+						return fmt.Errorf("%s parameter %s: argument %s of query %s is read from %s, as .bind says", source, name, a.JSON, q.Name, bd.Name)
+					}
+					continue
 				}
-				b.sources[i] = source
-				return nil
+			} else if !matches(a, name) {
+				continue
 			}
+			if b.sources[i] != "" {
+				return fmt.Errorf("%s is both %s and %s for query %s", name, b.sources[i], source, q.Name)
+			}
+			b.sources[i] = source
+			if source == "path" {
+				b.names[i] = name
+			}
+			return nil
 		}
 		if len(names) == 0 {
 			return fmt.Errorf("%s parameter %s: query %s takes no arguments", source, name, q.Name)
@@ -324,7 +367,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 			} else {
 				addImports(imports, b.pkg, a.Type.Imports)
 			}
-			fmt.Fprintf(buf, "%s %s `json:%q`\n", camel(a.Name), typ, a.JSON)
+			fmt.Fprintf(buf, "%s %s `json:%q`\n", camel(a.Name), typ, b.names[i])
 		}
 		buf.WriteString("}\n\n")
 	}
@@ -372,7 +415,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 	for i, a := range q.Args {
 		switch b.sources[i] {
 		case "path":
-			name := pathName(r, a)
+			name := b.names[i]
 			if a.Type.Expr == "string" {
 				fmt.Fprintf(buf, "%s = r.PathValue(%q)\n", field(i), name)
 				continue
@@ -381,7 +424,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 		case "auth":
 			fmt.Fprintf(buf, "%s = caller.%s\n", field(i), callerField(a))
 		case "query":
-			fmt.Fprintf(buf, "if err := afhttp.ParseQuery(r, %q, &%s); err != nil {\nrt.fail(w, r, err)\nreturn\n}\n", a.JSON, field(i))
+			fmt.Fprintf(buf, "if err := afhttp.ParseQuery(r, %q, &%s); err != nil {\nrt.fail(w, r, err)\nreturn\n}\n", b.names[i], field(i))
 		}
 	}
 	if len(body) > 0 {
@@ -479,16 +522,6 @@ var statusNames = map[int]string{
 	422: "StatusUnprocessableEntity",
 	423: "StatusLocked",
 	429: "StatusTooManyRequests",
-}
-
-// pathName returns the {name} in r's path that a binds to.
-func pathName(r *decl.Route, a sqlcgo.Field) string {
-	for _, p := range r.PathParams {
-		if normalize(p) == normalize(a.Name) || normalize(p) == normalize(a.JSON) {
-			return p
-		}
-	}
-	return a.JSON
 }
 
 // callerField returns the Caller field an .auth name reads: the Params
