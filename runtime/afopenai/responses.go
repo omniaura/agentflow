@@ -93,7 +93,7 @@ func (m *ResponsesModel) Complete(ctx context.Context, req afagent.Request) (afa
 			final = &r
 		case "response.failed":
 			r := e.AsResponseFailed().Response
-			return afagent.Response{}, fmt.Errorf("afopenai: response failed: %s", r.Error.Message)
+			final = &r
 		case "error":
 			return afagent.Response{}, fmt.Errorf("afopenai: stream error: %s", e.AsError().Message)
 		}
@@ -223,12 +223,21 @@ func responsesResult(r *responses.Response) (afagent.Response, error) {
 		CachedInputTokens: int(r.Usage.InputTokensDetails.CachedTokens),
 		OutputTokens:      int(r.Usage.OutputTokens),
 	}}
-	if r.Status == responses.ResponseStatusIncomplete {
+	switch r.Status {
+	case responses.ResponseStatusIncomplete:
 		reason := r.IncompleteDetails.Reason
 		if reason == "content_filter" {
 			return resp, fmt.Errorf("afopenai: incomplete: %s: %w", reason, afagent.ErrRefused)
 		}
 		return resp, fmt.Errorf("afopenai: incomplete: %s: %w", reason, afagent.ErrTruncated)
+	case responses.ResponseStatusFailed:
+		msg := r.Error.Message
+		if msg == "" {
+			msg = "no reason given"
+		}
+		return resp, fmt.Errorf("afopenai: response failed: %s", msg)
+	case responses.ResponseStatusCancelled:
+		return resp, errors.New("afopenai: response cancelled")
 	}
 	msg := afagent.Message{Role: afagent.Assistant}
 	var text strings.Builder

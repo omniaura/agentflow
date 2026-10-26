@@ -351,24 +351,25 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		)
 		if l.OnEvent != nil {
 			turn := res.Turns
+			// Emitting under mu keeps an event from reaching OnEvent after
+			// the turn closed, and so after Run returned.
 			req.OnText = func(text string) {
 				e := Event{Kind: TextDelta, Turn: turn, Text: text}
-				if l.Check != nil {
-					mu.Lock()
-					if !closed {
-						held = append(held, e)
-					}
-					mu.Unlock()
-					return
+				mu.Lock()
+				defer mu.Unlock()
+				switch {
+				case closed:
+				case l.Check != nil:
+					held = append(held, e)
+				default:
+					l.emit(e)
 				}
-				l.emit(e)
 			}
 			// Reasoning isn't the answer: Check doesn't hold it back.
 			req.OnReasoning = func(text string) {
 				mu.Lock()
-				done := closed
-				mu.Unlock()
-				if !done {
+				defer mu.Unlock()
+				if !closed {
 					l.emit(Event{Kind: ReasoningDelta, Turn: turn, Text: text})
 				}
 			}

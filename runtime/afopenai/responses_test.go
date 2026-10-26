@@ -197,11 +197,13 @@ func TestResponsesStatuses(t *testing.T) {
 	}{
 		{"truncated", `{"id":"r","object":"response","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}`, afagent.ErrTruncated},
 		{"filtered", `{"id":"r","object":"response","status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[]}`, afagent.ErrRefused},
+		{"failed", `{"id":"r","object":"response","status":"failed","error":{"code":"server_error","message":"boom"},"output":[]}`, nil},
+		{"cancelled", `{"id":"r","object":"response","status":"cancelled","output":[]}`, nil},
 		{"refusal", responseJSON("completed", `{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"I can't help with that."}]}`), afagent.ErrRefused},
 	} {
 		f := &fakeResponses{answers: []string{tt.answer}}
 		_, err := newResponsesModel(t, f).Complete(context.Background(), afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}})
-		if !errors.Is(err, tt.want) {
+		if err == nil || tt.want != nil && !errors.Is(err, tt.want) {
 			t.Errorf("%s: got %v, want %v", tt.name, err, tt.want)
 		}
 	}
@@ -241,17 +243,19 @@ func TestResponsesStreams(t *testing.T) {
 		t.Errorf("request = %v", f.bodies[0])
 	}
 
-	for _, last := range []string{
-		`{"type":"response.failed","sequence_number":1,"response":{"id":"r","object":"response","status":"failed","error":{"code":"server_error","message":"boom"},"output":[]}}`,
-		`{"type":"error","sequence_number":1,"code":"server_error","message":"boom","param":null}`,
+	for _, tt := range []struct{ event, want string }{
+		{`{"type":"response.failed","sequence_number":1,"response":{"id":"r","object":"response","status":"failed","error":{"code":"server_error","message":"boom"},"output":[]}}`, "response failed: boom"},
+		// A gateway may leave the error out.
+		{`{"type":"response.failed","sequence_number":1,"response":{"id":"r","object":"response","status":"failed","output":[]}}`, "response failed: no reason given"},
+		{`{"type":"error","sequence_number":1,"code":"server_error","message":"boom","param":null}`, "stream error: boom"},
 	} {
-		f := &fakeResponses{events: []string{last}}
+		f := &fakeResponses{events: []string{tt.event}}
 		_, err := newResponsesModel(t, f).Complete(context.Background(), afagent.Request{
 			Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}},
 			OnText:   func(string) {},
 		})
-		if err == nil || !strings.Contains(err.Error(), "boom") {
-			t.Errorf("%s: got %v", last[:30], err)
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("got %v, want %q", err, tt.want)
 		}
 	}
 	f = &fakeResponses{}

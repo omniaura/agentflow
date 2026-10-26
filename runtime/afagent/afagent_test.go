@@ -454,6 +454,37 @@ func TestLoopStreamsReasoning(t *testing.T) {
 	}
 }
 
+// An event a model emits while its turn ends reaches OnEvent before Run
+// returns, never after.
+func TestLoopEmitsNothingAfterRun(t *testing.T) {
+	for _, kind := range []EventKind{ReasoningDelta, TextDelta} {
+		entered := make(chan struct{})
+		var finished atomic.Bool
+		model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+			on := req.OnText
+			if kind == ReasoningDelta {
+				on = req.OnReasoning
+			}
+			go on("x")
+			<-entered
+			return Response{Message: Message{Content: "ok"}}, nil
+		})
+		l := Loop{Model: model, OnEvent: func(e Event) {
+			if e.Kind == kind {
+				close(entered)
+				time.Sleep(50 * time.Millisecond)
+				finished.Store(true)
+			}
+		}}
+		if _, err := l.Run(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+		if !finished.Load() {
+			t.Errorf("%s: Run returned while OnEvent was still running", kind)
+		}
+	}
+}
+
 // A Model that calls OnText from several goroutines doesn't race the held
 // text, and text after Complete returns is dropped. Run with -race.
 func TestLoopHeldTextIsSafe(t *testing.T) {
