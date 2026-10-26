@@ -240,6 +240,7 @@ func TestParseRouteEmptyOK(t *testing.T) {
 		want Empty
 	}{
 		{".empty 204", Empty{Status: 204}},
+		{".empty 205", Empty{Status: 205}},
 		{".empty 200 {\"note\": null}", Empty{Status: 200, Body: `{"note": null}`}},
 		{".empty 200 []", Empty{Status: 200, Body: "[]"}},
 		{".empty 200 null", Empty{Status: 200, Body: "null"}},
@@ -257,6 +258,7 @@ func TestParseRouteEmptyOK(t *testing.T) {
 	}
 	for line, want := range map[string]string{
 		".empty 204 {}":       "takes nothing after the status",
+		".empty 205 {}":       ".empty 205 responds with no body",
 		".empty 200":          ".empty 200 needs the response",
 		".empty 200 {bad":     "is neither JSON nor a func name",
 		".empty 200 db.draft": "is neither JSON nor a func name",

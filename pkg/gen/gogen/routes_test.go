@@ -569,7 +569,10 @@ func TestGenRoutesEmptyOK(t *testing.T) {
 		"afhttp.WriteJSON(w, r, http.StatusOK, json.RawMessage(\"\\\"untitled\\\"\"))",
 		// An :execrows query that changes none.
 		"if n == 0 {\n\t\tw.WriteHeader(http.StatusNoContent)\n\t\treturn\n\t}",
-		"if n == 0 {\n\t\tafhttp.WriteJSON(w, r, http.StatusOK, json.RawMessage(\"{\\\"deleted\\\": false}\"))",
+		// A body after an :execrows query is kept from caches too, and
+		// documented as JSON.
+		"if n == 0 {\n\t\tw.Header().Set(\"Cache-Control\", \"no-store\")\n\t\tafhttp.WriteJSON(w, r, http.StatusOK, json.RawMessage(\"{\\\"deleted\\\": false}\"))",
+		"// @Produce json\n// @Param id path integer true \"id\"\n// @Success 204\n// @Success 200 {object} object\n",
 		// Swag: a success of another status, and no 404. (One of the same
 		// status keeps the route's type: swag has one per status.)
 		"// @Success 204\n// @Success 200 {object} object\n",
@@ -593,5 +596,14 @@ func TestGenRoutesEmptyOK(t *testing.T) {
 				t.Fatalf("got %v, want %q at .empty", err, tt.msg)
 			}
 		})
+	}
+}
+
+// Swag names a func's result type only when the generated file can.
+func TestSwagObject(t *testing.T) {
+	for in, want := range map[string]string{"Draft": "Draft", "views.Draft": "object", "": "object", "[]Card": "[]Card"} {
+		if got := swagObject(in); got != want {
+			t.Errorf("swagObject(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

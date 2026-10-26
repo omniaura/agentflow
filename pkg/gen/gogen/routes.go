@@ -656,7 +656,13 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 		buf.WriteString("if err != nil {\nrt.fail(w, r, afhttp.QueryFailed(r.Context(), err))\nreturn\n}\n")
 		if e := r.Empty; e != nil && e.OK() {
 			buf.WriteString("if n == 0 {\n")
-			b.writeEmptyOK(buf, "", imports)
+			// .cache doesn't apply to :execrows, but a body is still kept
+			// from caches when authenticated.
+			bodyCache := ""
+			if cc != "" {
+				bodyCache = fmt.Sprintf("w.Header().Set(\"Cache-Control\", %q)\n", cc)
+			}
+			b.writeEmptyOK(buf, bodyCache, imports)
 			buf.WriteString("return\n}\n")
 		} else {
 			fmt.Fprintf(buf, "if n == 0 {\nrt.fail(w, r, %s.New(r.Context()))\nreturn\n}\n", b.emptyErr())
@@ -711,6 +717,16 @@ func (b *boundRoute) writeEmptyOK(buf *bytes.Buffer, cache string, imports map[s
 	default:
 		fmt.Fprintf(buf, "w.WriteHeader(%s)\n", status)
 	}
+}
+
+// swagObject is t, a Go type a func returns, as a swag @Success type: the
+// type when the generated file can name it, a plain object when it is
+// another package's, whose import the generated file may lack.
+func swagObject(t string) string {
+	if t == "" || strings.Contains(t, ".") {
+		return "object"
+	}
+	return t
 }
 
 var statusNames = map[int]string{

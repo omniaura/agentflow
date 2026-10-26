@@ -349,8 +349,8 @@ type Empty struct {
 	// Msg is the message of a failure, which the client or model sees.
 	Msg string
 	// Body is the JSON a success responds with, as written; Func names a
-	// func of the route's package that makes it instead. A 204 has
-	// neither.
+	// func of the route's package that makes it instead. A 204 or 205
+	// has neither.
 	Body, Func string
 	Offset     int
 }
@@ -360,15 +360,20 @@ func (e *Empty) OK() bool {
 	return e.Status >= 200 && e.Status < 300
 }
 
+// HasBody reports whether e is a successful response with a body.
+func (e *Empty) HasBody() bool {
+	return e.OK() && (e.Body != "" || e.Func != "")
+}
+
 // parseEmptyOK parses a successful .empty: status, then the JSON it
 // responds with or a func of the package that makes it, or nothing for a
 // 204.
 func parseEmptyOK(status int, rest string, off int) (*Empty, error) {
 	e := &Empty{Status: status, Offset: off}
 	switch {
-	case status == 204:
+	case status == 204 || status == 205:
 		if rest != "" {
-			return nil, &Error{Offset: off, Msg: ".empty 204 responds with no body, so it takes nothing after the status"}
+			return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty %d responds with no body, so it takes nothing after the status", status)}
 		}
 	case identRE.MatchString(rest) && rest != "true" && rest != "false" && rest != "null":
 		e.Func = rest

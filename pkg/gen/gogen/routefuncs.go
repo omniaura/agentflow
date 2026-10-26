@@ -70,17 +70,18 @@ func ReadRouteFuncs(name, out string, f afast.File) (RouteFuncs, error) {
 			if !found {
 				return funcs, missing(".map", r.Map, "taking the query's row and returning the response", r.MapOffset)
 			}
-			shape := d.mapShape(fset)
-			if shape == nil {
-				continue
-			}
-			if shape.err != "" {
+			// A signature that isn't known is left to the compiler; the
+			// route's other funcs are still read.
+			switch shape := d.mapShape(fset); {
+			case shape == nil:
+			case shape.err != "":
 				return funcs, &RouteError{Offset: r.MapOffset, Err: fmt.Errorf(".map %s: %s must be a func taking the query's row, or all its rows as a slice, optionally with the Caller, a context.Context or the *http.Request, and returning the response, optionally with an error; %s", r.Map, r.Map, shape.err)}
+			default:
+				if funcs.Map == nil {
+					funcs.Map = map[string]MapFunc{}
+				}
+				funcs.Map[r.Map] = shape.fn
 			}
-			if funcs.Map == nil {
-				funcs.Map = map[string]MapFunc{}
-			}
-			funcs.Map[r.Map] = shape.fn
 		}
 		if r.Prepare != "" {
 			d, found := declared[r.Prepare]
@@ -229,17 +230,10 @@ func (d funcDecl) mapShape(fset *gotoken.FileSet) *mapShape {
 	case rows > 1:
 		return &mapShape{err: "it takes more than one row"}
 	}
-	switch n := count(ft.Results); {
-	case n == 2 && isIdent(ft.Results.List[len(ft.Results.List)-1].Type, "error"):
-		fn.Err = true
-	case n == 1 && isIdent(ft.Results.List[0].Type, "error"):
-		return &mapShape{err: "it returns only an error, not the response"}
-	case n != 1:
-		return &mapShape{err: fmt.Sprintf("it returns %d values", n)}
+	var why string
+	if fn.Result, fn.Err, why = responseOf(fset, ft); why != "" {
+		return &mapShape{err: why}
 	}
-	var b bytes.Buffer
-	printer.Fprint(&b, fset, ft.Results.List[0].Type)
-	fn.Result = b.String()
 	return &mapShape{fn: fn}
 }
 
@@ -289,6 +283,23 @@ func (d funcDecl) prepareShape() (*PrepareFunc, string) {
 	return &fn, ""
 }
 
+// responseOf reads the results of a func that makes a response: the
+// response, optionally with an error. It returns the response's type as
+// written, whether there is an error, or why the results don't fit.
+func responseOf(fset *gotoken.FileSet, ft *ast.FuncType) (result string, hasErr bool, why string) {
+	switch n := count(ft.Results); {
+	case n == 2 && isIdent(ft.Results.List[len(ft.Results.List)-1].Type, "error"):
+		hasErr = true
+	case n == 1 && isIdent(ft.Results.List[0].Type, "error"):
+		return "", false, "it returns only an error, not the response"
+	case n != 1:
+		return "", false, fmt.Sprintf("it returns %d values", n)
+	}
+	var b bytes.Buffer
+	printer.Fprint(&b, fset, ft.Results.List[0].Type)
+	return b.String(), hasErr, ""
+}
+
 // emptyShape reads d as a successful .empty's func: its signature, or why
 // it can't be one; neither when its signature isn't known.
 func (d funcDecl) emptyShape(fset *gotoken.FileSet) (*MapFunc, string) {
@@ -313,17 +324,10 @@ func (d funcDecl) emptyShape(fset *gotoken.FileSet) (*MapFunc, string) {
 			}
 		}
 	}
-	switch n := count(d.ft.Results); {
-	case n == 2 && isIdent(d.ft.Results.List[len(d.ft.Results.List)-1].Type, "error"):
-		fn.Err = true
-	case n == 1 && isIdent(d.ft.Results.List[0].Type, "error"):
-		return nil, "it returns only an error, not the response"
-	case n != 1:
-		return nil, fmt.Sprintf("it returns %d values", n)
+	var why string
+	if fn.Result, fn.Err, why = responseOf(fset, d.ft); why != "" {
+		return nil, why
 	}
-	var b bytes.Buffer
-	printer.Fprint(&b, fset, d.ft.Results.List[0].Type)
-	fn.Result = b.String()
 	return &fn, ""
 }
 

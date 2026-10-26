@@ -187,7 +187,7 @@ func writeSwag(buf *bytes.Buffer, b *boundRoute, bodyType string, sw *Swag, impo
 		line("Accept json")
 	}
 	withBody := q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many
-	if withBody {
+	if withBody || r.Empty != nil && r.Empty.HasBody() {
 		line("Produce json")
 	}
 	inputs := bodyType != ""
@@ -247,10 +247,10 @@ func writeSwag(buf *bytes.Buffer, b *boundRoute, bodyType string, sw *Swag, impo
 		switch {
 		case e.Status == 204:
 			line("Success 204")
-		case b.emptyFn.Result != "":
-			line("Success %d {object} %s", e.Status, b.emptyFn.Result)
+		case e.Status == 205:
+			line("Success 205")
 		default:
-			line("Success %d {object} object", e.Status)
+			line("Success %d {object} %s", e.Status, swagObject(b.emptyFn.Result))
 		}
 	}
 	failures := map[int]bool{500: true}

@@ -408,3 +408,16 @@ func TestRenderChecksEmptyFuncs(t *testing.T) {
 		})
 	}
 }
+
+// A .map whose signature is left to the compiler doesn't stop the
+// route's other funcs from being read.
+func TestRenderReadsEmptyFuncBesideUnknownMap(t *testing.T) {
+	root := writeModule(t, "db")
+	dir := filepath.Join(root, "api")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "x.go"), []byte("package api\n\nvar view = makeView()\n\nfunc makeView() func(int64) int64 { return nil }\n\nfunc fallback(ctx context.Context) int64 { return 0 }\n"), 0o644)
+	_, code, err := Render(filepath.Join(dir, "api.af"), []byte(".route GET /x/{id} db.GetX\n.public\n.map view\n.empty 200 fallback\n"))
+	if err != nil || !bytes.Contains(code, []byte("fallback(r.Context())")) {
+		t.Fatalf("got %v\n%s", err, code)
+	}
+}
