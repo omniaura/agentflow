@@ -137,6 +137,19 @@ func panicError(id string, p any) error {
 	return fmt.Errorf("afthread: thread %s: panic: %v", id, p)
 }
 
+// reclaim queues the thread's started messages again after a panic in
+// Run. It runs in run's recover, so it recovers a panic of its own: Drain
+// must still let go of the lease.
+func (w *Worker) reclaim(ctx context.Context, owner, id string) (err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			err = panicError(id, p)
+		}
+	}()
+	_, err = w.Store.Reclaim(ctx, owner, id, time.Now())
+	return err
+}
+
 // run answers the queued messages once, under the lease, renewing it. A
 // panic is an error, after which the lease is released: before Run
 // starts, such as in Agent, it ends Drain, since nothing was claimed; in
@@ -153,10 +166,7 @@ func (w *Worker) run(ctx context.Context, locker Locker, owner, id, worker strin
 				return
 			}
 			// The lease is still held: the messages started are this run's.
-			if _, rerr := w.Store.Reclaim(context.WithoutCancel(ctx), owner, id, time.Now()); rerr != nil {
-				err = errors.Join(err, rerr)
-			}
-			err = &runPanic{err}
+			err = &runPanic{errors.Join(err, w.reclaim(context.WithoutCancel(ctx), owner, id))}
 		}
 	}()
 	if _, err := w.Store.Reclaim(ctx, owner, id, time.Now()); err != nil {
@@ -178,7 +188,7 @@ func (w *Worker) run(ctx context.Context, locker Locker, owner, id, worker strin
 		// trusted after it, so the lease counts as lost.
 		defer func() {
 			if p := recover(); p != nil {
-				cancel(fmt.Errorf("%w: renewing it panicked: %v", ErrLeaseLost, p))
+				cancel(fmt.Errorf("%w: renewing it: %w", ErrLeaseLost, panicError(id, p)))
 			}
 		}()
 		renew(ctx, cancel, locker, owner, id, worker, lease)

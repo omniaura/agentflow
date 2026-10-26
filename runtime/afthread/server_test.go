@@ -225,6 +225,12 @@ func TestServerStreams(t *testing.T) {
 	if len(ev) != 2 || ev[1] != `done {"id":2,"key":"k2","status":"queued"}` {
 		t.Errorf("stream while leased = %v", ev)
 	}
+
+	// Sending a key again for a message already answered streams no run.
+	w = do(mux, "POST", "/threads/"+th.ID+"/messages", "ann", `{"message":"Where is A-1?","key":"k1"}`, "Accept", "text/event-stream")
+	if ev := events(w.Body.String()); len(ev) != 1 || ev[0] != `done {"id":1,"key":"k1","status":"done"}` {
+		t.Errorf("stream of an answered message = %v", ev)
+	}
 }
 
 // A client that disconnects mid-stream doesn't stop the run.

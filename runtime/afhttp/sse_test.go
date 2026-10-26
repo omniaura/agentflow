@@ -200,3 +200,12 @@ func TestEventStreamClearsTheDeadline(t *testing.T) {
 		t.Errorf("deadlines set: %v", w.set)
 	}
 }
+
+// Close clears the deadline it set, so the response can still end well.
+func TestEventStreamCloseClearsTheDeadline(t *testing.T) {
+	w := &deadlines{ResponseRecorder: *httptest.NewRecorder()}
+	NewEventStream(w).Close()
+	if len(w.set) != 2 || w.set[0].IsZero() || !w.set[1].IsZero() {
+		t.Errorf("deadlines set: %v", w.set)
+	}
+}

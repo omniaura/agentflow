@@ -278,6 +278,8 @@ func TestWorkerStopsBeforeItsLeaseEnds(t *testing.T) {
 	}
 }
 
+var errLockBug = errors.New("lock bug")
+
 // renewPanics panics when a worker renews its lease.
 type renewPanics struct {
 	*afthread.Memory
@@ -286,7 +288,7 @@ type renewPanics struct {
 
 func (s *renewPanics) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
 	if s.locks.Add(1) > 1 {
-		panic("lock bug")
+		panic(errLockBug)
 	}
 	return s.Memory.Lock(ctx, owner, id, worker, lease)
 }
@@ -303,7 +305,7 @@ func TestWorkerRenewalPanic(t *testing.T) {
 	}}
 	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "slow"})
 	err := w.Drain(ctx, "ann", th.ID)
-	if !errors.Is(err, afthread.ErrLeaseLost) || !strings.Contains(err.Error(), "lock bug") {
+	if !errors.Is(err, afthread.ErrLeaseLost) || !errors.Is(err, errLockBug) {
 		t.Fatalf("Drain = %v", err)
 	}
 }
@@ -431,5 +433,43 @@ func TestWorkerDrainPanicKeepsRunErrors(t *testing.T) {
 	err := w.Drain(ctx, "ann", th.ID)
 	if err == nil || !strings.Contains(err.Error(), "model down") || !strings.Contains(err.Error(), "lock table gone") {
 		t.Fatalf("Drain = %v", err)
+	}
+}
+
+// reclaimPanics is a store whose runs panic, and so does queueing their
+// messages again.
+type reclaimPanics struct {
+	*afthread.Memory
+	reclaims atomic.Int32
+}
+
+func (s *reclaimPanics) Transcript(ctx context.Context, owner, id string) ([]afagent.Message, error) {
+	panic(errBadRow)
+}
+
+func (s *reclaimPanics) Reclaim(ctx context.Context, owner, id string, before time.Time) (int, error) {
+	if s.reclaims.Add(1) > 1 {
+		panic("reclaim bug")
+	}
+	return s.Memory.Reclaim(ctx, owner, id, before)
+}
+
+// A panic while queueing a panicked run's messages again still lets go of
+// the lease.
+func TestWorkerUnlocksAfterAPanicInReclaim(t *testing.T) {
+	ctx := context.Background()
+	s := &reclaimPanics{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 0), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "first"})
+	err := w.Drain(ctx, "ann", th.ID)
+	if !errors.Is(err, errBadRow) || !strings.Contains(err.Error(), "reclaim bug") {
+		t.Fatalf("Drain = %v", err)
+	}
+	if held, _ := s.Lock(ctx, "ann", th.ID, "next", time.Minute); !held {
+		t.Error("the thread is still leased")
 	}
 }

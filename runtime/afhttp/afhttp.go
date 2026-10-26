@@ -443,7 +443,9 @@ var ErrStreamClosed = errors.New("afhttp: the event stream is closed")
 
 // Close ends the stream: it fails a write in progress, waits for it, and
 // Send writes nothing after it. Call it before the handler returns when other
-// goroutines may still send, since the ResponseWriter is done then.
+// goroutines may still send, since the ResponseWriter is done then. Failing
+// the write takes a ResponseWriter that can set write deadlines, as
+// WriteTimeout does; with one that can't, Close waits for the write.
 func (s *EventStream) Close() {
 	// A write stalled on a client that stopped reading would hold the lock;
 	// this fails it now.
@@ -453,6 +455,8 @@ func (s *EventStream) Close() {
 	if s.broken == nil {
 		s.broken = ErrStreamClosed
 	}
+	// The response may still end well, and the connection serve another.
+	_ = s.rc.SetWriteDeadline(time.Time{})
 }
 
 // SendError writes an error event whose data is the client view of err,
