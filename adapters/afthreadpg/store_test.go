@@ -184,8 +184,13 @@ func TestWorkers(t *testing.T) {
 		t.Errorf("%d runs overlapped", n)
 	}
 	var notDone int
-	pool.QueryRow(ctx, "SELECT count(*) FROM af_inbox WHERE thread_id = $1 AND status <> 'done'", th.ID).Scan(&notDone)
-	got, _ := s.Transcript(ctx, "ann", th.ID)
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM af_inbox WHERE thread_id = $1 AND status <> 'done'", th.ID).Scan(&notDone); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Transcript(ctx, "ann", th.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	users := 0
 	for _, m := range got {
 		if m.Role == afagent.User {

@@ -71,6 +71,9 @@ func (w *Worker) Drain(ctx context.Context, owner, id string) error {
 	if !ok {
 		return fmt.Errorf("afthread: Worker's Store, %T, doesn't implement Locker", w.Store)
 	}
+	if w.Agent == nil {
+		return errors.New("afthread: Worker's Agent is nil")
+	}
 	lease := w.Lease
 	if lease <= 0 {
 		lease = DefaultLease
@@ -128,7 +131,8 @@ func (w *Worker) run(ctx context.Context, locker Locker, owner, id, worker strin
 		err = errors.Join(err, c)
 	}
 	if w.OnRun != nil && (err != nil || res.Turns > 0) {
-		w.OnRun(ctx, t, res, err)
+		// The run's ctx may be canceled by now; reporting it shouldn't fail.
+		w.OnRun(context.WithoutCancel(ctx), t, res, err)
 	}
 	return err
 }
@@ -147,7 +151,11 @@ func renew(ctx context.Context, cancel context.CancelCauseFunc, locker Locker, o
 			return
 		case <-tick.C:
 		}
-		held, err := locker.Lock(ctx, owner, id, worker, lease)
+		// An attempt that stalls ends in time for the run to stop before
+		// the lease does.
+		attempt, stop := context.WithDeadline(ctx, renewed.Add(lease*2/3))
+		held, err := locker.Lock(attempt, owner, id, worker, lease)
+		stop()
 		switch {
 		case err == nil && held:
 			renewed = time.Now()

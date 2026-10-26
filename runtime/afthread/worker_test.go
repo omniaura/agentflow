@@ -144,9 +144,10 @@ func TestWorkerStopsWhenItLosesTheLease(t *testing.T) {
 	s := &stolen{Memory: &afthread.Memory{}}
 	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
 	var running, overlaps atomic.Int32
+	var reportErr error
 	w := &afthread.Worker{Store: s, Lease: 30 * time.Millisecond, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
 		return echo(&running, &overlaps, time.Second), nil
-	}}
+	}, OnRun: func(ctx context.Context, t afthread.Thread, res afagent.Result, err error) { reportErr = ctx.Err() }}
 	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "slow"})
 	start := time.Now()
 	err := w.Drain(ctx, "ann", th.ID)
@@ -155,6 +156,10 @@ func TestWorkerStopsWhenItLosesTheLease(t *testing.T) {
 	}
 	if in := s.Inbox("ann", th.ID); in[0].Status != afthread.Failed {
 		t.Errorf("message = %+v", in[0])
+	}
+	// OnRun can still report it.
+	if reportErr != nil {
+		t.Errorf("OnRun got a canceled ctx: %v", reportErr)
 	}
 }
 
@@ -218,6 +223,12 @@ func TestWorkerFailures(t *testing.T) {
 		t.Error("the thread is still leased")
 	}
 
+	// Nor does a worker without agents, before it takes the thread.
+	w.Agent = nil
+	if err := w.Drain(ctx, "ann", th.ID); err == nil || !strings.Contains(err.Error(), "Agent is nil") {
+		t.Fatalf("Drain without Agent = %v", err)
+	}
+
 	// A store that can't lease threads can't have a worker.
 	type plain struct{ afthread.Store }
 	w.Store = plain{s}
@@ -233,14 +244,19 @@ type failing struct {
 }
 
 func (s *failing) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
-	if s.locks.Add(1) > 1 {
+	switch s.locks.Add(1) {
+	case 1:
+		return s.Memory.Lock(ctx, owner, id, worker, lease)
+	case 2:
 		return false, errors.New("database down")
 	}
-	return s.Memory.Lock(ctx, owner, id, worker, lease)
+	// Then the database hangs.
+	<-ctx.Done()
+	return false, ctx.Err()
 }
 
 // A worker that can't renew stops before its lease ends, so no other
-// worker takes the thread while it still runs.
+// worker takes the thread while it still runs: even when renewing hangs.
 func TestWorkerStopsBeforeItsLeaseEnds(t *testing.T) {
 	ctx := context.Background()
 	s := &failing{Memory: &afthread.Memory{}}
