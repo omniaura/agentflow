@@ -12,6 +12,8 @@ import (
 	"github.com/omniaura/agentflow/runtime/afagent"
 )
 
+var _ Locker = (*Memory)(nil)
+
 // Memory is a Store in memory, for tests and examples. The zero value is
 // ready to use.
 type Memory struct {
@@ -31,6 +33,9 @@ type memThread struct {
 	t          Thread
 	transcript []afagent.Message
 	inbox      []Incoming
+	// holder holds the thread's lease until until.
+	holder string
+	until  time.Time
 }
 
 func (m *Memory) thread(owner, id string) (*memThread, error) {
@@ -177,6 +182,34 @@ func (m *Memory) Reclaim(ctx context.Context, owner, id string, before time.Time
 		}
 	}
 	return n, nil
+}
+
+func (m *Memory) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, err := m.thread(owner, id)
+	if err != nil {
+		return false, err
+	}
+	now := time.Now()
+	if t.holder != "" && t.holder != worker && now.Before(t.until) {
+		return false, nil
+	}
+	t.holder, t.until = worker, now.Add(lease)
+	return true, nil
+}
+
+func (m *Memory) Unlock(ctx context.Context, owner, id, worker string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, err := m.thread(owner, id)
+	if err != nil {
+		return false, err
+	}
+	if t.holder == worker {
+		t.holder, t.until = "", time.Time{}
+	}
+	return slices.ContainsFunc(t.inbox, func(in Incoming) bool { return in.Status == Queued }), nil
 }
 
 func (m *Memory) StartRun(ctx context.Context, owner, thread string) (RunRecord, error) {

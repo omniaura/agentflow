@@ -730,11 +730,24 @@ res, err := afthread.Run(ctx, store, userID, threadID, func(ctx context.Context,
 })
 ```
 
-It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time. A worker that crashes mid-run leaves its messages started: call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run, to queue them again.
-**Postgres.** For a new backend, [`adapters/afthreadpg`](adapters/afthreadpg) is a ready `afthread.Store`, `afthread.Runs` and `afthread.Directory`, built the agentflow way: the tables are in `migrations/`, the queries in `queries.sql`, and the code sqlc generated in `db/`. Apply the migrations, in order, with your migration tool and call `afthreadpg.New(pool)`. An agent's messages go to the owner's oldest thread for that agent.
+It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time.
+
+**Workers.** `afthread.Worker` runs one agent at a time per thread, across servers, with a store that implements `afthread.Locker`. Call `Drain` after sending, from the request that sent or from a job:
+
+```go
+w := &afthread.Worker{Store: store, Agent: func(ctx context.Context, t afthread.Thread) (afthread.Agent, error) {
+	return agents[t.Agent], nil // the afthread.Agent for the thread's agent
+}}
+store.Send(ctx, userID, threadID, afthread.Incoming{Key: clientMessageID, Content: text})
+err := w.Drain(ctx, userID, threadID)
+```
+
+`Drain` leases the thread and runs `afthread.Run` until no messages are queued. It renews the lease while the agent runs, and stops the run with `afthread.ErrLeaseLost` if another worker takes the thread. When another worker holds the thread, `Drain` returns at once. That worker answers the new messages, because `Unlock` reports what is queued after the lease ends. Holding the lease, `Drain` first re-queues messages that a crashed worker claimed and never finished, since no live worker can be answering them. A lease outlives a crashed worker by `Lease`, 1 minute by default. Without a worker, call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run.
+**Postgres.** For a new backend, [`adapters/afthreadpg`](adapters/afthreadpg) is a ready `afthread.Store`, `afthread.Runs`, `afthread.Directory` and `afthread.Locker`, built the agentflow way: the tables are in `migrations/`, the queries in `queries.sql`, and the code sqlc generated in `db/`. Apply the migrations, in order, with your migration tool and call `afthreadpg.New(pool)`. An agent's messages go to the owner's oldest thread for that agent.
 - Claims use `FOR UPDATE SKIP LOCKED`, so workers on many servers can share a queue.
 - `Send` is idempotent through a unique index on the thread and key.
 - Transcript writes and event numbering take row locks.
+- Leases are columns on the thread and expire by the database's clock.
 - Every query is scoped by owner.
 
 To make the schema your own, copy the package, change the migration and queries, run `sqlc generate`, and keep `afthreadtest.Run` passing. An existing backend writes its own adapter over its tables instead.
@@ -754,7 +767,7 @@ compactor.OnCompact = func(stage string, before, after int) {
 - `Send` queues the text on the recipient's inbox, marked as from the sender. The recipient gets it between its turns, or in its next run, and answers the same way, so messaging works both ways: between a parent and its subagents, or any two agents.
 - A `Directory` finds an agent's thread, by default its oldest, and lists the agents. `Memory` implements it from its threads' `Agent` field.
 - `CanMessage` decides who may message whom.
-- `Notify` wakes the recipient's worker, for example by queueing a job.
+- `Notify` wakes the recipient's worker, for example by queueing a job or calling `Worker.Drain` in a goroutine.
 
 ```go
 m := &afthread.Messenger{Store: store, Directory: store, Owner: userID, From: "support",

@@ -5,11 +5,13 @@
 // that a changed copy still behaves.
 //
 //	store := afthreadpg.New(pool)
-//	afthread.Run(ctx, store, userID, threadID, agent)
+//	worker := &afthread.Worker{Store: store, Agent: agentFor}
+//	worker.Drain(ctx, userID, threadID)
 //
 // Claims use FOR UPDATE SKIP LOCKED, so workers on many servers can share
-// a queue, and Send is idempotent through a unique index on the thread and
-// key. Every method checks the thread's owner.
+// a queue, Send is idempotent through a unique index on the thread and
+// key, and a thread's lease lets one worker at a time run its agent. Every
+// method checks the thread's owner.
 package afthreadpg
 
 import (
@@ -28,8 +30,10 @@ import (
 	"github.com/omniaura/agentflow/runtime/afthread"
 )
 
-// Store is an afthread.Store, afthread.Runs and afthread.Directory over
-// Postgres. An agent's messages go to the owner's oldest thread for it.
+// Store is an afthread.Store, afthread.Runs, afthread.Directory and
+// afthread.Locker over Postgres. An agent's messages go to the owner's
+// oldest thread for it. Leases expire by the database's clock, so servers'
+// clocks needn't agree.
 type Store struct {
 	pool *pgxpool.Pool
 	q    *db.Queries
@@ -39,6 +43,7 @@ var (
 	_ afthread.Store     = (*Store)(nil)
 	_ afthread.Runs      = (*Store)(nil)
 	_ afthread.Directory = (*Store)(nil)
+	_ afthread.Locker    = (*Store)(nil)
 )
 
 // New returns a Store on pool, whose database has the migrations applied.
@@ -246,6 +251,33 @@ func (s *Store) Reclaim(ctx context.Context, owner, id string, before time.Time)
 	}
 	n, err := s.q.Reclaim(ctx, db.ReclaimParams{ThreadID: u, Before: pgtype.Timestamptz{Time: before, Valid: true}})
 	return int(n), err
+}
+
+func (s *Store) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	u, err := uuidOf(id)
+	if err != nil {
+		return false, err
+	}
+	n, err := s.q.LeaseThread(ctx, db.LeaseThreadParams{Worker: worker, Seconds: lease.Seconds(), ID: u, Owner: owner})
+	if err != nil || n == 1 {
+		return n == 1, err
+	}
+	// Leased to another worker, or not the owner's thread.
+	_, err = s.owned(ctx, s.q, owner, id)
+	return false, err
+}
+
+func (s *Store) Unlock(ctx context.Context, owner, id, worker string) (bool, error) {
+	u, err := s.owned(ctx, s.q, owner, id)
+	if err != nil {
+		return false, err
+	}
+	if err := s.q.ReleaseThread(ctx, db.ReleaseThreadParams{ID: u, Owner: owner, Worker: worker}); err != nil {
+		return false, err
+	}
+	// A statement of its own, after the release: its snapshot then holds
+	// every message sent by a worker that found the thread leased.
+	return s.q.HasQueued(ctx, u)
 }
 
 func runRecord(owner string, r db.AfRun) afthread.RunRecord {

@@ -49,11 +49,13 @@ type AfRunEvent struct {
 }
 
 type AfThread struct {
-	ID        pgtype.UUID
-	Owner     string
-	Agent     string
-	Title     string
-	Metadata  []byte
-	CreatedAt pgtype.Timestamptz
-	UpdatedAt pgtype.Timestamptz
+	ID          pgtype.UUID
+	Owner       string
+	Agent       string
+	Title       string
+	Metadata    []byte
+	CreatedAt   pgtype.Timestamptz
+	UpdatedAt   pgtype.Timestamptz
+	LeaseHolder string
+	LeaseUntil  pgtype.Timestamptz
 }

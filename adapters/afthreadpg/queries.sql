@@ -93,3 +93,16 @@ LIMIT 1;
 SELECT DISTINCT ON (agent) agent, title FROM af_threads
 WHERE owner = @owner AND agent <> ''
 ORDER BY agent, created_at, id;
+
+-- name: LeaseThread :execrows
+UPDATE af_threads
+SET lease_holder = @worker, lease_until = now() + make_interval(secs => @seconds::float8)
+WHERE id = @id AND owner = @owner
+  AND (lease_holder = '' OR lease_holder = @worker OR lease_until < now());
+
+-- name: ReleaseThread :exec
+UPDATE af_threads SET lease_holder = '', lease_until = NULL
+WHERE id = @id AND owner = @owner AND lease_holder = @worker;
+
+-- name: HasQueued :one
+SELECT EXISTS (SELECT 1 FROM af_inbox WHERE thread_id = @thread_id AND status = 'queued');
