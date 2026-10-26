@@ -96,7 +96,9 @@ type Store interface {
 	// Reclaim puts back in the queue the thread's messages claimed before
 	// before and never finished, as a worker that crashed mid-run leaves
 	// them, and returns how many. Call it with a lease longer than any run,
-	// such as when a worker starts.
+	// such as when a worker starts. A Store that implements Runs also ends
+	// the thread's runs started before then, failed with ErrRunAbandoned,
+	// so no one follows them forever.
 	Reclaim(ctx context.Context, owner, id string, before time.Time) (int, error)
 }
 

@@ -2,8 +2,11 @@ package afthreadpg_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -236,5 +239,61 @@ func TestWorkers(t *testing.T) {
 	}
 	if notDone != 0 || users != 30 {
 		t.Errorf("%d messages not done, %d in the transcript", notDone, users)
+	}
+}
+
+// afthread.Server on Postgres: a message sent over HTTP is answered in the
+// background, and the run and its events can be read back.
+func TestServer(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	s := afthreadpg.New(pool)
+	th, err := s.Create(ctx, afthread.Thread{Owner: "ann", Agent: "support"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn := 0
+	agent := func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+		model := afagent.ModelFunc(func(ctx context.Context, req afagent.Request) (afagent.Response, error) {
+			if turn++; turn == 1 {
+				return afagent.Response{Message: afagent.Message{ToolCalls: []afagent.ToolCall{{ID: "1", Name: "look", Arguments: `{"id":7}`}}}}, nil
+			}
+			return afagent.Response{Message: afagent.Message{Content: "found it"}}, nil
+		})
+		l := afagent.Loop{Model: model, Tools: []afagent.ToolSpec{{Name: "look"}}, BeforeTurn: before,
+			Dispatch: func(context.Context, afagent.ToolCall) (string, error) { return "row 7", nil }}
+		return l.Run(ctx, msgs)
+	}
+	srv := &afthread.Server{Store: s, Owner: func(*http.Request) (string, error) { return "ann", nil },
+		Worker: &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) { return agent, nil }}}
+	mux := http.NewServeMux()
+	srv.Register(mux, "/threads")
+	get := func(path string) string {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 200 {
+			t.Fatalf("GET %s: %d %s", path, w.Code, w.Body)
+		}
+		return w.Body.String()
+	}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", "/threads/"+th.ID+"/messages", strings.NewReader(`{"message":"find 7"}`)))
+	if w.Code != 202 {
+		t.Fatalf("send: %d %s", w.Code, w.Body)
+	}
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := get("/threads/" + th.ID + "/messages"); !strings.Contains(got, `{"role":"assistant","content":"found it"}`) {
+		t.Errorf("messages = %s", got)
+	}
+	var list afthread.ThreadRunList
+	json.Unmarshal([]byte(get("/threads/"+th.ID+"/runs")), &list)
+	if len(list.Runs) != 1 || list.Runs[0].Status != afthread.Succeeded || list.Runs[0].ToolCalls != 1 {
+		t.Fatalf("runs = %+v", list)
+	}
+	events := get("/threads/" + th.ID + "/runs/" + list.Runs[0].ID + "/events")
+	if !strings.Contains(events, `"kind":"tool_called","data":{"name":"look"}`) || strings.Contains(events, "row 7") {
+		t.Errorf("events = %s", events)
 	}
 }

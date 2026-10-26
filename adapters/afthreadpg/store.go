@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"time"
 
@@ -31,8 +32,8 @@ import (
 	"github.com/omniaura/agentflow/runtime/afthread"
 )
 
-// Store is an afthread.Store, afthread.Runs, afthread.Directory and
-// afthread.Locker over Postgres. An agent's messages go to the owner's
+// Store is an afthread.Store, afthread.Runs, afthread.ThreadRuns,
+// afthread.Directory and afthread.Locker over Postgres. An agent's messages go to the owner's
 // oldest thread for it. Leases expire by the database's clock, so servers'
 // clocks needn't agree.
 type Store struct {
@@ -41,10 +42,11 @@ type Store struct {
 }
 
 var (
-	_ afthread.Store     = (*Store)(nil)
-	_ afthread.Runs      = (*Store)(nil)
-	_ afthread.Directory = (*Store)(nil)
-	_ afthread.Locker    = (*Store)(nil)
+	_ afthread.Store      = (*Store)(nil)
+	_ afthread.Runs       = (*Store)(nil)
+	_ afthread.Directory  = (*Store)(nil)
+	_ afthread.Locker     = (*Store)(nil)
+	_ afthread.ThreadRuns = (*Store)(nil)
 )
 
 // New returns a Store on pool, whose database has the migrations applied.
@@ -250,7 +252,12 @@ func (s *Store) Reclaim(ctx context.Context, owner, id string, before time.Time)
 	if err != nil {
 		return 0, err
 	}
-	n, err := s.q.Reclaim(ctx, db.ReclaimParams{ThreadID: u, Before: pgtype.Timestamptz{Time: before, Valid: true}})
+	at := pgtype.Timestamptz{Time: before, Valid: true}
+	n, err := s.q.Reclaim(ctx, db.ReclaimParams{ThreadID: u, Before: at})
+	if err != nil {
+		return 0, err
+	}
+	_, err = s.q.AbandonRuns(ctx, db.AbandonRunsParams{ThreadID: u, Before: at, Error: afthread.ErrRunAbandoned.Error()})
 	return int(n), err
 }
 
@@ -312,6 +319,22 @@ func (s *Store) GetRun(ctx context.Context, owner, run string) (afthread.RunReco
 		return afthread.RunRecord{}, notFound(err)
 	}
 	return runRecord(owner, r), nil
+}
+
+func (s *Store) ThreadRuns(ctx context.Context, owner, thread string, limit int) ([]afthread.RunRecord, error) {
+	u, err := s.owned(ctx, s.q, owner, thread)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.q.ThreadRuns(ctx, db.ThreadRunsParams{ThreadID: u, Owner: owner, Lim: int32(min(max(limit, 0), math.MaxInt32))})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]afthread.RunRecord, len(rows))
+	for i, r := range rows {
+		out[i] = runRecord(owner, r)
+	}
+	return out, nil
 }
 
 func (s *Store) AddEvent(ctx context.Context, owner, run string, e afthread.RunEvent) (afthread.RunEvent, error) {

@@ -505,3 +505,161 @@ func TestServerShutdownDoesNotWaitPastItsContext(t *testing.T) {
 		t.Errorf("Shutdown = %v after %v", err, time.Since(start))
 	}
 }
+
+func TestServerRuns(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	other, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	srv, mux := newServer(t, s, toolThenAnswer())
+	do(mux, "POST", "/threads/"+th.ID+"/messages", "ann", `{"message":"Where is A-1?"}`)
+	settle(t, s, "ann", th.ID)
+
+	w := do(mux, "GET", "/threads/"+th.ID+"/runs", "ann", "")
+	var list afthread.ThreadRunList
+	json.Unmarshal(w.Body.Bytes(), &list)
+	if w.Code != 200 || len(list.Runs) != 1 || list.Runs[0].Status != afthread.Succeeded || list.Runs[0].Turns != 2 || list.Runs[0].ToolCalls != 1 || list.Runs[0].Ended == nil {
+		t.Fatalf("runs: %d %s", w.Code, w.Body)
+	}
+	run := list.Runs[0].ID
+	w = do(mux, "GET", "/threads/"+th.ID+"/runs/"+run+"/events", "ann", "")
+	var evs afthread.RunEvents
+	json.Unmarshal(w.Body.Bytes(), &evs)
+	if w.Code != 200 || len(evs.Events) != 2 || evs.Events[0].Kind != "tool_called" || evs.Events[1].Data["failed"] != false || evs.Run.Status != afthread.Succeeded {
+		t.Fatalf("events: %d %s", w.Code, w.Body)
+	}
+	// Only what a client may see: no arguments or results, no usage.
+	if strings.Contains(w.Body.String(), "secret") || strings.Contains(w.Body.String(), "model_responded") {
+		t.Errorf("events leak server data: %s", w.Body)
+	}
+	after := fmt.Sprint(evs.Events[0].Seq)
+	w = do(mux, "GET", "/threads/"+th.ID+"/runs/"+run+"/events?after="+after, "ann", "")
+	json.Unmarshal(w.Body.Bytes(), &evs)
+	if len(evs.Events) != 1 || evs.Events[0].Kind != "tool_returned" {
+		t.Errorf("events after %s: %s", after, w.Body)
+	}
+	// The stream of an ended run replays it and ends.
+	w = do(mux, "GET", "/threads/"+th.ID+"/runs/"+run+"/events", "ann", "", "Accept", "text/event-stream", "Last-Event-ID", after)
+	got := events(w.Body.String())
+	if len(got) != 2 || !strings.HasPrefix(got[0], `tool_returned {"failed":false,"name":"look"}`) || !strings.HasPrefix(got[1], `done {"id":"`+run+`"`) {
+		t.Errorf("replay = %v", got)
+	}
+	if !strings.Contains(w.Body.String(), "id: "+fmt.Sprint(evs.Events[0].Seq)+"\n") {
+		t.Errorf("events carry no id: %s", w.Body)
+	}
+
+	for _, tt := range []struct {
+		name, path, user string
+		status           int
+	}{
+		{"another owner", "/threads/" + th.ID + "/runs/" + run + "/events", "bob", 404},
+		{"another thread's run", "/threads/" + other.ID + "/runs/" + run + "/events", "ann", 404},
+		{"another owner's runs", "/threads/" + th.ID + "/runs", "bob", 404},
+		{"no such run", "/threads/" + th.ID + "/runs/run-99/events", "ann", 404},
+		{"bad after", "/threads/" + th.ID + "/runs/" + run + "/events?after=x", "ann", 400},
+	} {
+		if w := do(mux, "GET", tt.path, tt.user, ""); w.Code != tt.status {
+			t.Errorf("%s: %d %s", tt.name, w.Code, w.Body)
+		}
+	}
+	// A store that doesn't record runs has no run endpoints.
+	type plain struct{ afthread.Store }
+	srv.Store = plain{s}
+	if w := do(mux, "GET", "/threads/"+th.ID+"/runs", "ann", ""); w.Code != 404 {
+		t.Errorf("runs without Runs: %d", w.Code)
+	}
+}
+
+// A client follows a run as it happens, from the database, and resumes
+// after the last event it saw.
+func TestServerFollowsARun(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	step, ended := make(chan struct{}), make(chan struct{})
+	agent := func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+		turn := 0
+		model := afagent.ModelFunc(func(ctx context.Context, req afagent.Request) (afagent.Response, error) {
+			if turn++; turn <= 2 {
+				return afagent.Response{Message: afagent.Message{ToolCalls: []afagent.ToolCall{{ID: fmt.Sprint(turn), Name: fmt.Sprint("look", turn), Arguments: "{}"}}}}, nil
+			}
+			return afagent.Response{Message: afagent.Message{Content: "done"}}, nil
+		})
+		l := afagent.Loop{Model: model, Tools: []afagent.ToolSpec{{Name: "look1"}, {Name: "look2"}}, BeforeTurn: before,
+			Dispatch: func(context.Context, afagent.ToolCall) (string, error) {
+				select {
+				case <-step:
+				case <-ended:
+				}
+				return "ok", nil
+			}}
+		return l.Run(ctx, msgs)
+	}
+	srv, mux := newServer(t, s, agent)
+	// Cleanups run last first: the run is released before the server
+	// shuts down, even when the test fails halfway.
+	t.Cleanup(func() { close(ended) })
+	srv.PollInterval = 10 * time.Millisecond
+	hs := httptest.NewServer(mux)
+	defer hs.Close()
+	do(mux, "POST", "/threads/"+th.ID+"/messages", "ann", `{"message":"go"}`)
+	var run string
+	for run == "" {
+		if rs, _ := s.ThreadRuns(ctx, "ann", th.ID, 1); len(rs) == 1 {
+			run = rs[0].ID
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	follow := func(lastID string) (*bufio.Reader, func()) {
+		req, _ := http.NewRequest("GET", hs.URL+"/threads/"+th.ID+"/runs/"+run+"/events", nil)
+		req.Header.Set("X-User", "ann")
+		req.Header.Set("Accept", "text/event-stream")
+		if lastID != "" {
+			req.Header.Set("Last-Event-ID", lastID)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bufio.NewReader(resp.Body), func() { resp.Body.Close() }
+	}
+	// next reads the next event: its id and its name.
+	next := func(r *bufio.Reader) (id, name string) {
+		for {
+			line, err := r.ReadString('\n')
+			if err != nil {
+				t.Fatalf("stream ended: %v", err)
+			}
+			switch {
+			case strings.HasPrefix(line, "id: "):
+				id = strings.TrimSpace(strings.TrimPrefix(line, "id: "))
+			case strings.HasPrefix(line, "event: "):
+				name = strings.TrimSpace(strings.TrimPrefix(line, "event: "))
+			case line == "\n" && name != "":
+				return id, name
+			}
+		}
+	}
+	r, closeFirst := follow("")
+	id, name := next(r)
+	if name != "tool_called" {
+		t.Fatalf("first event %s", name)
+	}
+	// The client drops the stream; the run goes on.
+	closeFirst()
+	step <- struct{}{}
+	r, closeSecond := follow(id)
+	defer closeSecond()
+	var names []string
+	for _, want := range []string{"tool_returned", "tool_called", "tool_returned", "done"} {
+		if len(names) == 2 {
+			// The second tool call may return now.
+			step <- struct{}{}
+		}
+		_, name := next(r)
+		names = append(names, name)
+		if name != want {
+			t.Fatalf("events after reconnecting: %v, want %s next", names, want)
+		}
+	}
+}

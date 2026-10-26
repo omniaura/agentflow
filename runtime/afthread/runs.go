@@ -3,6 +3,7 @@ package afthread
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -24,6 +25,19 @@ type Runs interface {
 	// GetRun returns the run.
 	GetRun(ctx context.Context, owner, run string) (RunRecord, error)
 }
+
+// ThreadRuns lists a thread's runs, for a client to find one to follow. A
+// Store that implements Runs may implement it too; Memory does, and
+// Server's run endpoints need it.
+type ThreadRuns interface {
+	// ThreadRuns returns the thread's latest runs, newest first: at most
+	// limit of them.
+	ThreadRuns(ctx context.Context, owner, thread string, limit int) ([]RunRecord, error)
+}
+
+// ErrRunAbandoned is the error of a run whose worker stopped before it
+// ended, as Reclaim finds it.
+var ErrRunAbandoned = errors.New("afthread: the run's worker stopped before it ended")
 
 // RunStatus is where a run is.
 type RunStatus string

@@ -56,6 +56,10 @@ WHERE thread_id = @thread_id AND status = 'started' AND id = ANY(@ids::bigint[])
 UPDATE af_inbox SET status = 'queued'
 WHERE thread_id = @thread_id AND status = 'started' AND claimed_at < @before;
 
+-- name: AbandonRuns :execrows
+UPDATE af_runs SET status = 'failed', ended_at = now(), error = @error
+WHERE thread_id = @thread_id AND status = 'running' AND started_at < @before;
+
 -- name: StartRun :one
 INSERT INTO af_runs (thread_id) VALUES (@thread_id) RETURNING *;
 
@@ -106,3 +110,9 @@ WHERE id = @id AND owner = @owner AND lease_holder = @worker;
 
 -- name: HasQueued :one
 SELECT EXISTS (SELECT 1 FROM af_inbox WHERE thread_id = @thread_id AND status = 'queued');
+
+-- name: ThreadRuns :many
+SELECT r.* FROM af_runs r JOIN af_threads t ON t.id = r.thread_id
+WHERE r.thread_id = @thread_id AND t.owner = @owner
+ORDER BY r.started_at DESC, r.id DESC
+LIMIT @lim;

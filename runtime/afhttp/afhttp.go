@@ -403,6 +403,15 @@ func NewEventStream(w http.ResponseWriter) *EventStream {
 
 // Send writes one event, with data encoded as JSON, and flushes it.
 func (s *EventStream) Send(event string, data any) error {
+	return s.SendEvent("", event, data)
+}
+
+// SendEvent is Send with an event ID, which a client that reconnects sends
+// back in Last-Event-ID to resume after it. An empty id sends none.
+func (s *EventStream) SendEvent(id, event string, data any) error {
+	if strings.ContainsAny(id, "\r\n") {
+		return fmt.Errorf("afhttp: event id %q has a line break", id)
+	}
 	b, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -419,7 +428,11 @@ func (s *EventStream) Send(event string, data any) error {
 			return err
 		}
 	}
-	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", event, b); err != nil {
+	var frame string
+	if id != "" {
+		frame = "id: " + id + "\n"
+	}
+	if _, err := fmt.Fprintf(s.w, "%sevent: %s\ndata: %s\n\n", frame, event, b); err != nil {
 		s.broken = err
 		return err
 	}
