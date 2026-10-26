@@ -80,6 +80,27 @@ func TestCreateFailureCleansUp(t *testing.T) {
 	}
 }
 
+// A cleanup that fails is reported with the failure.
+func TestCreateReportsFailedCleanup(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Getuid() == 0 {
+		t.Skip("needs a directory the user can't write")
+	}
+	dir := t.TempDir()
+	render = func(af string, _ []byte) (string, []byte, error) {
+		// Files can no longer be removed.
+		os.Chmod(filepath.Dir(af), 0o555)
+		return "", nil, errors.New("boom")
+	}
+	defer func() {
+		render = prompts.Render
+		os.Chmod(dir, 0o755)
+	}()
+	err := Create(dir, "app")
+	if err == nil || !strings.Contains(err.Error(), "boom") || !strings.Contains(err.Error(), "clean up") {
+		t.Errorf("Create = %v", err)
+	}
+}
+
 // TestScaffoldRuns builds a new app against this checkout and, with a
 // database, runs it: a client creates a thread, sends a message and reads
 // it back. The model is unreachable, so the message fails, and the server

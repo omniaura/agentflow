@@ -4,6 +4,7 @@ package newapp
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -77,7 +78,9 @@ func Create(dir, module string) (err error) {
 	}
 	defer func() {
 		if err != nil {
-			undo(dir, created)
+			if uerr := undo(dir, created); uerr != nil {
+				err = errors.Join(err, fmt.Errorf("af new: clean up %s: %w", dir, uerr))
+			}
 		}
 	}()
 	data := struct{ Module, Name string }{module, name(module)}
@@ -138,13 +141,13 @@ func emptyDir(dir string) (bool, error) {
 
 // undo removes what a failed Create wrote into dir, which was empty, and
 // dir itself when Create made it.
-func undo(dir string, created bool) {
+func undo(dir string, created bool) error {
 	if created {
-		os.RemoveAll(dir)
-		return
+		return os.RemoveAll(dir)
 	}
-	entries, _ := os.ReadDir(dir)
+	entries, err := os.ReadDir(dir)
 	for _, e := range entries {
-		os.RemoveAll(filepath.Join(dir, e.Name()))
+		err = errors.Join(err, os.RemoveAll(filepath.Join(dir, e.Name())))
 	}
+	return err
 }
