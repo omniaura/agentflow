@@ -1,8 +1,9 @@
 // Package afthreadpg is a Postgres afthread.Store, built on sqlc: the
 // tables are in migrations, the queries in queries.sql, and the code sqlc
-// generated from them in db. Apply the migration with your migration tool,
-// or copy the package and make the schema your own; afthreadtest checks
-// that a changed copy still behaves.
+// generated from them in db. Apply the migrations with your migration tool
+// (Migrations embeds them) or with Migrate, or copy the package and make
+// the schema your own; afthreadtest checks that a changed copy still
+// behaves.
 //
 //	store := afthreadpg.New(pool)
 //	worker := &afthread.Worker{Store: store, Agent: agentFor}

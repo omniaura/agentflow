@@ -6,7 +6,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +24,17 @@ import (
 // it drops after the test, and applies the migrations there, in order. It skips
 // without a URL.
 func testPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	pool := emptyPool(t)
+	if err := afthreadpg.Migrate(context.Background(), pool); err != nil {
+		t.Fatal(err)
+	}
+	return pool
+}
+
+// emptyPool connects to AF_TEST_DATABASE_URL in an empty schema of its own,
+// dropped after the test.
+func emptyPool(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	url := os.Getenv("AF_TEST_DATABASE_URL")
 	if url == "" {
@@ -61,21 +71,48 @@ func testPool(t *testing.T) *pgxpool.Pool {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	migrations, err := filepath.Glob("migrations/*.sql")
+	return pool
+}
+
+// Migrate applies every migration once: again, it does nothing, and
+// servers starting together don't apply one twice.
+func TestMigrate(t *testing.T) {
+	pool := emptyPool(t)
+	ctx := context.Background()
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Go(func() {
+			if err := afthreadpg.Migrate(ctx, pool); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	files, _ := filepath.Glob("migrations/*.sql")
+	var applied int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM af_migrations").Scan(&applied); err != nil || applied != len(files) || applied == 0 {
+		t.Fatalf("%d of %d migrations recorded: %v", applied, len(files), err)
+	}
+	if err := afthreadpg.Migrate(ctx, pool); err != nil {
+		t.Fatalf("Migrate again: %v", err)
+	}
+	// It let go of its lock: another session takes it at once. A new
+	// connection, since a pooled one may be the session Migrate used, which
+	// would take the lock again whether it held it or not.
+	conn, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	slices.Sort(migrations)
-	for _, m := range migrations {
-		sql, err := os.ReadFile(m)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := pool.Exec(ctx, string(sql)); err != nil {
-			t.Fatalf("%s: %v", m, err)
-		}
+	defer conn.Close(ctx)
+	var locked bool
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext('afthreadpg.Migrate'))").Scan(&locked); err != nil || !locked {
+		t.Fatalf("the migration lock is still held: %v", err)
 	}
-	return pool
+	conn.Exec(ctx, "SELECT pg_advisory_unlock(hashtext('afthreadpg.Migrate'))")
+	// The tables are there.
+	if _, err := afthreadpg.New(pool).Create(ctx, afthread.Thread{Owner: "ann"}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestStore(t *testing.T) {
