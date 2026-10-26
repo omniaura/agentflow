@@ -10,6 +10,9 @@ SELECT id, body, pinned FROM notes
 WHERE owner_id = @owner_id AND strpos(lower(body), lower(@text)) > 0
 ORDER BY id;
 
+-- name: AddNoteTool :one
+INSERT INTO notes (owner_id, body) VALUES (@owner_id, @body) RETURNING id, body;
+
 -- name: PinNoteTool :execrows
 UPDATE notes SET pinned = true WHERE id = @note_id AND owner_id = @owner_id;
 

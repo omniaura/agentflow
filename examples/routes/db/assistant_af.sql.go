@@ -9,6 +9,27 @@ import (
 	"context"
 )
 
+const addNoteTool = `-- name: AddNoteTool :one
+INSERT INTO notes (owner_id, body) VALUES ($1, $2) RETURNING id, body
+`
+
+type AddNoteToolParams struct {
+	OwnerID string `json:"ownerId"`
+	Body    string `json:"body"`
+}
+
+type AddNoteToolRow struct {
+	ID   int64  `json:"id"`
+	Body string `json:"body"`
+}
+
+func (q *Queries) AddNoteTool(ctx context.Context, arg AddNoteToolParams) (AddNoteToolRow, error) {
+	row := q.db.QueryRow(ctx, addNoteTool, arg.OwnerID, arg.Body)
+	var i AddNoteToolRow
+	err := row.Scan(&i.ID, &i.Body)
+	return i, err
+}
+
 const findNotesTool = `-- name: FindNotesTool :many
 SELECT id, body, pinned FROM notes
 WHERE owner_id = $1 AND strpos(lower(body), lower($2)) > 0

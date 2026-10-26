@@ -163,6 +163,80 @@ type pgError struct{ code string }
 func (e *pgError) Error() string    { return "ERROR: duplicate key (SQLSTATE " + e.code + ")" }
 func (e *pgError) SQLState() string { return e.code }
 
+// pgxError has the fields of pgx's *pgconn.PgError that QueryFailed reads.
+type pgxError struct {
+	Code, ColumnName, TableName, ConstraintName string
+}
+
+func (e *pgxError) Error() string    { return "ERROR: rejected (SQLSTATE " + e.Code + ")" }
+func (e *pgxError) SQLState() string { return e.Code }
+
+// pqError has the fields of lib/pq's *pq.Error that QueryFailed reads.
+type pqError struct {
+	Code, Column, Table, Constraint string
+}
+
+func (e *pqError) Error() string    { return "pq: rejected" }
+func (e *pqError) SQLState() string { return e.Code }
+
+// A value the database rejects is the client's mistake: a 400 naming the
+// column when the driver does.
+func TestQueryFailedRejectedValues(t *testing.T) {
+	ctx := context.Background()
+	invalid := func(fields map[string]string) errs.Public {
+		return errs.Public{Status: 400, Code: "invalid_request", Message: "invalid request", Action: errs.ActionFixInput, Fields: fields}
+	}
+	for _, tt := range []struct {
+		name string
+		err  error
+		want errs.Public
+	}{
+		{"not null", &pgxError{Code: "23502", ColumnName: "title", TableName: "todos"}, invalid(map[string]string{"title": "is required"})},
+		{"check, default name", fmt.Errorf("insert: %w", &pgxError{Code: "23514", TableName: "todos", ConstraintName: "todos_title_check"}), invalid(map[string]string{"title": "is invalid"})},
+		{"check, numbered", &pgxError{Code: "23514", TableName: "notes", ConstraintName: "notes_body_check1"}, invalid(map[string]string{"body": "is invalid"})},
+		{"check, column with underscores", &pgxError{Code: "23514", TableName: "user_notes", ConstraintName: "user_notes_due_at_check"}, invalid(map[string]string{"due_at": "is invalid"})},
+		// A constraint of its own name, or on the table, names no field.
+		{"check, own name", &pgxError{Code: "23514", TableName: "todos", ConstraintName: "title_not_blank"}, invalid(nil)},
+		{"check, no table", &pgxError{Code: "23514", ConstraintName: "todos_title_check"}, invalid(nil)},
+		{"too long", &pgxError{Code: "22001"}, invalid(nil)},
+		{"out of range", &pgxError{Code: "22003", ColumnName: "quantity"}, invalid(map[string]string{"quantity": "is out of range"})},
+		{"bad date", &pgxError{Code: "22007"}, invalid(nil)},
+		{"bad uuid", &pgxError{Code: "22P02"}, invalid(nil)},
+		{"lib/pq", &pqError{Code: "23502", Column: "body", Table: "notes"}, invalid(map[string]string{"body": "is required"})},
+		{"lib/pq check", &pqError{Code: "23514", Table: "notes", Constraint: "notes_body_check"}, invalid(map[string]string{"body": "is invalid"})},
+		// Not the client's to fix.
+		{"foreign key", &pgxError{Code: "23503", ConstraintName: "todos_list_id_fkey"}, errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
+		{"division by zero", &pgxError{Code: "22012"}, errs.Public{Status: 500, Code: "internal_error", Message: "unknown error"}},
+	} {
+		got := afhttp.QueryFailed(ctx, tt.err).Public()
+		got.Ref = ""
+		if !reflect.DeepEqual(got, tt.want) {
+			t.Errorf("%s: got %+v, want %+v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestToolMessage(t *testing.T) {
+	ctx := context.Background()
+	for _, tt := range []struct {
+		err  error
+		want string
+	}{
+		{&pgxError{Code: "23502", ColumnName: "title"}, "invalid request; title is required"},
+		{&pgxError{Code: "23505"}, "already exists"},
+		{&pgxError{Code: "22001"}, "invalid request"},
+		{errors.New("connection refused"), "internal error"},
+	} {
+		if got := afhttp.ToolMessage(afhttp.QueryFailed(ctx, tt.err)); got != tt.want {
+			t.Errorf("%v: got %q, want %q", tt.err, got, tt.want)
+		}
+	}
+	multi := afhttp.ErrInvalidRequest.New(ctx).Field("b", "is bad").Field("a", "is worse")
+	if got := afhttp.ToolMessage(multi); got != "invalid request; a is worse; b is bad" {
+		t.Errorf("fields: %q", got)
+	}
+}
+
 func TestErrors(t *testing.T) {
 	ctx := context.Background()
 	cause := errors.New("db down")
