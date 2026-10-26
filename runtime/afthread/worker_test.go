@@ -212,7 +212,9 @@ func TestWorkerFailures(t *testing.T) {
 
 	// No agent for the thread: the message waits, and the thread is free.
 	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "waits"})
-	w.Agent = func(context.Context, afthread.Thread) (afthread.Agent, error) { return nil, errors.New("no such agent") }
+	w.Agent = func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return nil, errors.New("no such agent")
+	}
 	if err := w.Drain(ctx, "ann", th.ID); err == nil || !strings.Contains(err.Error(), "no such agent") {
 		t.Fatalf("Drain without an agent = %v", err)
 	}
@@ -273,5 +275,90 @@ func TestWorkerStopsBeforeItsLeaseEnds(t *testing.T) {
 	}
 	if took := time.Since(start); took >= lease {
 		t.Errorf("stopped after %v, past the %v lease", took, lease)
+	}
+}
+
+// renewPanics panics when a worker renews its lease.
+type renewPanics struct {
+	*afthread.Memory
+	locks atomic.Int32
+}
+
+func (s *renewPanics) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	if s.locks.Add(1) > 1 {
+		panic("lock bug")
+	}
+	return s.Memory.Lock(ctx, owner, id, worker, lease)
+}
+
+// A panic while renewing the lease stops the run as a lost lease, never a
+// crash.
+func TestWorkerRenewalPanic(t *testing.T) {
+	ctx := context.Background()
+	s := &renewPanics{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Lease: 30 * time.Millisecond, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, time.Second), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "slow"})
+	err := w.Drain(ctx, "ann", th.ID)
+	if !errors.Is(err, afthread.ErrLeaseLost) || !strings.Contains(err.Error(), "lock bug") {
+		t.Fatalf("Drain = %v", err)
+	}
+}
+
+// An agent that panics with an error fails its run with that error.
+func TestRunAgentPanicKeepsTheError(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "hi"})
+	bug := errors.New("nil map")
+	_, err := afthread.Run(ctx, s, "ann", th.ID, func(context.Context, []afagent.Message, afthread.BeforeTurn) (afagent.Result, error) {
+		panic(bug)
+	})
+	if !errors.Is(err, bug) {
+		t.Fatalf("Run = %v", err)
+	}
+	if in := s.Inbox("ann", th.ID); in[0].Status != afthread.Failed {
+		t.Errorf("message = %+v", in[0])
+	}
+}
+
+// panicsOnce panics in its first transcript read, as a store with a bug
+// in one row might, after the run claimed its messages; a message arrives
+// just before.
+type panicsOnce struct {
+	*afthread.Memory
+	reads atomic.Int32
+}
+
+func (s *panicsOnce) Transcript(ctx context.Context, owner, id string) ([]afagent.Message, error) {
+	if s.reads.Add(1) == 1 {
+		s.Memory.Send(ctx, owner, id, afthread.Incoming{Content: "second"})
+		panic("bad row")
+	}
+	return s.Memory.Transcript(ctx, owner, id)
+}
+
+// A panic in a run fails that run, and Drain goes on: the message queued
+// meanwhile, and the one the failed run claimed, are answered.
+func TestWorkerGoesOnAfterAPanicInARun(t *testing.T) {
+	ctx := context.Background()
+	s := &panicsOnce{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 0), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "first"})
+	if err := w.Drain(ctx, "ann", th.ID); err == nil || !strings.Contains(err.Error(), "panic: bad row") {
+		t.Fatalf("Drain = %v", err)
+	}
+	for _, in := range s.Inbox("ann", th.ID) {
+		if in.Status != afthread.Done {
+			t.Errorf("message %q is %s", in.Content, in.Status)
+		}
 	}
 }

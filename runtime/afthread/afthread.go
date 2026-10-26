@@ -101,12 +101,13 @@ type Store interface {
 }
 
 // Message is what the agent sees of an incoming message: its text, marked
-// with the sender when another agent sent it.
+// with the sender when another agent sent it, whose name is then in Source
+// as "agent:<name>".
 func (in Incoming) Message() afagent.Message {
 	if in.From == "" {
 		return afagent.Message{Role: afagent.User, Content: in.Content}
 	}
-	return afagent.Message{Role: afagent.User, Content: fmt.Sprintf("[message from the %s agent]\n%s", in.From, in.Content)}
+	return afagent.Message{Role: afagent.User, Content: fmt.Sprintf("[message from the %s agent]\n%s", in.From, in.Content), Source: "agent:" + in.From}
 }
 
 // Agent runs an agent on a conversation with before as its BeforeTurn.
@@ -208,12 +209,27 @@ func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.R
 		}
 		return msgs, save(ctx, msgs)
 	}
-	res, runErr := agent(ctx, msgs, before)
+	res, runErr := runAgent(ctx, agent, msgs, before)
 	var saveErr error
 	if len(res.Messages) > 0 {
 		saveErr = save(context.WithoutCancel(ctx), res.Messages)
 	}
 	return done(res, errors.Join(runErr, saveErr))
+}
+
+// runAgent runs agent, turning a panic into its error, so the run fails
+// like any other: its messages are finished and the run record ended.
+func runAgent(ctx context.Context, agent Agent, msgs []afagent.Message, before BeforeTurn) (res afagent.Result, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if e, ok := p.(error); ok {
+				err = fmt.Errorf("afthread: the agent panicked: %w", e)
+			} else {
+				err = fmt.Errorf("afthread: the agent panicked: %v", p)
+			}
+		}
+	}()
+	return agent(ctx, msgs, before)
 }
 
 func finish(ctx context.Context, s Store, owner, id string, claimed []Incoming, failure error) error {

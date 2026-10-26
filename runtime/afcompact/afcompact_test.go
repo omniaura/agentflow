@@ -89,7 +89,7 @@ func TestFold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(out) != 4 || out[0].Content != "find the bug" || !strings.HasPrefix(out[1].Content, afcompact.SummaryPrefix) || out[2].ToolCalls[0].ID != "4" || out[3].ToolCallID != "4" {
+	if len(out) != 4 || out[0].Content != "find the bug" || !strings.HasPrefix(out[1].Content, afcompact.SummaryPrefix) || out[1].Source != afcompact.SourceSummary || out[2].ToolCalls[0].ID != "4" || out[3].ToolCallID != "4" {
 		t.Fatalf("got %+v", out)
 	}
 	if len(folded) != 6 || folded[0].ToolCalls[0].ID != "1" {

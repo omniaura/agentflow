@@ -67,7 +67,14 @@ type Worker struct {
 // them. If the lease is lost mid-run, the run stops with ErrLeaseLost.
 // A run's error fails the messages it claimed, and Drain goes on to the
 // ones queued since; it returns the runs' errors joined.
-func (w *Worker) Drain(ctx context.Context, owner, id string) error {
+func (w *Worker) Drain(ctx context.Context, owner, id string) (err error) {
+	// Leasing is outside run's recover; a store's panic there is an error
+	// too.
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("afthread: thread %s: panic: %v", id, p)
+		}
+	}()
 	locker, ok := w.Store.(Locker)
 	if !ok {
 		return fmt.Errorf("afthread: Worker's Store, %T, doesn't implement Locker", w.Store)
@@ -108,8 +115,21 @@ type stopError struct{ err error }
 
 func (e *stopError) Error() string { return e.err.Error() }
 
-// run answers the queued messages once, under the lease, renewing it.
-func (w *Worker) run(ctx context.Context, locker Locker, owner, id, worker string, lease time.Duration) error {
+// run answers the queued messages once, under the lease, renewing it. A
+// panic is an error, after which the lease is released: before Run
+// starts, such as in Agent, it ends Drain, since nothing was claimed; in
+// Run, it fails the run, and Drain goes on to the messages queued since.
+// (Run itself recovers the agent's panics.)
+func (w *Worker) run(ctx context.Context, locker Locker, owner, id, worker string, lease time.Duration) (err error) {
+	running := false
+	defer func() {
+		if p := recover(); p != nil {
+			err = fmt.Errorf("afthread: thread %s: panic: %v", id, p)
+			if !running {
+				err = &stopError{err}
+			}
+		}
+	}()
 	if _, err := w.Store.Reclaim(ctx, owner, id, time.Now()); err != nil {
 		return &stopError{err}
 	}
@@ -124,9 +144,19 @@ func (w *Worker) run(ctx context.Context, locker Locker, owner, id, worker strin
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	var wg sync.WaitGroup
-	wg.Go(func() { renew(ctx, cancel, locker, owner, id, worker, lease) })
+	wg.Go(func() {
+		// A panic here is outside run's recover: renewing can't be
+		// trusted after it, so the lease counts as lost.
+		defer func() {
+			if p := recover(); p != nil {
+				cancel(fmt.Errorf("%w: renewing it panicked: %v", ErrLeaseLost, p))
+			}
+		}()
+		renew(ctx, cancel, locker, owner, id, worker, lease)
+	})
 	defer wg.Wait()
 	defer cancel(nil) // Stops renewing, before waiting for it.
+	running = true
 	res, err := Run(ctx, w.Store, owner, id, agent)
 	if c := context.Cause(ctx); errors.Is(c, ErrLeaseLost) {
 		err = errors.Join(err, c)

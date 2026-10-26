@@ -216,7 +216,10 @@ Answers customer questions about their orders.
   thread, agent.ForThread(system))`: it delivers mid-run messages and saves before every turn.
   To run one agent per thread across servers, implement `afthread.Locker` too and call
   `(&afthread.Worker{Store: store, Agent: agentFor}).Drain(ctx, owner, thread)` after each send
-  (or from `Messenger.Notify`) instead of hand-writing locks, queue polling or reclaim. If the store
+  (or from `Messenger.Notify`) instead of hand-writing locks, queue polling or reclaim. For the
+  HTTP side of a chat, register `afthread.Server{Store, Worker, Owner}` (POST
+  `{prefix}/{thread}/messages` queues and answers in the background or as SSE; GET reads the
+  conversation) instead of writing enqueue, stream and history handlers. If the store
   implements `afthread.Runs`, Run records the run and the agent's events itself. Agents message
   each other through `afthread.Messenger` (Send queues on the
   recipient's inbox; replies come back the same way), with `CanMessage` for permissions.
