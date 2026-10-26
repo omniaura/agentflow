@@ -718,17 +718,15 @@ A call that already streamed text is never retried or sent to another model, so 
 
 `afthread.Store` is the interface to the database. agentflow assumes no schema: an adapter maps the store onto yours, such as a threads table with a transcript and a queue table of incoming messages. Send is idempotent by key, claims are race-safe, and every method is scoped by the thread's owner. `afthread.Memory` is a store for tests, and `afthreadtest.Run(t, newStore)` checks that an adapter behaves the same.
 
-`afthread.Run` is one step of a worker:
+`afthread.Run` is one step of a worker. Every generated agent has `ForThread(system)`, which is an `afthread.Agent`:
 
 ```go
 store.Send(ctx, userID, threadID, afthread.Incoming{Key: clientMessageID, Content: text})
 
-res, err := afthread.Run(ctx, store, userID, threadID, func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
-	agent := *support // a copy, so concurrent runs don't share BeforeTurn
-	agent.BeforeTurn = before
-	return agent.Run(ctx, system, msgs...)
-})
+res, err := afthread.Run(ctx, store, userID, threadID, support.ForThread(&Support{Shop: "Acme"}))
 ```
+
+`ForThread` runs a copy of the agent, so concurrent runs don't share state. The agent's own `BeforeTurn`, such as a compactor, runs before the thread's, so what's saved is what the model sees.
 
 It claims the queued messages and runs the agent on the transcript plus them. It adds messages that arrive mid-run before the next turn, marking ones from another agent with its name. Before every turn it saves the conversation, appending what's new or replacing the transcript after compaction, so a run that stops halfway leaves the thread as of its last turn. At the end it saves the answer and marks every claimed message done, or failed with the run's error. To compact as well, compact in `BeforeTurn` and call `before` last, so what's saved is what the model sees. Run one worker per thread at a time.
 
@@ -736,13 +734,14 @@ It claims the queued messages and runs the agent on the transcript plus them. It
 
 ```go
 w := &afthread.Worker{Store: store, Agent: func(ctx context.Context, t afthread.Thread) (afthread.Agent, error) {
-	return agents[t.Agent], nil // the afthread.Agent for the thread's agent
+	return support.ForThread(&Support{Shop: shopOf(t)}), nil // the thread's agent
 }}
 store.Send(ctx, userID, threadID, afthread.Incoming{Key: clientMessageID, Content: text})
 err := w.Drain(ctx, userID, threadID)
 ```
 
 `Drain` leases the thread and runs `afthread.Run` until no messages are queued. It renews the lease while the agent runs, and stops the run with `afthread.ErrLeaseLost` if another worker takes the thread. When another worker holds the thread, `Drain` returns at once. That worker answers the new messages, because `Unlock` reports what is queued after the lease ends. Holding the lease, `Drain` first re-queues messages that a crashed worker claimed and never finished, since no live worker can be answering them. A lease outlives a crashed worker by `Lease`, 1 minute by default. Without a worker, call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run.
+
 **Postgres.** For a new backend, [`adapters/afthreadpg`](adapters/afthreadpg) is a ready `afthread.Store`, `afthread.Runs`, `afthread.Directory` and `afthread.Locker`, built the agentflow way: the tables are in `migrations/`, the queries in `queries.sql`, and the code sqlc generated in `db/`. Apply the migrations, in order, with your migration tool and call `afthreadpg.New(pool)`. An agent's messages go to the owner's oldest thread for that agent.
 - Claims use `FOR UPDATE SKIP LOCKED`, so workers on many servers can share a queue.
 - `Send` is idempotent through a unique index on the thread and key.
@@ -752,10 +751,9 @@ err := w.Drain(ctx, userID, threadID)
 
 To make the schema your own, copy the package, change the migration and queries, run `sqlc generate`, and keep `afthreadtest.Run` passing. An existing backend writes its own adapter over its tables instead.
 
-**Runs and their events.** A store that also implements `afthread.Runs` records each run in the database, like a jobs table with an events table. `Run` starts a run record, and ends it with its outcome, turns, tool calls and token usage. Inside the agent func, `afthread.Recorder(ctx)` is an `OnEvent` that records model responses (with usage), tool calls, tool results and rejected answers. Streamed text is left out, since the answer lands in the transcript. `afthread.Record(ctx, kind, data)` records anything else, such as a compactor's stages:
+**Runs and their events.** A store that also implements `afthread.Runs` records each run in the database, like a jobs table with an events table. `Run` starts a run record, and ends it with its outcome, turns, tool calls and token usage. It records the agent's events too, without wiring: model responses (with usage), tool calls, tool results and rejected answers. It does this with `afagent.WithEvents`, which makes every agent loop run with the ctx report to it, generated or not. Streamed text is left out, since the answer lands in the transcript. Subagents' loops are runs of their own and aren't recorded. `afthread.Record(ctx, kind, data)` records anything else, such as a compactor's stages:
 
 ```go
-agent.OnEvent = afthread.Recorder(ctx)
 compactor.OnCompact = func(stage string, before, after int) {
 	afthread.Record(ctx, "compacted", map[string]any{"stage": stage, "before": before, "after": after})
 }

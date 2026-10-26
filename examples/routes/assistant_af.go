@@ -337,6 +337,28 @@ func (a *NotesAgent) AsTool(system *NotesAssistant) func(ctx context.Context, ta
 	}
 }
 
+// ForThread runs the agent as a thread's agent: it is an afthread.Agent,
+// for afthread.Run and afthread.Worker. The agent's BeforeTurn, such as
+// a compactor, runs before the thread's, so what is saved is what the
+// model sees.
+func (a *NotesAgent) ForThread(system *NotesAssistant) func(ctx context.Context, messages []afagent.Message, before func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)) (afagent.Result, error) {
+	return func(ctx context.Context, messages []afagent.Message, before func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)) (afagent.Result, error) {
+		agent := *a
+		own := a.BeforeTurn
+		agent.BeforeTurn = func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error) {
+			if own != nil {
+				var err error
+				if messages, err = own(ctx, turn, messages); err != nil {
+					return nil, err
+				}
+			}
+			return before(ctx, turn, messages)
+		}
+		res, err := agent.Run(ctx, system, messages...)
+		return res, err
+	}
+}
+
 // NotesAgentRequest is the body of POST /assistant.
 type NotesAgentRequest struct {
 	// Message is the user's new message.

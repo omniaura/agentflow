@@ -208,6 +208,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			buf.WriteString("}\nreturn \"\", fmt.Errorf(\"there is no tool named %q\", call.Name)\n}\n\n")
 		}
 		genAgentAsTool(buf, a, name, system, returns, imports)
+		genAgentForThread(buf, name, system, returns)
 		if a.ServePath != "" {
 			genAgentServer(buf, a, name, system, returns, imports)
 		}
@@ -243,6 +244,24 @@ func genAgentAsTool(buf *bytes.Buffer, a *decl.Agent, name, system string, retur
 		buf.WriteString("b, err := json.Marshal(res.Output)\n")
 	}
 	fmt.Fprintf(buf, "return %s\n}\n}\n\n", answer)
+}
+
+// genAgentForThread writes ForThread, which runs the agent as a thread's
+// agent for afthread. Its func type is spelled out rather than named
+// afthread.Agent, so generated code needn't import afthread.
+func genAgentForThread(buf *bytes.Buffer, name, system string, returns *decl.Tool) {
+	param, arg := "", ""
+	if system != "" {
+		param, arg = "system *"+system, "system, "
+	}
+	result := "res"
+	if returns != nil {
+		result = "res.Result"
+	}
+	const fn = "func(ctx context.Context, messages []afagent.Message, before func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)) (afagent.Result, error)"
+	buf.WriteString("// ForThread runs the agent as a thread's agent: it is an afthread.Agent,\n// for afthread.Run and afthread.Worker. The agent's BeforeTurn, such as\n// a compactor, runs before the thread's, so what is saved is what the\n// model sees.\n")
+	fmt.Fprintf(buf, "func (a *%sAgent) ForThread(%s) %s {\n", name, param, fn)
+	fmt.Fprintf(buf, "return %s {\nagent := *a\nown := a.BeforeTurn\nagent.BeforeTurn = func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error) {\nif own != nil {\nvar err error\nif messages, err = own(ctx, turn, messages); err != nil {\nreturn nil, err\n}\n}\nreturn before(ctx, turn, messages)\n}\nres, err := agent.Run(ctx, %smessages...)\nreturn %s, err\n}\n}\n\n", fn, arg, result)
 }
 
 func firstLine(s string) string {

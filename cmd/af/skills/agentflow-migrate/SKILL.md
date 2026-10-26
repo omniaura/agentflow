@@ -143,8 +143,8 @@ queue table's client message ID, status (queued, started, done, failed) and sequ
 what a crashed one left started). Scope every query by the owner column. Run
 `afthreadtest.Run` against a test database until it passes, then replace the worker's
 claim-run-save code with `afthread.Run`. Keep the queue's existing consumers working: the
-statuses map one to one. A jobs table with an events table backs `afthread.Runs`; set the
-agent's `OnEvent` to `afthread.Recorder(ctx)` in `Run`'s agent func. A table of named agents
+statuses map one to one. A jobs table with an events table backs `afthread.Runs`, and
+`afthread.Run` records into it without wiring. A table of named agents
 with a main thread backs `afthread.Directory`, and grants of one agent's access to another's
 thread back `Messenger.CanMessage`.
 

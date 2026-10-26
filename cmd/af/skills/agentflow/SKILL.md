@@ -213,12 +213,12 @@ Answers customer questions about their orders.
   store `adapters/afthreadpg` (migration + sqlc queries). Otherwise implement `afthread.Store` over
   the existing tables (don't create new ones if threads and a message queue exist), check it
   with `afthreadtest.Run`, and answer queued messages with `afthread.Run(ctx, store, owner,
-  thread, agentFunc)`: it delivers mid-run messages and saves before every turn. To run one
-  agent per thread across servers, implement `afthread.Locker` too and call
+  thread, agent.ForThread(system))`: it delivers mid-run messages and saves before every turn.
+  To run one agent per thread across servers, implement `afthread.Locker` too and call
   `(&afthread.Worker{Store: store, Agent: agentFor}).Drain(ctx, owner, thread)` after each send
   (or from `Messenger.Notify`) instead of hand-writing locks, queue polling or reclaim. If the store
-  implements `afthread.Runs`, set `OnEvent: afthread.Recorder(ctx)` in the agent func to record
-  the run's events. Agents message each other through `afthread.Messenger` (Send queues on the
+  implements `afthread.Runs`, Run records the run and the agent's events itself. Agents message
+  each other through `afthread.Messenger` (Send queues on the
   recipient's inbox; replies come back the same way), with `CanMessage` for permissions.
 - Long conversations: `runtime/afcompact`. Set `BeforeTurn: (&afcompact.Compactor{Budget: n,
   Summarize: afcompact.Summarize(model), SummarizeChunk: afcompact.SummarizeChunk(model)}).BeforeTurn`.
