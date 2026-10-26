@@ -96,6 +96,17 @@ func TestMigrate(t *testing.T) {
 	if err := afthreadpg.Migrate(ctx, pool); err != nil {
 		t.Fatalf("Migrate again: %v", err)
 	}
+	// It let go of its lock: another session takes it at once.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	var locked bool
+	if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtext('afthreadpg.Migrate'))").Scan(&locked); err != nil || !locked {
+		t.Fatalf("the migration lock is still held: %v", err)
+	}
+	conn.Exec(ctx, "SELECT pg_advisory_unlock(hashtext('afthreadpg.Migrate'))")
 	// The tables are there.
 	if _, err := afthreadpg.New(pool).Create(ctx, afthread.Thread{Owner: "ann"}); err != nil {
 		t.Fatal(err)

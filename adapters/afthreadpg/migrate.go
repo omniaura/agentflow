@@ -35,9 +35,16 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock(hashtext($1))", migrateLock); err != nil {
 		return fmt.Errorf("afthreadpg: lock migrations: %w", err)
 	}
-	// Unlock on the same connection; it goes back to the pool unlocked
-	// even when ctx is done.
-	defer conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock(hashtext($1))", migrateLock)
+	// Unlock on the same connection, even when ctx is done. A connection
+	// that may still hold the lock never goes back to the pool: the next
+	// Migrate on it would take the lock twice and release it once.
+	defer func() {
+		var unlocked bool
+		err := conn.QueryRow(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock(hashtext($1))", migrateLock).Scan(&unlocked)
+		if err != nil || !unlocked {
+			conn.Conn().Close(context.WithoutCancel(ctx))
+		}
+	}()
 	if _, err := conn.Exec(ctx, `CREATE TABLE IF NOT EXISTS af_migrations (
     name       text PRIMARY KEY,
     applied_at timestamptz NOT NULL DEFAULT now()
