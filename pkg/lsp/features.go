@@ -753,7 +753,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 // func, as its signature in the package says.
 func mapCall(path string, s *decl.Route, q *sqlcgo.Query) string {
 	f := gogen.MapFunc{Params: []string{"row"}}
-	funcs, err := gogen.ReadRouteFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{s}})
+	funcs, err := routeFuncs(path, &decl.Route{Map: s.Map, MapOffset: s.MapOffset})
 	switch {
 	case err != nil:
 		return s.Map + " (" + err.Error() + ")"
@@ -774,11 +774,18 @@ func mapCall(path string, s *decl.Route, q *sqlcgo.Query) string {
 	return call
 }
 
+// routeFuncs reads the Go funcs route r of the .af file at path calls. A
+// hover passes a route holding only the directive it describes, so another
+// directive's mistake doesn't show in its place.
+func routeFuncs(path string, r *decl.Route) (gogen.RouteFuncs, error) {
+	return gogen.ReadRouteFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{r}})
+}
+
 // prepareCall describes how route s, of the .af file at path, calls its
 // .prepare func.
 func prepareCall(path string, s *decl.Route) string {
 	f := gogen.PrepareFunc{Params: []string{"args"}}
-	funcs, err := gogen.ReadRouteFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{s}})
+	funcs, err := routeFuncs(path, &decl.Route{Prepare: s.Prepare, PrepareOffset: s.PrepareOffset})
 	switch {
 	case err != nil:
 		return s.Prepare + " (" + err.Error() + ")"

@@ -520,7 +520,9 @@ func TestGenRoutesPrepare(t *testing.T) {
 			t.Errorf("missing %q in\n%s", want, code)
 		}
 	}
-	if handler := code[strings.Index(code, "func (rt *NotesRoutes) GetTodoTitle("):]; !strings.Contains(handler, "caller, err := rt.Auth(r)") {
+	start := strings.Index(code, "func (rt *NotesRoutes) GetTodoTitle(")
+	end := strings.Index(code[start:], "func (rt *NotesRoutes) UpdateNote(")
+	if handler := code[start : start+end]; !strings.Contains(handler, "caller, err := rt.Auth(r)") {
 		t.Errorf("the caller isn't read for .prepare:\n%s", handler)
 	}
 	for _, tt := range []struct{ name, src, msg string }{

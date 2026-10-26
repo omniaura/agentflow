@@ -228,6 +228,16 @@ func TestDefinitionRouteQuery(t *testing.T) {
 	if got := mapCall(filepath.Join(dir, "m.af"), &decl.Route{Map: "view"}, &sqlcgo.Query{Kind: sqlcgo.One}); !strings.Contains(got, "it returns only an error") {
 		t.Errorf("bad signature: %s", got)
 	}
+	// Each hover reads only its own directive's func.
+	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(n int64) string { return \"\" }\n\nfunc prep(n int64) {}\n"), 0o644)
+	both := &decl.Route{Map: "view", Prepare: "prep"}
+	if got := mapCall(filepath.Join(dir, "m.af"), both, &sqlcgo.Query{Kind: sqlcgo.One}); got != "view(row)" {
+		t.Errorf("map hover beside a bad .prepare: %s", got)
+	}
+	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(n int64) error { return nil }\n\nfunc prep(n *int64) {}\n"), 0o644)
+	if got := prepareCall(filepath.Join(dir, "m.af"), both); got != "prep(&arg)" {
+		t.Errorf("prepare hover beside a bad .map: %s", got)
+	}
 	// A slice parameter that is the query's row type is each row.
 	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(b []byte) string { return \"\" }\n"), 0o644)
 	if got := mapCall(filepath.Join(dir, "m.af"), &decl.Route{Map: "view"}, &sqlcgo.Query{Kind: sqlcgo.Many, Result: sqlcgo.Type{Expr: "[]byte"}}); got != "[view(row) for each row]" {
