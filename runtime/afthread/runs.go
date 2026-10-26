@@ -85,10 +85,12 @@ func Record(ctx context.Context, kind string, data any) error {
 	return err
 }
 
-// Recorder returns an afagent OnEvent func that records the run's tool
-// calls, tool results and rejected answers. Streamed text is left out: the
-// answer is saved to the transcript. Set it as the agent's OnEvent in
-// Run's agent func, with the ctx it gets.
+// Recorder returns an afagent OnEvent func that records the run's model
+// responses (with usage), tool calls, tool results and rejected answers.
+// Streamed text is left out: the answer is saved to the transcript. Run
+// sets it up itself, with afagent.WithEvents, so the agent's loop records
+// without wiring; subagents' loops are runs of their own and aren't
+// recorded.
 func Recorder(ctx context.Context) func(afagent.Event) {
 	return func(e afagent.Event) {
 		var data any

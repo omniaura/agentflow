@@ -139,7 +139,8 @@ type BeforeTurn = func(ctx context.Context, turn int, msgs []afagent.Message) ([
 // nil when nothing was queued.
 //
 // When the Store implements Runs, Run records the run and how it ended,
-// and Recorder and Record add events to it from the ctx agent gets.
+// and the events of the agent loops run with the ctx agent gets (see
+// Recorder); Record adds others.
 //
 // Run one worker per thread at a time: claims are safe to race, but the
 // transcript is written by whoever runs.
@@ -158,6 +159,7 @@ func Run(ctx context.Context, s Store, owner, id string, agent Agent) (afagent.R
 		}
 		run = &recorder{runs: runs, owner: owner, run: rec.ID}
 		ctx = context.WithValue(ctx, recorderKey{}, run)
+		ctx = afagent.WithEvents(ctx, Recorder(ctx))
 	}
 	// done finishes the claimed messages, then records how the run ended,
 	// finishing's failure included, on every path out.

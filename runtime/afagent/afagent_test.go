@@ -485,6 +485,60 @@ func TestLoopEmitsNothingAfterRun(t *testing.T) {
 	}
 }
 
+// WithEvents funcs see a loop's events, but not streamed text, which
+// doesn't make the model stream, nor a nested subagent's loop.
+func TestWithEvents(t *testing.T) {
+	var seen []string
+	ctx := WithEvents(context.Background(), func(e Event) { seen = append(seen, string(e.Kind)) })
+	var sub Loop
+	sub.Model = ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		return Response{Message: Message{Content: "sub answer"}}, nil
+	})
+	turn := 0
+	model := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		if req.OnText != nil {
+			t.Error("the model streams for a WithEvents func")
+		}
+		if turn++; turn == 1 {
+			return Response{Message: Message{ToolCalls: []ToolCall{{ID: "1", Name: "sub", Arguments: "{}"}}}}, nil
+		}
+		return Response{Message: Message{Content: "done"}}, nil
+	})
+	l := Loop{Model: model, Tools: []ToolSpec{{Name: "sub"}}, Dispatch: func(ctx context.Context, c ToolCall) (string, error) {
+		ctx, err := Nest(ctx)
+		if err != nil {
+			return "", err
+		}
+		res, err := sub.Run(ctx, []Message{{Role: User, Content: "task"}})
+		return res.Final, err
+	}}
+	if _, err := l.Run(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(seen, ","); got != "model_responded,tool_called,tool_returned,model_responded" {
+		t.Errorf("events = %s", got)
+	}
+
+	// OnEvent still gets everything, streamed text included; the WithEvents
+	// func still gets no text.
+	seen = nil
+	var own []string
+	streamer := ModelFunc(func(ctx context.Context, req Request) (Response, error) {
+		req.OnText("hi")
+		return Response{Message: Message{Content: "hi"}}, nil
+	})
+	l = Loop{Model: streamer, OnEvent: func(e Event) { own = append(own, string(e.Kind)) }}
+	if _, err := l.Run(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(own, ",") != "text_delta,model_responded" || strings.Join(seen, ",") != "model_responded" {
+		t.Errorf("OnEvent saw %v, the WithEvents func %v", own, seen)
+	}
+	if l.OnEvent == nil {
+		t.Error("Run changed the loop")
+	}
+}
+
 // A Model that calls OnText from several goroutines doesn't race the held
 // text, and text after Complete returns is dropped. Run with -race.
 func TestLoopHeldTextIsSafe(t *testing.T) {

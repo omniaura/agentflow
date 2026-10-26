@@ -103,7 +103,7 @@ func TestRun(t *testing.T) {
 		return afagent.Response{Message: afagent.Message{Content: "both found"}, Usage: afagent.Usage{InputTokens: 60, OutputTokens: 4}}, nil
 	})
 	agent := func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
-		l := afagent.Loop{Model: model, Tools: []afagent.ToolSpec{{Name: "look"}}, BeforeTurn: before, OnEvent: afthread.Recorder(ctx), Concurrency: 2,
+		l := afagent.Loop{Model: model, Tools: []afagent.ToolSpec{{Name: "look"}}, BeforeTurn: before, Concurrency: 2,
 			Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) { return "row " + call.ID, nil }}
 		return l.Run(ctx, msgs)
 	}

@@ -271,6 +271,39 @@ func Nest(ctx context.Context) (context.Context, error) {
 	return context.WithValue(ctx, depthKey{}, d+1), nil
 }
 
+type eventsKey struct{}
+
+// observer is a WithEvents func, for the loops at its depth.
+type observer struct {
+	depth int
+	fn    func(Event)
+}
+
+// WithEvents returns ctx with fn also seeing the events of the loops run
+// with it: model responses, tool calls and results, and rejected answers.
+// Streamed text and reasoning are left out, so adapters needn't stream for
+// it. Subagents nested in those loops (see Nest) are runs of their own,
+// which fn doesn't see. A store recording runs uses it, so the agents it
+// runs need no wiring. Like OnEvent, fn must be safe for concurrent use.
+func WithEvents(ctx context.Context, fn func(Event)) context.Context {
+	d, _ := ctx.Value(depthKey{}).(int)
+	obs, _ := ctx.Value(eventsKey{}).([]observer)
+	return context.WithValue(ctx, eventsKey{}, append(obs[:len(obs):len(obs)], observer{depth: d, fn: fn}))
+}
+
+// observers returns the WithEvents funcs for a loop run with ctx.
+func observers(ctx context.Context) []func(Event) {
+	d, _ := ctx.Value(depthKey{}).(int)
+	obs, _ := ctx.Value(eventsKey{}).([]observer)
+	var fns []func(Event)
+	for _, o := range obs {
+		if o.depth == d {
+			fns = append(fns, o.fn)
+		}
+	}
+	return fns
+}
+
 // ErrMaxToolCalls means the model kept calling tools after MaxToolCalls
 // were run, when the tools were withheld.
 var ErrMaxToolCalls = errors.New("afagent: the agent called tools beyond its tool-call limit")
@@ -322,6 +355,23 @@ type Loop struct {
 // context, the Result holds the conversation so far.
 func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 	res := Result{Messages: append([]Message(nil), messages...)}
+	// Streamed text goes to OnEvent only: WithEvents funcs don't want it.
+	streaming := l.OnEvent != nil
+	if fns := observers(ctx); len(fns) > 0 {
+		copied, own := *l, l.OnEvent
+		copied.OnEvent = func(e Event) {
+			if own != nil {
+				own(e)
+			}
+			if e.Kind == TextDelta || e.Kind == ReasoningDelta {
+				return
+			}
+			for _, fn := range fns {
+				fn(e)
+			}
+		}
+		l = &copied
+	}
 	maxTurns := l.MaxTurns
 	if maxTurns <= 0 {
 		maxTurns = DefaultMaxTurns
@@ -349,7 +399,7 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			held   []Event
 			closed bool
 		)
-		if l.OnEvent != nil {
+		if streaming {
 			turn := res.Turns
 			// Emitting under mu keeps an event from reaching OnEvent after
 			// the turn closed, and so after Run returned.

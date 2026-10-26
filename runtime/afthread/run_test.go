@@ -181,7 +181,7 @@ func TestRunRecordsRun(t *testing.T) {
 	agent := func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
 		// Other code records with the run's ctx too, as a compactor would.
 		afthread.Record(ctx, "compacted", map[string]int{"before": 900, "after": 400})
-		l := afagent.Loop{Model: model, Tools: []afagent.ToolSpec{{Name: "look"}}, BeforeTurn: before, OnEvent: afthread.Recorder(ctx),
+		l := afagent.Loop{Model: model, Tools: []afagent.ToolSpec{{Name: "look"}}, BeforeTurn: before,
 			Dispatch: func(context.Context, afagent.ToolCall) (string, error) { return "row 7", nil }}
 		return l.Run(ctx, msgs)
 	}
