@@ -46,7 +46,8 @@ type Worker struct {
 	// Store keeps the threads. It must implement Locker.
 	Store Store
 	// Agent returns the agent that answers on the thread, such as the
-	// one its Agent field names.
+	// one its Agent field names. It is required: Drain fails without it,
+	// before taking the thread.
 	Agent func(ctx context.Context, t Thread) (Agent, error)
 	// Lease is how long a worker that stopped mid-run keeps others from
 	// the thread. A running worker renews it every third of it, and stops
