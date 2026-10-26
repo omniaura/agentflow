@@ -24,7 +24,8 @@ import (
 // request's context.Context or the *http.Request, and return the response,
 // optionally with an error. Without the check, the mistake surfaces as a
 // compile error in the generated file. Whether the row's type is right is
-// left to the compiler.
+// left to the compiler. It returns nil, and no error, when a Go file of the
+// package doesn't parse: the compiler reports that better.
 func ReadMapFuncs(name, out string, f afast.File) (map[string]MapFunc, error) {
 	var want []int
 	for i, r := range f.Routes {
@@ -133,6 +134,9 @@ func shapeOf(fset *gotoken.FileSet, ft *ast.FuncType) *mapShape {
 			for range max(1, len(field.Names)) {
 				if kind == "row" || kind == "rows" {
 					rows++
+					var b bytes.Buffer
+					printer.Fprint(&b, fset, field.Type)
+					fn.Row = b.String()
 				} else if slices.Contains(fn.Params, kind) {
 					return &mapShape{err: "it takes the " + kindNames[kind] + " twice"}
 				}
@@ -149,6 +153,8 @@ func shapeOf(fset *gotoken.FileSet, ft *ast.FuncType) *mapShape {
 	switch n := count(ft.Results); {
 	case n == 2 && isIdent(ft.Results.List[len(ft.Results.List)-1].Type, "error"):
 		fn.Err = true
+	case n == 1 && isIdent(ft.Results.List[0].Type, "error"):
+		return &mapShape{err: "it returns only an error, not the response"}
 	case n != 1:
 		return &mapShape{err: fmt.Sprintf("it returns %d values", n)}
 	}

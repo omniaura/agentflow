@@ -414,6 +414,11 @@ func TestGenRoutesMapShapes(t *testing.T) {
 	if !strings.Contains(handler, "caller, err := rt.Auth(r)") || !strings.Contains(handler, "titleFor(row, caller)") {
 		t.Errorf("the caller isn't read for the .map:\n%s", handler)
 	}
+	// A slice that is the query's row type is one row, not all of them.
+	code, err = gen(".route GET /c/{id} GetTodo\n.auth owner_id\n.map raw\n", map[string]MapFunc{"raw": {Params: []string{"rows"}, Row: "db.Todo"}})
+	if err != nil || !strings.Contains(code, "afhttp.WriteJSON(w, r, http.StatusOK, raw(row))") {
+		t.Errorf("a slice row: %v\n%s", err, code)
+	}
 	for _, tt := range []struct{ name, src, msg string }{
 		{"rows of a :one", ".route GET /c/{id} GetTodo\n.auth owner_id\n.map board\n", ".map board takes the whole result, a slice; query GetTodo is :one"},
 		{"caller on a public route", ".route GET /d/{id} GetTodoTitle\n.public\n.map todoView\n", ".map todoView takes the Caller, which a .public route has none of"},

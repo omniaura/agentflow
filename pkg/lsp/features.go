@@ -752,7 +752,14 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 // func, as its signature in the package says.
 func mapCall(path string, s *decl.Route, qk sqlcgo.Kind) string {
 	f := gogen.MapFunc{Params: []string{"row"}}
-	funcs, _ := gogen.ReadMapFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{s}})
+	funcs, err := gogen.ReadMapFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{s}})
+	switch {
+	case err != nil:
+		return s.Map + " (" + err.Error() + ")"
+	case funcs == nil:
+		// A Go file of the package doesn't parse.
+		return s.Map + " (its signature can't be read now)"
+	}
 	if fn, ok := funcs[s.Map]; ok {
 		f = fn
 	}

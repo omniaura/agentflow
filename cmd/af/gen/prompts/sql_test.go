@@ -226,6 +226,7 @@ func TestRenderChecksMapFuncs(t *testing.T) {
 		{"two params", "func xCard(a, b int64) string { return \"\" }", "it takes more than one row", ""},
 		{"fallible", "func xCard(n int64) (string, error) { return \"\", nil }", "", "resp, err := xCard(row)\n\tif err != nil {\n\t\trt.fail(w, r, err)"},
 		{"two results", "func xCard(n int64) (string, int) { return \"\", 0 }", "it returns 2 values", ""},
+		{"only an error", "func xCard(n int64) error { return nil }", "it returns only an error", ""},
 		{"caller on a public route", "type Caller struct{}\n\nfunc xCard(c Caller, n int64) string { return \"\" }", "which a .public route has none of", ""},
 		{"context and request", "func xCard(ctx context.Context, n int64, r *http.Request) string { return \"\" }", "", "afhttp.WriteJSON(w, r, http.StatusOK, xCard(r.Context(), row, r))"},
 		{"no row", "type Caller struct{}\n\nfunc xCard(c Caller) string { return \"\" }", "it takes no row", ""},

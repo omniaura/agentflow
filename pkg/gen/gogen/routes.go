@@ -45,6 +45,9 @@ type MapFunc struct {
 	Params []string
 	// Err reports a second result, an error, which fails the request.
 	Err bool
+	// Row is the type of the row or rows parameter, as the package writes
+	// it. A slice is all the rows, unless it is the query's row type.
+	Row string
 	// Result is the response's type, the first result, as the package
 	// writes it.
 	Result string
@@ -126,6 +129,11 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 			b.mapFn = MapFunc{Params: []string{"row"}}
 			if f, ok := opts.MapFuncs[b.r.Map]; ok {
 				b.mapFn = f
+				if i := slices.Index(f.Params, "rows"); i >= 0 && f.Row == b.q.Result.Expr {
+					// A slice that is the query's row, such as []byte.
+					b.mapFn.Params = slices.Clone(f.Params)
+					b.mapFn.Params[i] = "row"
+				}
 			}
 			if slices.Contains(b.mapFn.Params, "rows") && b.q.Kind != sqlcgo.Many {
 				return &RouteError{Offset: b.r.MapOffset, Err: fmt.Errorf(".map %s takes the whole result, a slice; query %s is %s, so it gets one row", b.r.Map, b.q.Name, b.q.Kind)}
