@@ -482,3 +482,59 @@ func TestMapFuncFor(t *testing.T) {
 		}
 	}
 }
+
+// A .prepare func gets the bound, decoded arguments before the query, as
+// its signature says.
+func TestGenRoutesPrepare(t *testing.T) {
+	repo, err := sqlcgo.Find("../../../examples/routes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := func(src string, funcs map[string]PrepareFunc) (string, error) {
+		f, err := ast.NewFile("notes.af", []byte(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		err = GenFileOptions(&buf, f, "api", Options{Queries: repo.Lookup, PrepareFuncs: funcs})
+		return buf.String(), err
+	}
+	code, err := gen(".route POST /a CreateNote\n.auth owner_id\n.prepare tidyNote\n\n.route GET /b/{id} GetTodoTitle\n.prepare checkID\n\n.route PUT /c/{id} UpdateNote\n.auth owner_id\n.prepare trim\n", map[string]PrepareFunc{
+		"checkID": {Params: []string{"ctx", "args", "caller"}, Err: true},
+		"trim":    {Params: []string{"args"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// After the body is decoded, before the query; a func af doesn't
+		// know takes the arguments and can fail.
+		"arg.Body = body.Body\n\tif err := tidyNote(&arg); err != nil {\n\t\trt.fail(w, r, err)\n\t\treturn\n\t}\n\trow, err := rt.Queries.CreateNote(r.Context(), arg)",
+		// A route that reads the caller only for its .prepare reads it.
+		"caller, err := rt.Auth(r)",
+		"if err := checkID(r.Context(), &arg, caller); err != nil {",
+		// One that can't fail.
+		"trim(&arg)\n\tn, err := rt.Queries.UpdateNote(r.Context(), arg)",
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q in\n%s", want, code)
+		}
+	}
+	start := strings.Index(code, "func (rt *NotesRoutes) GetTodoTitle(")
+	end := strings.Index(code[start:], "func (rt *NotesRoutes) UpdateNote(")
+	if handler := code[start : start+end]; !strings.Contains(handler, "caller, err := rt.Auth(r)") {
+		t.Errorf("the caller isn't read for .prepare:\n%s", handler)
+	}
+	for _, tt := range []struct{ name, src, msg string }{
+		{"no arguments", ".route GET /n CountTodos\n.public\n.prepare tidyNote\n", ".prepare tidyNote: query CountTodos takes no arguments"},
+		{"caller on a public route", ".route GET /b/{id} GetTodoTitle\n.public\n.prepare checkID\n", ".prepare checkID takes the Caller, which a .public route has none of"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := gen(tt.src, map[string]PrepareFunc{"checkID": {Params: []string{"args", "caller"}}})
+			var re *RouteError
+			if !errors.As(err, &re) || !strings.Contains(err.Error(), tt.msg) || !strings.HasPrefix(tt.src[re.Offset:], ".prepare") {
+				t.Fatalf("got %v, want %q at .prepare", err, tt.msg)
+			}
+		})
+	}
+}

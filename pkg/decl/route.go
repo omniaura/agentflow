@@ -10,7 +10,7 @@ import (
 )
 
 // RouteDirectives are the directives allowed inside a route section.
-var RouteDirectives = []string{".auth", ".bind", ".public", ".status", ".maxbytes", ".empty", ".wrap", ".map", ".cache", ".sql"}
+var RouteDirectives = []string{".auth", ".bind", ".public", ".status", ".maxbytes", ".empty", ".prepare", ".wrap", ".map", ".cache", ".sql"}
 
 // SQLKinds are the sqlc query commands a .sql line may name.
 var SQLKinds = []string{":one", ":many", ":exec", ":execrows"}
@@ -56,6 +56,12 @@ type Route struct {
 	// result. MapOffset is the .map line's.
 	Map       string
 	MapOffset int
+	// Prepare, from .prepare, names a func of the route's Go package that
+	// gets the query's arguments, bound and decoded, before the query
+	// runs: to normalize, default, derive or check them. PrepareOffset is
+	// the .prepare line's.
+	Prepare       string
+	PrepareOffset int
 	// Cache, from .cache, is the Cache-Control value written as is, and
 	// MaxAge the seconds of a .cache duration; CacheOffset is the .cache
 	// line's. CacheControl resolves them.
@@ -197,6 +203,15 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf("usage: .map fn, naming a func of this package that turns a row into the response, as in .map todoCard; got %q", fn)}
 			}
 			r.Map, r.MapOffset = fn, off
+		case hasDirective(b, ".prepare"):
+			if r.Prepare != "" {
+				return nil, &Error{Offset: off, Msg: "only one .prepare line"}
+			}
+			fn := strings.TrimSpace(strings.TrimPrefix(l, ".prepare"))
+			if !identRE.MatchString(fn) {
+				return nil, &Error{Offset: off, Msg: fmt.Sprintf("usage: .prepare fn, naming a func of this package that gets the query's arguments before it runs, as in .prepare tidyNote; got %q", fn)}
+			}
+			r.Prepare, r.PrepareOffset = fn, off
 		case hasDirective(b, ".cache"):
 			if r.CacheOffset != 0 {
 				return nil, &Error{Offset: off, Msg: "only one .cache line"}

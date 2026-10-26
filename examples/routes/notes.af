@@ -1,7 +1,8 @@
 .route POST /notes CreateNote
 .auth owner_id
 .status 201
-Creates a note for the caller.
+.prepare tidyNote
+Creates a note for the caller, its body trimmed.
 .sql :one
 INSERT INTO notes (owner_id, body) VALUES (@owner_id, @body) RETURNING *
 

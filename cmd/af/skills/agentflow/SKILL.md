@@ -304,6 +304,10 @@ Creates a todo for the caller.
   count them; a `Caller`, `context.Context` or `*http.Request` parameter gets that; returning
   `(T, error)` lets it fail the request (return an `errs` error for its status). Use these
   instead of hand-writing a handler for a caller-aware or whole-result response.
+- `.prepare tidyNote` passes the decoded arguments to `func tidyNote(p *db.CreateNoteParams)`
+  before the query: trim, default, derive or check them there (it may also take the `Caller`,
+  `context.Context` or `*http.Request`, and return an `error` to fail the request). Prefer schema
+  constraints for checks the database can make.
 - Authenticated `:one`/`:many` responses, errors included, get `Cache-Control: no-store`.
   `.cache 5m` lets caches keep a GET result (`private` plus `Vary: Authorization, Cookie`,
   or `public` on a `.public` route); any other value is sent as written (`.cache no-cache`).

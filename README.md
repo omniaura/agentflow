@@ -407,6 +407,7 @@ When the API's name for an argument differs from the query's, `.bind arg = name`
 | `.maxbytes n` | Cap the request body (default 1 MiB). |
 | `.empty [4xx] message` | The error when a `:one` query finds no row, or an `:execrows` query changes none (default `404 not found`). |
 | `.wrap key` | Respond with a `:one` or `:many` result as the one field of an object: `.wrap notes` gives `{"notes": [...]}`. |
+| `.prepare fn` | Pass the decoded arguments to `fn`, a func of the package, before the query: to trim, default, derive or check them. |
 | `.map fn` | Respond with what `fn`, a func of the package, makes of the result: each row, or all of them when it takes a slice, with the caller or request when it takes them. |
 | `.cache 5m` | Let caches keep a `GET` result, for at most a year: `private, max-age=300` (with `Vary: Authorization, Cookie`), or `public, max-age=300` on a `.public` route. Any other value is sent as written: `.cache no-cache`. |
 
@@ -460,6 +461,22 @@ func todoBoard(ctx context.Context, c Caller, todos []db.Todo) (TodoBoard, error
 ```
 
 `af gen` reports, at its line, a `.map` that names no func of the package, or one whose signature doesn't fit.
+
+**Preparing the arguments in Go.** When the input needs more than schema constraints, such as trimming, a default, a derived value or a check against the caller, write it as a func that takes a pointer to the query's arguments and name it with `.prepare`. It runs after the request is bound and decoded and before the query:
+
+```af
+.route POST /notes CreateNote
+.auth owner_id
+.prepare tidyNote
+```
+
+```go
+func tidyNote(p *db.CreateNoteParams) {
+	p.Body = strings.TrimSpace(p.Body)
+}
+```
+
+As with `.map`, its signature says the rest. It may also take the `Caller`, the request's `context.Context` or the `*http.Request`. It may return an `error`, which fails the request before the query runs; return a go-kit `errs` error, such as `afhttp.ErrInvalidRequest.New(ctx).Field("title", "is too long")`, for a 400 that names the field. Checks the database can make are still better as constraints, which SQL tools report too.
 
 Responses of authenticated `:one` and `:many` routes, errors included, are sent with `Cache-Control: no-store` unless `.cache` says otherwise, so no browser or proxy keeps one caller's data. A `.cache` duration goes on successful responses only, so an error is never cached. On an authenticated route it also adds `Vary: Authorization, Cookie`: a browser shares one private cache between the accounts signed in to it, and this makes it ask again after a switch of accounts.
 

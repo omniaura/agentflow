@@ -729,6 +729,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".public", "serve without authentication")
 		add(".status", "success status code")
 		add(".maxbytes", "cap the request body")
+		add(".prepare", "normalize, default or check the arguments before the query, with a func of this package: .prepare tidyNote")
 		// Offer what applies to the query's kind, when it's known.
 		if qk == "" || qk == sqlcgo.One || qk == sqlcgo.ExecRows {
 			add(".empty", "the error when the query finds no row: .empty [4xx] message (default 404)")
@@ -752,15 +753,14 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 // func, as its signature in the package says.
 func mapCall(path string, s *decl.Route, q *sqlcgo.Query) string {
 	f := gogen.MapFunc{Params: []string{"row"}}
-	funcs, err := gogen.ReadMapFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{s}})
+	funcs, err := routeFuncs(path, &decl.Route{Map: s.Map, MapOffset: s.MapOffset})
 	switch {
 	case err != nil:
 		return s.Map + " (" + err.Error() + ")"
-	case funcs == nil:
-		// A Go file of the package doesn't parse.
+	case funcs.Unread:
 		return s.Map + " (its signature can't be read now)"
 	}
-	if fn, ok := funcs[s.Map]; ok {
+	if fn, ok := funcs.Map[s.Map]; ok {
 		f = fn.For(q.Result.Expr)
 	}
 	var args []string
@@ -772,6 +772,34 @@ func mapCall(path string, s *decl.Route, q *sqlcgo.Query) string {
 		return "[" + call + " for each row]"
 	}
 	return call
+}
+
+// routeFuncs reads the Go funcs route r of the .af file at path calls. A
+// hover passes a route holding only the directive it describes, so another
+// directive's mistake doesn't show in its place.
+func routeFuncs(path string, r *decl.Route) (gogen.RouteFuncs, error) {
+	return gogen.ReadRouteFuncs(path, strings.TrimSuffix(path, ".af")+"_af.go", ast.File{Routes: []*decl.Route{r}})
+}
+
+// prepareCall describes how route s, of the .af file at path, calls its
+// .prepare func.
+func prepareCall(path string, s *decl.Route) string {
+	f := gogen.PrepareFunc{Params: []string{"args"}}
+	funcs, err := routeFuncs(path, &decl.Route{Prepare: s.Prepare, PrepareOffset: s.PrepareOffset})
+	switch {
+	case err != nil:
+		return s.Prepare + " (" + err.Error() + ")"
+	case funcs.Unread:
+		return s.Prepare + " (its signature can't be read now)"
+	}
+	if fn, ok := funcs.Prepare[s.Prepare]; ok {
+		f = fn
+	}
+	var args []string
+	for _, p := range f.Params {
+		args = append(args, map[string]string{"args": "&arg", "caller": "caller", "ctx": "ctx", "request": "r"}[p])
+	}
+	return s.Prepare + "(" + strings.Join(args, ", ") + ")"
 }
 
 // SectionHover describes the .tool or .route header at pos in Markdown:
@@ -848,6 +876,9 @@ func (d *Document) SectionHover(pos Position) string {
 		}
 		if !s.Public {
 			b.WriteString("\nRequires authentication.\n")
+		}
+		if s.Prepare != "" {
+			fmt.Fprintf(&b, "\nPrepares the arguments with `%s` before the query.\n", prepareCall(p, s))
 		}
 		if q.Kind == sqlcgo.One || q.Kind == sqlcgo.Many {
 			v := "row"

@@ -214,11 +214,29 @@ func TestDefinitionRouteQuery(t *testing.T) {
 	if hover := board.SectionHover(at(t, board, "ListTodos", 0)); !strings.Contains(hover, "Responds `todoBoard(ctx, caller, rows)`.") {
 		t.Errorf("board hover:\n%s", hover)
 	}
+	// So does a .prepare func's.
+	notesPath := filepath.Join(filepath.Dir(path), "notes.af")
+	notesSrc, err := os.ReadFile(notesPath)
+	require.NoError(t, err)
+	notes := openAt(t, notesPath, string(notesSrc))
+	if hover := notes.SectionHover(at(t, notes, "CreateNote", 0)); !strings.Contains(hover, "Prepares the arguments with `tidyNote(&arg)` before the query.") {
+		t.Errorf("notes hover:\n%s", hover)
+	}
 	// A signature af can't use, or can't read, is said so, not guessed.
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(n int64) error { return nil }\n"), 0o644)
 	if got := mapCall(filepath.Join(dir, "m.af"), &decl.Route{Map: "view"}, &sqlcgo.Query{Kind: sqlcgo.One}); !strings.Contains(got, "it returns only an error") {
 		t.Errorf("bad signature: %s", got)
+	}
+	// Each hover reads only its own directive's func.
+	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(n int64) string { return \"\" }\n\nfunc prep(n int64) {}\n"), 0o644)
+	both := &decl.Route{Map: "view", Prepare: "prep"}
+	if got := mapCall(filepath.Join(dir, "m.af"), both, &sqlcgo.Query{Kind: sqlcgo.One}); got != "view(row)" {
+		t.Errorf("map hover beside a bad .prepare: %s", got)
+	}
+	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(n int64) error { return nil }\n\nfunc prep(n *int64) {}\n"), 0o644)
+	if got := prepareCall(filepath.Join(dir, "m.af"), both); got != "prep(&arg)" {
+		t.Errorf("prepare hover beside a bad .map: %s", got)
 	}
 	// A slice parameter that is the query's row type is each row.
 	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(b []byte) string { return \"\" }\n"), 0o644)
