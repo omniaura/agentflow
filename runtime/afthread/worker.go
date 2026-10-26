@@ -70,9 +70,10 @@ type Worker struct {
 func (w *Worker) Drain(ctx context.Context, owner, id string) (err error) {
 	// Leasing is outside run's recover; a store's panic there is an error
 	// too.
+	var failed error
 	defer func() {
 		if p := recover(); p != nil {
-			err = fmt.Errorf("afthread: thread %s: panic: %v", id, p)
+			err = errors.Join(failed, panicError(id, p))
 		}
 	}()
 	locker, ok := w.Store.(Locker)
@@ -87,7 +88,7 @@ func (w *Worker) Drain(ctx context.Context, owner, id string) (err error) {
 		lease = DefaultLease
 	}
 	worker := rand.Text()
-	var failed error
+	panicked := false
 	for {
 		held, err := locker.Lock(ctx, owner, id, worker, lease)
 		if err != nil || !held {
@@ -104,6 +105,15 @@ func (w *Worker) Drain(ctx context.Context, owner, id string) (err error) {
 			return errors.Join(failed, stop.err)
 		}
 		failed = errors.Join(failed, err)
+		var p *runPanic
+		if errors.As(err, &p) {
+			if panicked {
+				// Twice: the next run would panic the same way. The
+				// messages stay queued for a later Drain.
+				return failed
+			}
+			panicked = true
+		}
 		if !queued || ctx.Err() != nil {
 			return errors.Join(failed, ctx.Err())
 		}
@@ -115,19 +125,40 @@ type stopError struct{ err error }
 
 func (e *stopError) Error() string { return e.err.Error() }
 
+// runPanic is a panic in Run, after which its messages are queued again.
+type runPanic struct{ err error }
+
+func (e *runPanic) Error() string { return e.err.Error() }
+func (e *runPanic) Unwrap() error { return e.err }
+
+// panicError is p as an error, wrapping p when it is one.
+func panicError(id string, p any) error {
+	if e, ok := p.(error); ok {
+		return fmt.Errorf("afthread: thread %s: panic: %w", id, e)
+	}
+	return fmt.Errorf("afthread: thread %s: panic: %v", id, p)
+}
+
 // run answers the queued messages once, under the lease, renewing it. A
 // panic is an error, after which the lease is released: before Run
 // starts, such as in Agent, it ends Drain, since nothing was claimed; in
-// Run, it fails the run, and Drain goes on to the messages queued since.
-// (Run itself recovers the agent's panics.)
+// Run, it fails the run and queues the messages it claimed again, and
+// Drain goes on, unless the run before panicked too. (Run itself
+// recovers the agent's panics.)
 func (w *Worker) run(ctx context.Context, locker Locker, owner, id, worker string, lease time.Duration) (err error) {
 	running := false
 	defer func() {
 		if p := recover(); p != nil {
-			err = fmt.Errorf("afthread: thread %s: panic: %v", id, p)
+			err = panicError(id, p)
 			if !running {
 				err = &stopError{err}
+				return
 			}
+			// The lease is still held: the messages started are this run's.
+			if _, rerr := w.Store.Reclaim(context.WithoutCancel(ctx), owner, id, time.Now()); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
+			err = &runPanic{err}
 		}
 	}()
 	if _, err := w.Store.Reclaim(ctx, owner, id, time.Now()); err != nil {

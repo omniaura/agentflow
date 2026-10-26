@@ -126,8 +126,53 @@ func TestEventStreamClose(t *testing.T) {
 	w := httptest.NewRecorder()
 	s := NewEventStream(w)
 	s.Close()
-	if err := s.Send("text", "a"); err == nil || w.Body.Len() != 0 {
+	if err := s.Send("text", "a"); !errors.Is(err, ErrStreamClosed) || w.Body.Len() != 0 {
 		t.Errorf("Send after Close = %v, wrote %q", err, w.Body)
+	}
+}
+
+// stalled is a client that stopped reading: a write blocks until a write
+// deadline passes.
+type stalled struct {
+	httptest.ResponseRecorder
+	writing  chan struct{}
+	deadline chan struct{}
+	once     sync.Once
+}
+
+func (s *stalled) Write(p []byte) (int, error) {
+	close(s.writing)
+	<-s.deadline
+	return 0, errors.New("i/o timeout")
+}
+
+func (s *stalled) SetWriteDeadline(t time.Time) error {
+	if !t.IsZero() && !t.After(time.Now()) {
+		s.once.Do(func() { close(s.deadline) })
+	}
+	return nil
+}
+
+// Close doesn't wait on a write to a client that stopped reading, even
+// without a WriteTimeout: it fails the write.
+func TestEventStreamCloseInterruptsAStalledWrite(t *testing.T) {
+	w := &stalled{ResponseRecorder: *httptest.NewRecorder(), writing: make(chan struct{}), deadline: make(chan struct{})}
+	s := NewEventStream(w)
+	sent := make(chan error, 1)
+	go func() { sent <- s.Send("text", "a") }()
+	<-w.writing
+	closed := make(chan struct{})
+	go func() {
+		s.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close waited on the stalled write")
+	}
+	if err := <-sent; err == nil {
+		t.Error("the stalled write succeeded")
 	}
 }
 

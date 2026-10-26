@@ -362,3 +362,74 @@ func TestWorkerGoesOnAfterAPanicInARun(t *testing.T) {
 		}
 	}
 }
+
+var errBadRow = errors.New("bad row")
+
+// panicsAlways is a store whose transcript reads panic with an error.
+type panicsAlways struct {
+	*afthread.Memory
+	reads atomic.Int32
+}
+
+func (s *panicsAlways) Transcript(ctx context.Context, owner, id string) ([]afagent.Message, error) {
+	s.reads.Add(1)
+	panic(errBadRow)
+}
+
+// A run that panics queues its messages again, and the error keeps the
+// panic's. Drain tries once more, then leaves them for a later one.
+func TestWorkerRequeuesAfterAPanicInARun(t *testing.T) {
+	ctx := context.Background()
+	s := &panicsAlways{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 0), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "first"})
+	if err := w.Drain(ctx, "ann", th.ID); !errors.Is(err, errBadRow) {
+		t.Fatalf("Drain = %v", err)
+	}
+	if n := s.reads.Load(); n != 2 {
+		t.Errorf("%d runs, want 2", n)
+	}
+	if in := s.Inbox("ann", th.ID); len(in) != 1 || in[0].Status != afthread.Queued {
+		t.Errorf("inbox = %+v", in)
+	}
+	if held, _ := s.Lock(ctx, "ann", th.ID, "next", time.Minute); !held {
+		t.Error("the thread is still leased")
+	}
+}
+
+// locksPanic is a store whose second lease panics.
+type locksPanic struct {
+	*afthread.Memory
+	locks atomic.Int32
+}
+
+func (s *locksPanic) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	if s.locks.Add(1) == 2 {
+		panic("lock table gone")
+	}
+	return s.Memory.Lock(ctx, owner, id, worker, lease)
+}
+
+// A panic in Drain's own store calls keeps the runs' errors before it.
+func TestWorkerDrainPanicKeepsRunErrors(t *testing.T) {
+	ctx := context.Background()
+	s := &locksPanic{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		agent := echo(&running, &overlaps, 0)
+		return func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+			s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "later"})
+			return agent(ctx, msgs, before)
+		}, nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "FAIL"})
+	err := w.Drain(ctx, "ann", th.ID)
+	if err == nil || !strings.Contains(err.Error(), "model down") || !strings.Contains(err.Error(), "lock table gone") {
+		t.Fatalf("Drain = %v", err)
+	}
+}
