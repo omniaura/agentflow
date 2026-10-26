@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -661,5 +662,53 @@ func TestServerFollowsARun(t *testing.T) {
 		if name != want {
 			t.Fatalf("events after reconnecting: %v, want %s next", names, want)
 		}
+	}
+}
+
+// endsWhileRead is a store whose run ends, with one more event, right
+// after the first read of its events.
+type endsWhileRead struct {
+	*afthread.Memory
+	once sync.Once
+}
+
+func (s *endsWhileRead) Events(ctx context.Context, owner, run string, after int64) ([]afthread.RunEvent, error) {
+	events, err := s.Memory.Events(ctx, owner, run, after)
+	s.once.Do(func() {
+		s.AddEvent(ctx, owner, run, afthread.RunEvent{Kind: string(afagent.AnswerRejected), Data: json.RawMessage(`{}`)})
+		s.EndRun(ctx, owner, run, afthread.RunEnd{Turns: 1})
+	})
+	return events, err
+}
+
+// A run that ends while its events are read shows ended, with every event.
+func TestServerRunEndsWhileRead(t *testing.T) {
+	ctx := context.Background()
+	s := &endsWhileRead{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	run, _ := s.StartRun(ctx, "ann", th.ID)
+	srv := &afthread.Server{Store: s, Owner: func(r *http.Request) (string, error) { return r.Header.Get("X-User"), nil }}
+	mux := http.NewServeMux()
+	srv.Register(mux, "/threads")
+	w := do(mux, "GET", "/threads/"+th.ID+"/runs/"+run.ID+"/events", "ann", "")
+	var evs afthread.RunEvents
+	json.Unmarshal(w.Body.Bytes(), &evs)
+	if evs.Run.Status != afthread.Succeeded || len(evs.Events) != 1 {
+		t.Errorf("events: %s", w.Body)
+	}
+}
+
+// Following a run that never ends stops after FollowTimeout, without done.
+func TestServerFollowTimeout(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	run, _ := s.StartRun(ctx, "ann", th.ID)
+	srv := &afthread.Server{Store: s, PollInterval: time.Millisecond, FollowTimeout: 20 * time.Millisecond, Owner: func(r *http.Request) (string, error) { return r.Header.Get("X-User"), nil }}
+	mux := http.NewServeMux()
+	srv.Register(mux, "/threads")
+	w := do(mux, "GET", "/threads/"+th.ID+"/runs/"+run.ID+"/events", "ann", "", "Accept", "text/event-stream")
+	if strings.Contains(w.Body.String(), "done") {
+		t.Errorf("stream = %q", w.Body)
 	}
 }

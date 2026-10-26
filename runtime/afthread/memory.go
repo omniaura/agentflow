@@ -301,6 +301,9 @@ func (m *Memory) EndRun(ctx context.Context, owner, run string, end RunEnd) erro
 	if err != nil {
 		return err
 	}
+	if r.r.Status != Running {
+		return nil
+	}
 	r.r.RunEnd, r.r.Ended, r.r.Status = end, time.Now(), Succeeded
 	if end.Error != "" {
 		r.r.Status = RunFailed

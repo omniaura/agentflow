@@ -85,7 +85,7 @@ SELECT * FROM af_run_events WHERE run_id = @run_id AND seq > @after ORDER BY seq
 UPDATE af_runs SET status = @status, ended_at = now(), turns = @turns, tool_calls = @tool_calls,
     input_tokens = @input_tokens, cached_input_tokens = @cached_input_tokens,
     output_tokens = @output_tokens, error = @error
-WHERE id = @id;
+WHERE id = @id AND status = 'running';
 
 -- name: AgentThread :one
 SELECT id FROM af_threads

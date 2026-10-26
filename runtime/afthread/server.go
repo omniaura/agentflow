@@ -46,6 +46,10 @@ type Server struct {
 	// PollInterval is how often a client following a run checks for its
 	// new events. 0 means half a second.
 	PollInterval time.Duration
+	// FollowTimeout bounds how long one request follows a run, so a run
+	// left running by a crashed worker can't hold it forever. 0 means 30
+	// minutes.
+	FollowTimeout time.Duration
 	// WriteTimeout bounds each event's write to a streaming client, so one
 	// that stops reading can't hold up the run: past it, the client gets
 	// no more events and the run goes on. 0 means 10 seconds.
@@ -473,6 +477,23 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
+		if rec.Status == Running {
+			// It may have ended since: then show it ended, with the events
+			// it recorded meanwhile.
+			if rec, err = runs.GetRun(ctx, owner, rec.ID); err == nil && rec.Status != Running {
+				from := seq
+				if len(events) > 0 {
+					from = events[len(events)-1].Seq
+				}
+				var more []RunEvent
+				more, err = runs.Events(ctx, owner, rec.ID, from)
+				events = append(events, more...)
+			}
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+		}
 		out := RunEvents{Run: runView(rec), Events: []RunEventView{}}
 		for _, e := range events {
 			if v, ok := clientRunEvent(e); ok {
@@ -488,6 +509,15 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 	if poll <= 0 {
 		poll = 500 * time.Millisecond
 	}
+	follow := s.FollowTimeout
+	if follow <= 0 {
+		follow = 30 * time.Minute
+	}
+	// A run whose worker crashed stays running until a worker reclaims the
+	// thread: past FollowTimeout, or on Shutdown, the stream ends without
+	// "done", and the client reconnects with Last-Event-ID.
+	s.init()
+	deadline := time.After(follow)
 	for {
 		// Read the run before its events: once it has ended, the events
 		// read after hold all of them.
@@ -515,6 +545,10 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		}
 		select {
 		case <-ctx.Done():
+			return
+		case <-s.life.Done():
+			return
+		case <-deadline:
 			return
 		case <-time.After(poll):
 		}

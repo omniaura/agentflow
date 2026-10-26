@@ -20,7 +20,8 @@ type Runs interface {
 	AddEvent(ctx context.Context, owner, run string, e RunEvent) (RunEvent, error)
 	// Events returns the run's events numbered after after, in order.
 	Events(ctx context.Context, owner, run string, after int64) ([]RunEvent, error)
-	// EndRun records how the run ended.
+	// EndRun records how the run ended. A run that has ended already, as
+	// Reclaim ends an abandoned one, stays as it was.
 	EndRun(ctx context.Context, owner, run string, end RunEnd) error
 	// GetRun returns the run.
 	GetRun(ctx context.Context, owner, run string) (RunRecord, error)

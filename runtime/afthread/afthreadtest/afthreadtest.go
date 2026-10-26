@@ -279,6 +279,11 @@ func Run(t *testing.T, newStore func() afthread.Store) {
 		if r, _ := runs.GetRun(ctx, "ann", stale.ID); r.Status != afthread.RunFailed || r.Error != afthread.ErrRunAbandoned.Error() || r.Ended.IsZero() {
 			t.Errorf("abandoned run = %+v", r)
 		}
+		// Its worker, still alive, ends it late: it stays abandoned.
+		runs.EndRun(ctx, "ann", stale.ID, afthread.RunEnd{Turns: 3})
+		if r, _ := runs.GetRun(ctx, "ann", stale.ID); r.Status != afthread.RunFailed || r.Turns != 0 {
+			t.Errorf("abandoned run ended late = %+v", r)
+		}
 		if r, _ := runs.GetRun(ctx, "ann", done.ID); r.Status != afthread.Succeeded {
 			t.Errorf("ended run = %+v", r)
 		}

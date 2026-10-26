@@ -232,7 +232,7 @@ const endRun = `-- name: EndRun :exec
 UPDATE af_runs SET status = $1, ended_at = now(), turns = $2, tool_calls = $3,
     input_tokens = $4, cached_input_tokens = $5,
     output_tokens = $6, error = $7
-WHERE id = $8
+WHERE id = $8 AND status = 'running'
 `
 
 type EndRunParams struct {

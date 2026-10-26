@@ -253,11 +253,17 @@ func (s *Store) Reclaim(ctx context.Context, owner, id string, before time.Time)
 		return 0, err
 	}
 	at := pgtype.Timestamptz{Time: before, Valid: true}
-	n, err := s.q.Reclaim(ctx, db.ReclaimParams{ThreadID: u, Before: at})
-	if err != nil {
-		return 0, err
-	}
-	_, err = s.q.AbandonRuns(ctx, db.AbandonRunsParams{ThreadID: u, Before: at, Error: afthread.ErrRunAbandoned.Error()})
+	var n int64
+	// Together, so a requeued message's run never stays running.
+	err = pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		q := s.q.WithTx(tx)
+		var err error
+		if n, err = q.Reclaim(ctx, db.ReclaimParams{ThreadID: u, Before: at}); err != nil {
+			return err
+		}
+		_, err = q.AbandonRuns(ctx, db.AbandonRunsParams{ThreadID: u, Before: at, Error: afthread.ErrRunAbandoned.Error()})
+		return err
+	})
 	return int(n), err
 }
 
