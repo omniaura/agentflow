@@ -20,11 +20,14 @@ type scripted struct {
 	calls   int
 	stream  bool
 	reason  bool
+	// delay is how long each call takes.
+	delay time.Duration
 }
 
 func (s *scripted) Complete(ctx context.Context, req afagent.Request) (afagent.Response, error) {
 	i := s.calls
 	s.calls++
+	time.Sleep(s.delay)
 	if s.stream && req.OnText != nil {
 		req.OnText("Hel")
 	}
@@ -162,7 +165,8 @@ func TestMeter(t *testing.T) {
 	var calls []Call
 	record := func(ctx context.Context, c Call) { calls = append(calls, c) }
 	primary := &scripted{name: "claude", results: []error{status(503)}}
-	secondary := &scripted{name: "gpt"}
+	// A call that takes no time may measure 0 on a coarse clock.
+	secondary := &scripted{name: "gpt", delay: time.Millisecond}
 	// Meter each provider, inside the fallback.
 	m := Fallback(Meter(primary, record), Meter(secondary, record))
 	if _, err := m.Complete(context.Background(), afagent.Request{}); err != nil {
