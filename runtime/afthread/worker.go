@@ -106,14 +106,12 @@ func (w *Worker) Drain(ctx context.Context, owner, id string) (err error) {
 		}
 		failed = errors.Join(failed, err)
 		var p *runPanic
-		if errors.As(err, &p) {
-			if panicked {
-				// Twice: the next run would panic the same way. The
-				// messages stay queued for a later Drain.
-				return failed
-			}
-			panicked = true
+		if errors.As(err, &p) && panicked {
+			// Twice in a row: the next run would panic the same way. The
+			// messages stay queued for a later Drain.
+			return failed
 		}
+		panicked = errors.As(err, &p)
 		if !queued || ctx.Err() != nil {
 			return errors.Join(failed, ctx.Err())
 		}
