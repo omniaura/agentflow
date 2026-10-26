@@ -66,6 +66,10 @@ func TestParseRouteErrors(t *testing.T) {
 		{"bind arg twice", ".route GET /x Q\n.bind id = a\n.bind id = b\n", "id is bound twice"},
 		{"bind name twice", ".route GET /x Q\n.bind a = x\n.bind b = x\n", "x already binds a"},
 		{"bind auth", ".route GET /x Q\n.bind owner_id = user\n.auth owner_id\n", "owner_id comes from .auth"},
+		{"bind auth name", ".route GET /x Q\n.bind owner = user_id\n.auth user_id\n", "user_id comes from .auth"},
+		{"bind auth other case", ".route GET /x Q\n.bind ownerId = user\n.auth owner_id\n", "owner_id comes from .auth"},
+		{"bind arg twice other case", ".route GET /x Q\n.bind id = a\n.bind ID = b\n", "ID is bound twice"},
+		{"bind name twice other case", ".route GET /x Q\n.bind a = user_id\n.bind b = userId\n", "userId already binds a"},
 		{"empty after sql", ".route GET /x Q\n.sql :one\nSELECT 1\n.empty gone\n", ".empty must come before .sql"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

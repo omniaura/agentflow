@@ -162,10 +162,10 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 				return nil, &Error{Offset: off, Msg: fmt.Sprintf("usage: .bind arg = name, as in .bind id = memory_id to read the query's id from {memory_id} or a memory_id field; got %q", strings.TrimSpace(strings.TrimPrefix(l, ".bind")))}
 			}
 			for _, o := range r.Binds {
-				if o.Arg == arg {
+				if sameName(o.Arg, arg) {
 					return nil, &Error{Offset: off, Msg: fmt.Sprintf("%s is bound twice", arg)}
 				}
-				if o.Name == name {
+				if sameName(o.Name, name) {
 					return nil, &Error{Offset: off, Msg: fmt.Sprintf("%s already binds %s", name, o.Arg)}
 				}
 			}
@@ -227,8 +227,10 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 		}
 	}
 	for _, bd := range r.Binds {
-		if slices.Contains(r.Auth, bd.Arg) || slices.Contains(r.Auth, bd.Name) {
-			return nil, &Error{Offset: bd.Offset, Msg: fmt.Sprintf("%s comes from .auth, so it cannot be bound to a request field", bd.Arg)}
+		for _, a := range r.Auth {
+			if sameName(a, bd.Arg) || sameName(a, bd.Name) {
+				return nil, &Error{Offset: bd.Offset, Msg: fmt.Sprintf("%s comes from .auth, so it cannot be bound to a request field", a)}
+			}
 		}
 	}
 	if r.Public && len(r.Auth) > 0 {
@@ -239,6 +241,12 @@ func ParseRoute(src []byte, start, end int) (*Route, error) {
 	}
 	r.Description = strings.TrimRight(trimLeadingBlankLines(strings.Join(desc, "\n")), " \t\n")
 	return r, nil
+}
+
+// sameName reports whether a and b name one argument, as routes match
+// names: user_id, userId and UserID are one name.
+func sameName(a, b string) bool {
+	return strings.EqualFold(strings.ReplaceAll(a, "_", ""), strings.ReplaceAll(b, "_", ""))
 }
 
 // maxCacheAge is the longest .cache duration: caches treat longer max-age
