@@ -26,6 +26,7 @@ import (
 	"github.com/omniaura/agentflow/cmd/af/gen"
 	lintcmd "github.com/omniaura/agentflow/cmd/af/lint"
 	"github.com/omniaura/agentflow/cmd/af/lsp"
+	"github.com/omniaura/agentflow/cmd/af/newapp"
 	"github.com/omniaura/agentflow/cmd/af/skills"
 	"github.com/omniaura/agentflow/cmd/af/survey"
 	"github.com/omniaura/agentflow/cmd/af/upgrade"
@@ -52,6 +53,7 @@ func newRootCommand() *cobra.Command {
 	root.AddCommand(gen.CMD())
 	root.AddCommand(lintcmd.CMD())
 	root.AddCommand(lsp.CMD())
+	root.AddCommand(newapp.CMD())
 	root.AddCommand(skills.CMD())
 	root.AddCommand(survey.CMD())
 	root.AddCommand(upgrade.CMD())

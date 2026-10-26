@@ -1,0 +1,22 @@
+package main
+
+import (
+	"context"
+	"time"
+)
+
+// tools runs the assistant's tools, declared in assistant.af. Add a tool
+// there, run af gen, and implement the method it asks for here.
+type tools struct{}
+
+func (tools) CurrentTime(ctx context.Context, args CurrentTimeArgs) (string, error) {
+	zone := args.Zone
+	if zone == "" {
+		zone = "UTC"
+	}
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return "", err
+	}
+	return time.Now().In(loc).Format(time.RFC1123), nil
+}

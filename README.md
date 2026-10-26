@@ -9,6 +9,7 @@ A powerful template engine for AI prompt engineering with type-safe variable int
 
 - [Installation](#installation)
 - [Quick Start](#quick-start)
+  - [A new agent backend](#a-new-agent-backend)
 - [AgentFlow (.af) Syntax](#agentflow-af-syntax)
   - [Titles](#titles)
   - [Variables](#variables)
@@ -68,6 +69,18 @@ Generate Go code:
 Or, if you pin AgentFlow as a project-scoped Go tool:
 
     go tool af gen prompts examples/
+
+### A new agent backend
+
+    af new support-bot --module example.com/support-bot
+
+creates a Go module that serves an agent over HTTP, with its conversations in Postgres:
+
+- `assistant.af` declares the agent and a tool, and `assistant_af.go` is already generated from it.
+- `main.go` applies afthread's migrations (`afthreadpg.Migrate`), runs an `afthread.Worker`, and serves `afthread.Server` at `/threads`.
+- `tools.go` implements the tool.
+
+Set `DATABASE_URL`, `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` and `OPENAI_MODEL`) and `APP_TOKEN`, then `go run .`. Its README has the `curl` commands to start a thread and stream an answer. `owner` in `main.go` lets in one user holding `APP_TOKEN`: replace it with your authentication.
 
 ## AgentFlow (.af) Syntax
 
@@ -754,7 +767,7 @@ err := w.Drain(ctx, userID, threadID)
 
 `Drain` leases the thread and runs `afthread.Run` until no messages are queued. It renews the lease while the agent runs, and stops the run with `afthread.ErrLeaseLost` if another worker takes the thread. When another worker holds the thread, `Drain` returns at once. That worker answers the new messages, because `Unlock` reports what is queued after the lease ends. Holding the lease, `Drain` first re-queues messages that a crashed worker claimed and never finished, since no live worker can be answering them. A lease outlives a crashed worker by `Lease`, 1 minute by default. Without a worker, call `store.Reclaim(ctx, owner, thread, time.Now().Add(-lease))` when workers start, with a lease longer than any run.
 
-**Serving threads.** `afthread.Server` is the HTTP side of a chat backend. Create threads with `store.Create`, for example when a user starts a chat, then:
+**Serving threads.** `afthread.Server` is the HTTP side of a chat backend (`af new` sets one up):
 
 ```go
 srv := &afthread.Server{Store: store, Worker: w, Owner: func(r *http.Request) (string, error) { return userID(r) }}
@@ -763,6 +776,7 @@ srv.Register(mux, "/threads")
 srv.Shutdown(ctx)
 ```
 
+- With `Agents` set, `POST /threads` with `{"agent": "...", "title": "..."}` creates a thread for the caller with one of those agents and answers `201` with `{"id", "agent", "title", "created"}`. Without it, create threads yourself with `store.Create`.
 - `POST /threads/{thread}/messages` with `{"message": "...", "key": "..."}` queues the message and answers `202` with `{"id", "key", "status"}`. The worker then answers it in the background. The key, or an `Idempotency-Key` header, makes retries safe: a key sent before returns that message.
 - With `Accept: text/event-stream`, the request streams the run instead: `queued`, then the agent's `text`, `reasoning`, `tool_called` and `tool_returned` events, then `done` with the message's final status. A client that disconnects, or stops reading for `WriteTimeout` (10s by default), stops getting events but doesn't stop the run. If another worker holds the thread, `done` comes at once with the message still `queued`, and that worker answers it.
 - `GET /threads/{thread}/messages` returns the conversation as `{"messages": [{"role", "content"}]}`: the user's messages and the agent's answers. Tool calls and results stay on the server.
