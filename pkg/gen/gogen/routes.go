@@ -30,6 +30,10 @@ type Options struct {
 	// MapFuncs are the signatures of the package's .map funcs, by name. A
 	// func missing from it takes the row and returns the response.
 	MapFuncs map[string]MapFunc
+	// PrepareFuncs are the signatures of the package's .prepare funcs, by
+	// name. A func missing from it takes a pointer to the arguments and
+	// returns an error.
+	PrepareFuncs map[string]PrepareFunc
 	// SiblingTools are the tools of the other .af files of the package,
 	// which an agent's .tools may name.
 	SiblingTools []ast.SiblingTool
@@ -75,6 +79,18 @@ func unqualified(t string) string {
 	return qualifierRE.ReplaceAllString(strings.ReplaceAll(t, " ", ""), "")
 }
 
+// PrepareFunc is the signature of a .prepare func, as af reads it in the
+// package.
+type PrepareFunc struct {
+	// Params are what the func takes, in order: a pointer to the query's
+	// "args", the authenticated "caller", the request's "ctx" or the
+	// "request".
+	Params []string
+	// Err reports a result, an error, which fails the request before the
+	// query runs.
+	Err bool
+}
+
 // simple reports whether f takes only the row and can't fail.
 func (f MapFunc) simple() bool {
 	return !f.Err && len(f.Params) == 1 && f.Params[0] == "row"
@@ -107,6 +123,8 @@ type boundRoute struct {
 	names []string
 	// mapFn is the signature of the route's .map func.
 	mapFn MapFunc
+	// prepareFn is the signature of the route's .prepare func.
+	prepareFn PrepareFunc
 }
 
 // genRoutes writes the routes type of file name: an interface of the sqlc
@@ -157,6 +175,18 @@ func genRoutes(buf *bytes.Buffer, file string, routes []*decl.Route, opts Option
 			}
 			if slices.Contains(b.mapFn.Params, "caller") && b.r.Public {
 				return &RouteError{Offset: b.r.MapOffset, Err: fmt.Errorf(".map %s takes the Caller, which a .public route has none of", b.r.Map)}
+			}
+		}
+		if b.r.Prepare != "" {
+			b.prepareFn = PrepareFunc{Params: []string{"args"}, Err: true}
+			if f, ok := opts.PrepareFuncs[b.r.Prepare]; ok {
+				b.prepareFn = f
+			}
+			if len(b.q.Args) == 0 {
+				return &RouteError{Offset: b.r.PrepareOffset, Err: fmt.Errorf(".prepare %s: query %s takes no arguments to prepare", b.r.Prepare, b.q.Name)}
+			}
+			if slices.Contains(b.prepareFn.Params, "caller") && b.r.Public {
+				return &RouteError{Offset: b.r.PrepareOffset, Err: fmt.Errorf(".prepare %s takes the Caller, which a .public route has none of", b.r.Prepare)}
 			}
 		}
 		if b.r.Wrap != "" && b.q.Kind != sqlcgo.One && b.q.Kind != sqlcgo.Many {
@@ -493,7 +523,7 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 		// On every response, errors too: none of them may be kept.
 		fmt.Fprintf(buf, "w.Header().Set(\"Cache-Control\", %q)\n", cc)
 	}
-	usesCaller := slices.Contains(b.sources, "auth") || slices.Contains(b.mapFn.Params, "caller")
+	usesCaller := slices.Contains(b.sources, "auth") || slices.Contains(b.mapFn.Params, "caller") || slices.Contains(b.prepareFn.Params, "caller")
 	if !r.Public {
 		// An unset Auth fails closed rather than panicking.
 		buf.WriteString("if rt.Auth == nil {\nrt.fail(w, r, errors.New(\"afhttp: Auth is not set\"))\nreturn\n}\n")
@@ -544,6 +574,18 @@ func writeHandler(buf *bytes.Buffer, routes string, b *boundRoute, opts Options,
 		}
 	}
 
+	if r.Prepare != "" {
+		var args []string
+		for _, p := range b.prepareFn.Params {
+			args = append(args, map[string]string{"args": "&arg", "caller": "caller", "ctx": "r.Context()", "request": "r"}[p])
+		}
+		prep := r.Prepare + "(" + strings.Join(args, ", ") + ")"
+		if b.prepareFn.Err {
+			fmt.Fprintf(buf, "if err := %s; err != nil {\nrt.fail(w, r, err)\nreturn\n}\n", prep)
+		} else {
+			buf.WriteString(prep + "\n")
+		}
+	}
 	call := fmt.Sprintf("rt.Queries.%s(r.Context()", q.Name)
 	if len(q.Args) > 0 {
 		call += ", arg"

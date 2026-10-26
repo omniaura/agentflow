@@ -214,6 +214,14 @@ func TestDefinitionRouteQuery(t *testing.T) {
 	if hover := board.SectionHover(at(t, board, "ListTodos", 0)); !strings.Contains(hover, "Responds `todoBoard(ctx, caller, rows)`.") {
 		t.Errorf("board hover:\n%s", hover)
 	}
+	// So does a .prepare func's.
+	notesPath := filepath.Join(filepath.Dir(path), "notes.af")
+	notesSrc, err := os.ReadFile(notesPath)
+	require.NoError(t, err)
+	notes := openAt(t, notesPath, string(notesSrc))
+	if hover := notes.SectionHover(at(t, notes, "CreateNote", 0)); !strings.Contains(hover, "Prepares the arguments with `tidyNote(&arg)` before the query.") {
+		t.Errorf("notes hover:\n%s", hover)
+	}
 	// A signature af can't use, or can't read, is said so, not guessed.
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(n int64) error { return nil }\n"), 0o644)

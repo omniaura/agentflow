@@ -182,9 +182,11 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 		if err := checkSQLRoutes(name, ff, repo); err != nil {
 			return "", nil, err
 		}
-		if opts.MapFuncs, err = gogen.ReadMapFuncs(name, OutputPath(name), ff); err != nil {
+		funcs, err := gogen.ReadRouteFuncs(name, OutputPath(name), ff)
+		if err != nil {
 			return "", nil, err
 		}
+		opts.MapFuncs, opts.PrepareFuncs = funcs.Map, funcs.Prepare
 		if len(ff.Routes) > 0 {
 			opts.Swag = swagOptions(name, ff)
 		}

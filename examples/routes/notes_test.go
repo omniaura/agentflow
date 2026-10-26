@@ -115,4 +115,25 @@ func TestNoteRoutes(t *testing.T) {
 	if empty := do("GET", "/notes", "cat", "", 200); strings.TrimSpace(empty) != `{"notes":[]}` {
 		t.Fatalf("no notes = %s", empty)
 	}
+	// .prepare tidyNote trims the body before the query.
+	if created := do("POST", "/notes", "dee", `{"body":"  padded \n"}`, 201); !strings.Contains(created, `"body":"padded"`) {
+		t.Fatalf("created = %s", created)
+	}
+}
+
+// A body of only spaces trims to "", which the table's CHECK rejects.
+func TestPreparedNoteChecked(t *testing.T) {
+	pool := testPool(t)
+	if pool == nil {
+		t.Skip("set AF_TEST_DATABASE_URL to check the note against Postgres")
+	}
+	mux := http.NewServeMux()
+	(&NotesRoutes{Queries: db.New(pool), Auth: func(r *http.Request) (Caller, error) {
+		return Caller{OwnerID: "ann"}, nil
+	}}).Register(mux)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("POST", "/notes", strings.NewReader(`{"body":"   "}`)))
+	if w.Code != 400 || !strings.Contains(w.Body.String(), `"fields":{"body":"is invalid"}`) {
+		t.Fatalf("blank body: %d %s", w.Code, w.Body)
+	}
 }

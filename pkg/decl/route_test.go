@@ -212,3 +212,24 @@ func TestParseRouteBind(t *testing.T) {
 		t.Fatalf("Binds = %+v, want %+v", got, want)
 	}
 }
+
+func TestParseRoutePrepare(t *testing.T) {
+	src := ".route POST /notes CreateNote\n.prepare tidyNote\n"
+	f, err := Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := f.Routes[0]; r.Prepare != "tidyNote" || r.PrepareOffset != strings.Index(src, ".prepare") {
+		t.Fatalf("got %q at %d", r.Prepare, r.PrepareOffset)
+	}
+	for src, want := range map[string]string{
+		".route POST /a Q\n.prepare\n":                        "usage: .prepare fn",
+		".route POST /a Q\n.prepare db.tidy\n":                "usage: .prepare fn",
+		".route POST /a Q\n.prepare a\n.prepare b\n":          "only one .prepare line",
+		".route POST /a Q\n.sql :one\nSELECT 1\n.prepare a\n": ".prepare must come before .sql",
+	} {
+		if _, err := Parse([]byte(src)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: got %v, want %q", src, err, want)
+		}
+	}
+}
