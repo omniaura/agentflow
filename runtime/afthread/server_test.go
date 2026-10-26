@@ -231,6 +231,15 @@ func TestServerStreams(t *testing.T) {
 	if ev := events(w.Body.String()); len(ev) != 1 || ev[0] != `done {"id":1,"key":"k1","status":"done"}` {
 		t.Errorf("stream of an answered message = %v", ev)
 	}
+
+	// One a crashed worker claimed and never finished is answered now.
+	s.Unlock(ctx, "ann", th.ID, "elsewhere")
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: "k3", Content: "and C-3?"})
+	s.Claim(ctx, "ann", th.ID)
+	w = do(mux, "POST", "/threads/"+th.ID+"/messages", "ann", `{"message":"and C-3?","key":"k3"}`, "Accept", "text/event-stream")
+	if ev := events(w.Body.String()); len(ev) < 2 || ev[len(ev)-1] != `done {"id":3,"key":"k3","status":"done"}` {
+		t.Errorf("stream of a crashed run's message = %v", ev)
+	}
 }
 
 // A client that disconnects mid-stream doesn't stop the run.

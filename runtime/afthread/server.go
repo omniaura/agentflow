@@ -99,7 +99,7 @@ type ThreadMessages struct {
 // names them ("text", "tool_called", ...), then "done" with the
 // SentMessage as it ended. When another worker holds the thread, "done"
 // comes at once with the message still queued: that worker answers it.
-// A key sent before, for a message no longer queued, gets only "done".
+// A key sent before, for a message already answered, gets only "done".
 func (s *Server) Register(mux *http.ServeMux, prefix string) {
 	if s.Owner == nil {
 		panic("afthread: Server.Owner is not set")
@@ -235,9 +235,10 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 	// reading; this request then ends, and the stream writes no more.
 	var gone sync.Once
 	broken := make(chan struct{})
-	if in.Status != Queued {
-		// A key sent before, for a message already answered or being
-		// answered: there is no run to stream.
+	if in.Status == Done || in.Status == Failed {
+		// A key sent before, for a message already answered: there is no
+		// run to stream. One still started may be a crashed worker's,
+		// which draining reclaims.
 		stream.Send("done", sent(in))
 		return
 	}
