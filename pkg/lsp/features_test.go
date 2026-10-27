@@ -222,6 +222,9 @@ func TestDefinitionRouteQuery(t *testing.T) {
 	if hover := notes.SectionHover(at(t, notes, "CreateNote", 0)); !strings.Contains(hover, "Prepares the arguments with `tidyNote(&arg)` before the query.") {
 		t.Errorf("notes hover:\n%s", hover)
 	}
+	if hover := notes.SectionHover(at(t, notes, "LatestNote", 0)); !strings.Contains(hover, "No row: 200 `{\"note\": null}`.") {
+		t.Errorf("latest note hover:\n%s", hover)
+	}
 	// A signature af can't use, or can't read, is said so, not guessed.
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, "m.go"), []byte("package m\n\nfunc view(n int64) error { return nil }\n"), 0o644)

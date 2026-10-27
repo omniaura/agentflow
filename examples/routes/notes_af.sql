@@ -14,3 +14,12 @@ WHERE id = @id AND owner_id = @owner_id;
 
 -- name: PinNote :execrows
 UPDATE notes SET pinned = true WHERE id = @id AND owner_id = @owner_id;
+
+-- name: LatestNote :one
+SELECT * FROM notes
+WHERE owner_id = @owner_id
+ORDER BY id DESC
+LIMIT 1;
+
+-- name: DeleteNote :execrows
+DELETE FROM notes WHERE id = @id AND owner_id = @owner_id;

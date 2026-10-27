@@ -321,8 +321,11 @@ Creates a todo for the caller.
   (`NOT NULL`, `CHECK (title <> '')`, `CHECK (length(title) <= 200)`; not `varchar(n)`) instead
   of Go checks: a violation is a 400 with the column as the field, and SQL tools tell the model
   what to fix. Then `.empty [4xx] message` names the
-  failure when a `:one` finds no row or an `:execrows` changes none (default 404). On a
-  SQL tool, `.empty message` is what the model is told instead of "not found".
+  failure when a `:one` finds no row or an `:execrows` changes none (default 404). When
+  that isn't a failure, a 2xx status makes it a success: `.empty 200 {"note": null}`,
+  `.empty 200 draftDefault` (a Go func making the response, which may take the arguments,
+  `Caller`, context or request), or `.empty 204`. On a SQL tool, `.empty message` is what the
+  model is told instead of "not found".
 - The generated code is a `<File>Queries` interface and a `<File>Routes` struct. Declare
   `type Caller struct{ OwnerID string }` in the package, set `Queries`, `Auth` and
   optionally `OnError`, then call `Register(mux)`.

@@ -186,7 +186,7 @@ func Render(name string, src []byte) (outPath string, code []byte, err error) {
 		if err != nil {
 			return "", nil, err
 		}
-		opts.MapFuncs, opts.PrepareFuncs = funcs.Map, funcs.Prepare
+		opts.MapFuncs, opts.PrepareFuncs, opts.EmptyFuncs = funcs.Map, funcs.Prepare, funcs.Empty
 		if len(ff.Routes) > 0 {
 			opts.Swag = swagOptions(name, ff)
 		}

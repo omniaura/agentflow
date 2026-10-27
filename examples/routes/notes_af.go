@@ -4,6 +4,7 @@ package routes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -19,6 +20,8 @@ type NotesQueries interface {
 	ListNotes(ctx context.Context, arg string) ([]db.Note, error)
 	UpdateNote(ctx context.Context, arg db.UpdateNoteParams) (int64, error)
 	PinNote(ctx context.Context, arg db.PinNoteParams) (int64, error)
+	LatestNote(ctx context.Context, arg string) (db.Note, error)
+	DeleteNote(ctx context.Context, arg db.DeleteNoteParams) (int64, error)
 }
 
 // NotesRoutes serves the routes declared in notes.af. Set its fields, then
@@ -40,6 +43,8 @@ func (rt *NotesRoutes) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /notes", rt.ListNotes)
 	mux.HandleFunc("PATCH /notes/{id}", rt.UpdateNote)
 	mux.HandleFunc("PUT /notes/{id}/pin", rt.PinNote)
+	mux.HandleFunc("GET /notes/latest", rt.LatestNote)
+	mux.HandleFunc("DELETE /notes/{id}", rt.DeleteNote)
 }
 
 func (rt *NotesRoutes) fail(w http.ResponseWriter, r *http.Request, err error) {
@@ -183,6 +188,67 @@ func (rt *NotesRoutes) PinNote(w http.ResponseWriter, r *http.Request) {
 	}
 	if n == 0 {
 		rt.fail(w, r, afhttp.ErrNotFound.New(r.Context()))
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// LatestNote serves GET /notes/latest with the LatestNote query.
+//
+// The caller's newest note as {"note": {...}}, or {"note": null} when they
+// have none: no notes isn't an error.
+func (rt *NotesRoutes) LatestNote(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if rt.Auth == nil {
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
+		return
+	}
+	caller, err := rt.Auth(r)
+	if err != nil {
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
+		return
+	}
+	var arg string
+	arg = caller.OwnerID
+	row, err := rt.Queries.LatestNote(r.Context(), arg)
+	if errors.Is(err, pgx.ErrNoRows) {
+		afhttp.WriteJSON(w, r, http.StatusOK, json.RawMessage("{\"note\": null}"))
+		return
+	}
+	if err != nil {
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
+		return
+	}
+	afhttp.WriteJSON(w, r, http.StatusOK, map[string]any{"note": row})
+}
+
+// DeleteNote serves DELETE /notes/{id} with the DeleteNote query.
+//
+// Deletes one of the caller's notes. One already gone is deleted too, so a
+// client can retry.
+func (rt *NotesRoutes) DeleteNote(w http.ResponseWriter, r *http.Request) {
+	if rt.Auth == nil {
+		rt.fail(w, r, errors.New("afhttp: Auth is not set"))
+		return
+	}
+	caller, err := rt.Auth(r)
+	if err != nil {
+		rt.fail(w, r, afhttp.Unauthorized(r.Context(), err))
+		return
+	}
+	var arg db.DeleteNoteParams
+	if err := afhttp.Parse("id", r.PathValue("id"), &arg.ID); err != nil {
+		rt.fail(w, r, err)
+		return
+	}
+	arg.OwnerID = caller.OwnerID
+	n, err := rt.Queries.DeleteNote(r.Context(), arg)
+	if err != nil {
+		rt.fail(w, r, afhttp.QueryFailed(r.Context(), err))
+		return
+	}
+	if n == 0 {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

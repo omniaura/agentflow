@@ -33,6 +33,43 @@ func (q *Queries) CreateNote(ctx context.Context, arg CreateNoteParams) (Note, e
 	return i, err
 }
 
+const deleteNote = `-- name: DeleteNote :execrows
+DELETE FROM notes WHERE id = $1 AND owner_id = $2
+`
+
+type DeleteNoteParams struct {
+	ID      int64  `json:"id"`
+	OwnerID string `json:"ownerId"`
+}
+
+func (q *Queries) DeleteNote(ctx context.Context, arg DeleteNoteParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteNote, arg.ID, arg.OwnerID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const latestNote = `-- name: LatestNote :one
+SELECT id, owner_id, body, pinned, updated_at FROM notes
+WHERE owner_id = $1
+ORDER BY id DESC
+LIMIT 1
+`
+
+func (q *Queries) LatestNote(ctx context.Context, ownerID string) (Note, error) {
+	row := q.db.QueryRow(ctx, latestNote, ownerID)
+	var i Note
+	err := row.Scan(
+		&i.ID,
+		&i.OwnerID,
+		&i.Body,
+		&i.Pinned,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listNotes = `-- name: ListNotes :many
 SELECT id, owner_id, body, pinned, updated_at FROM notes
 WHERE owner_id = $1

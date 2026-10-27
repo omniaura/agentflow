@@ -1,6 +1,7 @@
 package decl
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -331,32 +332,75 @@ func (r *Route) BodyFromQueryString() bool {
 	return r.Method == "GET" || r.Method == "HEAD" || r.Method == "DELETE"
 }
 
-// Empty is the failure a query that finds no row or changes none reports,
-// from a .empty line:
+// Empty is what a query that finds no row or changes none means, from a
+// .empty line: a failure, or for a route a successful response.
 //
 //	.empty 409 you already have 20 thought trains
+//	.empty 200 {"transfer": null}
+//	.empty 200 draftDefault
+//	.empty 204
 //
 // A query can check what a handler would check in Go (who owns a row, a
 // limit, a state) in its WHERE clause; .empty then names the failure.
 type Empty struct {
-	// Status is the HTTP status of a route's error, 400-499; a tool's
-	// Empty has none.
+	// Status is the HTTP status of a route's response: 400-499 for a
+	// failure, 200-299 for a success. A tool's Empty has none.
 	Status int
-	// Msg is the message the client or model sees.
-	Msg    string
-	Offset int
+	// Msg is the message of a failure, which the client or model sees.
+	Msg string
+	// Body is the JSON a success responds with, as written; Func names a
+	// func of the route's package that makes it instead. A 204 or 205
+	// has neither.
+	Body, Func string
+	Offset     int
+}
+
+// OK reports whether e is a successful response, not a failure.
+func (e *Empty) OK() bool {
+	return e.Status >= 200 && e.Status < 300
+}
+
+// HasBody reports whether e is a successful response with a body.
+func (e *Empty) HasBody() bool {
+	return e.OK() && (e.Body != "" || e.Func != "")
+}
+
+// parseEmptyOK parses a successful .empty: status, then the JSON it
+// responds with or a func of the package that makes it, or nothing for a
+// 204.
+func parseEmptyOK(status int, rest string, off int) (*Empty, error) {
+	e := &Empty{Status: status, Offset: off}
+	switch {
+	case status == 204 || status == 205:
+		if rest != "" {
+			return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty %d responds with no body, so it takes nothing after the status", status)}
+		}
+	case identRE.MatchString(rest) && rest != "true" && rest != "false" && rest != "null":
+		e.Func = rest
+	case json.Valid([]byte(rest)):
+		e.Body = rest
+	case rest == "":
+		return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty %d needs the response: JSON, as in .empty %d {\"items\": []}, or a func of this package that makes it", status, status)}
+	default:
+		return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty %d: %q is neither JSON nor a func name", status, rest)}
+	}
+	return e, nil
 }
 
 // parseEmpty parses the arguments of a route's .empty line: an optional
-// 4xx status, then the message.
+// 4xx status, then the message; or a 2xx status and the response.
 func parseEmpty(args string, off int) (*Empty, error) {
 	e := &Empty{Status: 404, Msg: args, Offset: off}
 	if fields := strings.Fields(args); len(fields) > 0 && len(fields[0]) == 3 && fields[0][0] >= '0' && fields[0][0] <= '9' {
 		n, err := strconv.Atoi(fields[0])
-		if err != nil || n < 400 || n > 499 {
-			return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty needs a 4xx status, got %q", fields[0])}
+		rest := strings.TrimSpace(strings.TrimPrefix(args, fields[0]))
+		if err == nil && n >= 200 && n <= 299 {
+			return parseEmptyOK(n, rest, off)
 		}
-		e.Status, e.Msg = n, strings.TrimSpace(strings.TrimPrefix(args, fields[0]))
+		if err != nil || n < 400 || n > 499 {
+			return nil, &Error{Offset: off, Msg: fmt.Sprintf(".empty needs a 4xx status for a failure, or a 2xx one for a success; got %q", fields[0])}
+		}
+		e.Status, e.Msg = n, rest
 	}
 	if e.Msg == "" {
 		return nil, &Error{Offset: off, Msg: "usage: .empty [4xx status] message, as in .empty 409 you already have 20 thought trains"}

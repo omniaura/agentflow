@@ -732,7 +732,7 @@ func (d *Document) directiveCompletions(pos Position, beforeCursor []byte) []Com
 		add(".prepare", "normalize, default or check the arguments before the query, with a func of this package: .prepare tidyNote")
 		// Offer what applies to the query's kind, when it's known.
 		if qk == "" || qk == sqlcgo.One || qk == sqlcgo.ExecRows {
-			add(".empty", "the error when the query finds no row: .empty [4xx] message (default 404)")
+			add(".empty", "when the query finds no row: an error, .empty [4xx] message (default 404), or a success, .empty 200 {...} | .empty 200 fn | .empty 204")
 		}
 		if qk == "" || qk == sqlcgo.One || qk == sqlcgo.Many {
 			add(".wrap", "respond with the result in an object: .wrap todos for {\"todos\": [...]}")
@@ -902,7 +902,16 @@ func (d *Document) SectionHover(pos Position) string {
 			}
 		}
 		if e := s.Empty; e != nil && (q.Kind == sqlcgo.One || q.Kind == sqlcgo.ExecRows) {
-			fmt.Fprintf(&b, "\nNo row: %d %q.\n", e.Status, e.Msg)
+			switch {
+			case e.Func != "":
+				fmt.Fprintf(&b, "\nNo row: %d `%s`.\n", e.Status, e.Func+"(...)")
+			case e.Body != "":
+				fmt.Fprintf(&b, "\nNo row: %d `%s`.\n", e.Status, e.Body)
+			case e.OK():
+				fmt.Fprintf(&b, "\nNo row: %d.\n", e.Status)
+			default:
+				fmt.Fprintf(&b, "\nNo row: %d %q.\n", e.Status, e.Msg)
+			}
 		}
 	}
 	return b.String()
