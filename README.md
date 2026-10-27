@@ -522,6 +522,13 @@ The JSON is sent as written: `.map` and `.wrap` shape rows, so write the object 
 - the error responses `errs.Error` can return;
 - `@Security`, on authenticated routes, using the nearest `@securityDefinitions` above the file, or the module's only one.
 
+When a successful `.empty` shares the normal response's status, its body can
+have a different shape. Swagger 2.0 cannot express a union, so that status uses
+an unconstrained schema (`any`) rather than an inaccurate row-only schema. Its
+response description names both variants, and the operation's
+`x-agentflow-response-variants` extension records their Go types or literal JSON.
+Responses with different statuses keep their separate schemas.
+
 There's nothing to declare: annotations appear when the module uses swag. Error responses refer to go-kit's `errs.Error`, an external package, so run `swag init` with `--parseDependency`.
 
 **Writing the query in the route.** End a route with `.sql` and its sqlc command, and write the query below it. The endpoint and its SQL then live in one place:

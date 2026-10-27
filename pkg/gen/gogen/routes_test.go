@@ -573,8 +573,7 @@ func TestGenRoutesEmptyOK(t *testing.T) {
 		// documented as JSON.
 		"if n == 0 {\n\t\tw.Header().Set(\"Cache-Control\", \"no-store\")\n\t\tafhttp.WriteJSON(w, r, http.StatusOK, json.RawMessage(\"{\\\"deleted\\\": false}\"))",
 		"// @Produce json\n// @Param id path integer true \"id\"\n// @Success 204\n// @Success 200 {object} object\n",
-		// Swag: a success of another status, and no 404. (One of the same
-		// status keeps the route's type: swag has one per status.)
+		// Swag: a success of another status, and no 404.
 		"// @Success 204\n// @Success 200 {object} object\n",
 	} {
 		if !strings.Contains(code, want) {

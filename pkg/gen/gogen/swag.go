@@ -2,6 +2,7 @@ package gogen
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
@@ -234,7 +235,29 @@ func writeSwag(buf *bytes.Buffer, b *boundRoute, bodyType string, sw *Swag, impo
 			}
 			kind, typ = "object", "map[string]"+elem
 		}
-		line("Success %d {%s} %s", status, kind, typ)
+		if e := r.Empty; e != nil && e.OK() && e.Status == status && e.HasBody() {
+			// Swagger 2.0 has no union schema. A row-only schema would
+			// reject valid empty responses; duplicate @Success tags overwrite
+			// one another. Keep the schema open and describe both variants.
+			empty := map[string]any{"condition": "empty query result"}
+			emptyType := b.emptyFn.Result
+			if e.Func != "" {
+				empty["function"], empty["goType"] = e.Func, emptyType
+				if emptyType == "" {
+					emptyType = "result of " + e.Func
+				}
+			} else {
+				empty["json"] = json.RawMessage(e.Body)
+				emptyType = "literal JSON " + e.Body
+			}
+			line("Success %d {object} any %q", status, "Query result: "+kind+" "+typ+"; empty result: "+emptyType)
+			variants, _ := json.Marshal(map[string]any{fmt.Sprint(status): []any{
+				map[string]any{"condition": "nonempty query result", "schemaType": kind, "goType": typ}, empty,
+			}})
+			line("x-agentflow-response-variants %s", variants)
+		} else {
+			line("Success %d {%s} %s", status, kind, typ)
+		}
 	} else {
 		line("Success 204")
 	}
