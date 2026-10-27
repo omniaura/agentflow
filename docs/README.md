@@ -19,7 +19,7 @@ This directory contains documentation for integrating AgentFlow language feature
 - Configuration examples
 - Test procedures
 
-### [test-semantic-tokens.af](./test-semantic-tokens.af)
+### [test-semantic-tokens.af](./testdata/test-semantic-tokens.af)
 **Comprehensive test file** containing all AgentFlow syntax elements for validating semantic tokens implementation:
 - All token types (keywords, variables, conditionals, etc.)
 - Complex nested structures
@@ -30,7 +30,7 @@ This directory contains documentation for integrating AgentFlow language feature
 
 1. **For VSCode extension developers**: Start with `vscode-semantic-tokens.md` for complete implementation details
 2. **For quick implementation**: Use `semantic-tokens-quick-reference.md` for essential code snippets  
-3. **For testing**: Open `test-semantic-tokens.af` in your editor to verify syntax highlighting works correctly
+3. **For testing**: Open `testdata/test-semantic-tokens.af` in your editor to verify syntax highlighting works correctly
 
 ## AgentFlow LSP Server
 
@@ -48,7 +48,7 @@ The semantic tokens are provided by the AgentFlow LSP server (`./af lsp`). The s
 ## Testing Your Implementation
 
 1. Start the AgentFlow LSP server: `./af lsp --debug`
-2. Open `test-semantic-tokens.af` in your editor
+2. Open `testdata/test-semantic-tokens.af` in your editor
 3. Verify syntax highlighting appears correctly
 4. Use VSCode's "Developer: Inspect Editor Tokens and Scopes" to debug token types
 

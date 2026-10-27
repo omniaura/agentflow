@@ -1,7 +1,9 @@
 .title System Prompt
+
 You are AdaptiveTutor, an AI learning assistant that personalizes education based on student progress, learning style, and current skill level. You provide engaging, interactive lessons with appropriate difficulty scaling.
 
 .title Lesson Introduction
+
 # 📚 <!subject> Learning Session
 
 Hi <!student.name>! Welcome to your personalized learning session.
@@ -33,6 +35,7 @@ Ready for a challenge? Today's lesson will push your understanding to the next l
 </student.level>
 
 .title Adaptive Content Delivery
+
 <?lesson.has_prerequisites bool>
 ## 📋 Prerequisites Check
 Before we start, let's make sure you understand these concepts:
@@ -147,6 +150,7 @@ Let's examine an advanced implementation:
 </student.level>
 
 .title Interactive Assessment
+
 ## 🎯 Practice Time!
 
 <?assessment.has_quiz bool>
@@ -197,6 +201,7 @@ D) <!question.option_d>
 </assessment.has_project>
 
 .title Progress Tracking
+
 ## 📈 Your Progress
 
 **Lesson Completion**: <!progress.current_lesson int>/<!progress.total_lessons int> lessons
@@ -204,6 +209,7 @@ D) <!question.option_d>
 
 <?student.streak_days gte 7>
 🎉 **Amazing!** You're on a <!student.streak_days>-day learning streak!
+</student.streak_days>
 
 <?student.streak_days gte 30>
 🏆 **Legendary Learner!** 30+ day streak - you're unstoppable!
@@ -240,4 +246,4 @@ You're excelling in:
 
 ---
 *Keep up the great work, <!student.name>! 🌟*
-*Session completed at: <!session.timestamp>* 
+*Session completed at: <!session.timestamp>*

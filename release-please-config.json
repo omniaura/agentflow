@@ -7,7 +7,7 @@
       "extra-files": [
         {
           "type": "generic",
-          "path": "cfg/cfg.go"
+          "path": "cfg/version.go"
         }
       ]
     }

@@ -56,6 +56,9 @@ homebrew_casks:
       owner: omniaura
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    # Skipped when the tap token is not configured, so a missing secret cannot
+    # fail the release. Tracking: https://github.com/omniaura/agentflow/issues/85
+    skip_upload: '{{ if isEnvSet "HOMEBREW_TAP_GITHUB_TOKEN" }}false{{ else }}true{{ end }}'
     directory: Casks
     homepage: https://agentflow.sh
     description: Convenient code generator for AI agents
@@ -63,5 +66,7 @@ homebrew_casks:
       - af
     hooks:
       post:
-        install: |
-          system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/af"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/af"]
+          end

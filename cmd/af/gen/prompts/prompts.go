@@ -17,18 +17,28 @@ package prompts
 
 import (
 	"bufio"
+	"bytes"
+	"errors"
 	"fmt"
+	"go/build"
+	"go/parser"
+	gotoken "go/token"
 	"io"
 	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/ast"
+	"github.com/omniaura/agentflow/pkg/decl"
+	"github.com/omniaura/agentflow/pkg/eject"
 	"github.com/omniaura/agentflow/pkg/gen/gogen"
+	"github.com/omniaura/agentflow/pkg/lint"
+	"github.com/omniaura/agentflow/pkg/sqlcgo"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"golang.org/x/sync/errgroup"
@@ -50,75 +60,273 @@ func flags(cmd *cobra.Command) *cobra.Command {
 	cmd.Flags().StringVarP(&Dir,
 		"dir", "d", ".", "Directory to read .af files from. Defaults to current directory.")
 	viper.BindPFlag("gen.dir", cmd.Flags().Lookup("dir"))
+	cmd.Flags().StringVar(&Sqlc, "sqlc", "auto", "Run sqlc generate after writing changed .sql queries: auto (when sqlc is on PATH) or never")
 	return cmd
 }
 
 func CMD() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "prompts",
+		Use:   "prompts [dir]",
 		Short: "Generate prompts",
 		Long: `Generate prompts from .af files in the input directory.
 The generated prompts will be written next to their corresponding .af files.`,
+		Args: cobra.MaximumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			ctx := cmd.Context()
+			if len(args) == 1 {
+				if cmd.Flags().Changed("dir") {
+					assert.NoError(fmt.Errorf("pass the directory as an argument or with --dir, not both"))
+				}
+				Dir = args[0]
+			}
 			files, err := resolveAFFiles(cmd)
 			assert.NoError(err)
-
-			group, _ := errgroup.WithContext(ctx)
-			for _, name := range files {
-				group.Go(func() error {
-					file, err := os.Open(name)
-					if err != nil {
-						return err
-					}
-					defer file.Close()
-					f, err := io.ReadAll(file)
-					if err != nil {
-						return err
-					}
-
-					fName := filepath.Base(file.Name())
-					ff, err := ast.NewFile(fName, f)
-					if err != nil {
-						return err
-					}
-					// Place the output file in the same directory as the .af file, with _af.go suffix
-					outFileName := ff.Name + "_af.go"
-					outFilePath := filepath.Join(filepath.Dir(name), outFileName)
-
-					// Compute package name from directory.
-					// When .af files are in the root scan directory, filepath.Base(".")
-					// returns "." which is not a valid Go package name. Fall back to
-					// $GOPACKAGE which go generate sets automatically.
-					dirName := filepath.Base(filepath.Dir(name))
-					if dirName == "." {
-						if pkg := os.Getenv("GOPACKAGE"); pkg != "" {
-							dirName = pkg
-						}
-					}
-
-					outFile, err := os.OpenFile(outFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-					if err != nil {
-						return err
-					}
-					defer outFile.Close()
-
-					err = gogen.GenFile(outFile, ff, dirName)
-					if err != nil {
-						return err
-					}
-					slog.Info("Generated", "file", outFilePath)
-					return nil
-				})
-			}
-
-			if err := group.Wait(); err != nil {
+			if err := generate(files, os.Stderr); err != nil {
 				slog.Error("Error", "error", err)
 				os.Exit(1)
 			}
 		},
 	}
 	return flags(cmd)
+}
+
+// generate writes each .af file's _af.go only after the whole file has been
+// generated, so a failure leaves any existing output byte-identical. Every
+// failure is reported to errOut before generate returns an error.
+func generate(files []string, errOut io.Writer) error {
+	files = slices.Sorted(slices.Values(files))
+	if err := generateSQL(files, errOut); err != nil {
+		return err
+	}
+	failures := make([][]string, len(files))
+	var group errgroup.Group
+	for i, name := range files {
+		group.Go(func() error {
+			src, err := genFile(name)
+			if err != nil {
+				failures[i] = Diagnose(name, src, err)
+			}
+			return nil
+		})
+	}
+	group.Wait()
+
+	failed := 0
+	for _, msgs := range failures {
+		if len(msgs) == 0 {
+			continue
+		}
+		failed++
+		for _, msg := range msgs {
+			fmt.Fprintln(errOut, msg)
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d of %d .af files failed to generate", failed, len(files))
+	}
+	return nil
+}
+
+// genFile generates the _af.go for one .af file. It returns the .af source,
+// when it could be read, so errors can be mapped to positions.
+func genFile(name string) ([]byte, error) {
+	src, err := os.ReadFile(name)
+	if err != nil {
+		return nil, err
+	}
+	outFilePath, code, err := Render(name, src)
+	if err != nil {
+		return src, err
+	}
+	changed, err := writeFileAtomic(outFilePath, code)
+	if err != nil {
+		return src, err
+	}
+	if changed {
+		slog.Info("Generated", "file", outFilePath)
+	} else {
+		slog.Info("Unchanged", "file", outFilePath)
+	}
+	return src, nil
+}
+
+// OutputPath returns the _af.go path generated for the .af file name.
+func OutputPath(name string) string {
+	return strings.TrimSuffix(name, ".af") + "_af.go"
+}
+
+// Render generates the Go source for the .af file name with contents src,
+// and returns it with the path it belongs at. Nothing is written.
+func Render(name string, src []byte) (outPath string, code []byte, err error) {
+	ff, err := ast.NewFile(filepath.Base(name), src)
+	if err != nil {
+		return "", nil, err
+	}
+	var opts gogen.Options
+	if len(ff.Tools) > 0 || len(ff.Routes) > 0 || len(ff.Outputs) > 0 || len(ff.Agents) > 0 {
+		// Generated code imports the runtime, or the copy af eject made.
+		if opts.Imports, err = eject.Imports(filepath.Dir(name)); err != nil {
+			return "", nil, err
+		}
+	}
+	if sqlTools := slices.ContainsFunc(ff.Tools, (*decl.Tool).InSQL); len(ff.Routes) > 0 || sqlTools {
+		repo, err := sqlcgo.Find(filepath.Dir(name))
+		if err != nil {
+			off := 0
+			if len(ff.Routes) > 0 {
+				off = ff.Routes[0].QueryOffset
+			} else if i := slices.IndexFunc(ff.Tools, (*decl.Tool).InSQL); i >= 0 {
+				off = ff.Tools[i].SQLOffset
+			}
+			return "", nil, &gogen.RouteError{Offset: off, Err: err}
+		}
+		if err := checkSQLRoutes(name, ff, repo); err != nil {
+			return "", nil, err
+		}
+		funcs, err := gogen.ReadRouteFuncs(name, OutputPath(name), ff)
+		if err != nil {
+			return "", nil, err
+		}
+		opts.MapFuncs, opts.PrepareFuncs, opts.EmptyFuncs = funcs.Map, funcs.Prepare, funcs.Empty
+		if len(ff.Routes) > 0 {
+			opts.Swag = swagOptions(name, ff)
+		}
+		pinned := map[string]*sqlcgo.Package{}
+		if err := resolveSQLC(name, ff, repo, pinned); err != nil {
+			return "", nil, err
+		}
+		opts.Queries = func(query string) (*sqlcgo.Package, *sqlcgo.Query, error) {
+			// A .sqlc file's query comes from the package that reads the
+			// file, even if another package has the same name.
+			if p, ok := pinned[query]; ok {
+				_, short, _ := strings.Cut(query, ".")
+				return p, p.Queries[short], nil
+			}
+			return repo.Lookup(query)
+		}
+	}
+	if slices.ContainsFunc(ff.Agents, func(a *decl.Agent) bool { return a.Tools != nil }) {
+		opts.SiblingTools = ast.SiblingTools(name)
+	}
+	var buf bytes.Buffer
+	if err := gogen.GenFileOptions(&buf, ff, packageDir(name), opts); err != nil {
+		return "", nil, err
+	}
+	return OutputPath(name), buf.Bytes(), nil
+}
+
+// packageDir returns the name the generated package is named after. Like the
+// go tool, it prefers the package clause of the Go files already in the
+// directory, so af gen and af check agree wherever they run. Otherwise it uses
+// $GOPACKAGE (set by go generate) for the current directory, then the
+// directory name.
+func packageDir(name string) string {
+	dir := filepath.Dir(name)
+	if pkg := goPackageName(dir); pkg != "" {
+		return pkg
+	}
+	if dir == "." {
+		if pkg := os.Getenv("GOPACKAGE"); pkg != "" {
+			return pkg
+		}
+	}
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	return filepath.Base(dir)
+}
+
+// goPackageName returns the package declared by the Go files in dir that
+// match the current build context, or "" if there are none. Hand-written
+// files win over generated _af.go files, which may be stale. Test files are
+// ignored.
+func goPackageName(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	generated := ""
+	for _, e := range entries {
+		n := e.Name()
+		if !e.Type().IsRegular() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		if ok, err := build.Default.MatchFile(dir, n); err != nil || !ok {
+			continue
+		}
+		f, err := parser.ParseFile(gotoken.NewFileSet(), filepath.Join(dir, n), nil, parser.PackageClauseOnly)
+		if err != nil {
+			continue
+		}
+		if !strings.HasSuffix(n, "_af.go") {
+			return f.Name.Name
+		}
+		if generated == "" {
+			generated = f.Name.Name
+		}
+	}
+	return generated
+}
+
+// Diagnose formats a generation error as file:line:col: message lines. It
+// prefers the generator's own position, then lint errors, then the bare error.
+func Diagnose(name string, src []byte, err error) []string {
+	var re *gogen.RouteError
+	if src != nil && errors.As(err, &re) {
+		line, col := lint.Position(src, re.Offset)
+		return []string{fmt.Sprintf("%s:%d:%d: %v", name, line, col, re.Err)}
+	}
+	var pe *gogen.PosError
+	if src != nil && errors.As(err, &pe) {
+		line, col := lint.Position(src, pe.Offset)
+		return []string{fmt.Sprintf("%s:%d:%d: prompt %s: %v", name, line, col, pe.Prompt, pe.Err)}
+	}
+	if src != nil {
+		var msgs []string
+		diagnostics, lintErr := lint.Lint(name, src)
+		if lintErr == nil {
+			for _, d := range diagnostics {
+				if d.Severity == lint.SeverityError {
+					msgs = append(msgs, fmt.Sprintf("%s:%d:%d: %s", d.File, d.Line, d.Column, d.Message))
+				}
+			}
+		}
+		if len(msgs) > 0 {
+			return msgs
+		}
+	}
+	return []string{fmt.Sprintf("%s: %v", name, err)}
+}
+
+// writeFileAtomic replaces path with data via a temp file and rename in the
+// same directory. It skips the write when the contents are unchanged so mtimes
+// stay stable for build caching.
+func writeFileAtomic(path string, data []byte) (changed bool, err error) {
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
+		return false, nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err != nil {
+			tmp.Close()
+			os.Remove(tmp.Name())
+		}
+	}()
+	if _, err = tmp.Write(data); err != nil {
+		return false, err
+	}
+	if err = tmp.Chmod(0644); err != nil {
+		return false, err
+	}
+	if err = tmp.Close(); err != nil {
+		return false, err
+	}
+	if err = os.Rename(tmp.Name(), path); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func collectAFFiles(dir string) ([]string, error) {

@@ -37,6 +37,16 @@ Default guidance.
 `,
 		},
 		{
+			name: "tool sections",
+			in:   ".title System\nUse <! tool >.\n\n\n.tool lookup   \n.param ids []int   The ids.  \n.maxbytes 10 \n  Look up <!not a var>.  \n\n.tool ping\nPing.\n\n\n",
+			want: ".title System\n\nUse <!tool>.\n\n.tool lookup\n.param ids []int   The ids.\n.maxbytes 10\n  Look up <!not a var>.\n\n.tool ping\nPing.\n",
+		},
+		{
+			name: "tab after tool",
+			in:   ".title System\nHi.\n.tool\tlookup\n.param\tids []int\nLook up.\n",
+			want: ".title System\n\nHi.\n\n.tool\tlookup\n.param\tids []int\nLook up.\n",
+		},
+		{
 			name: "messy variable spacing",
 			in:   ".title   Greeting   \n\nHello <!  user.name   string  > and <!\tcount\tint\t>.\n",
 			want: `.title Greeting
@@ -87,7 +97,12 @@ Body two.
 		{
 			name: "trailing whitespace and final newline",
 			in:   ".title Demo\r\n\r\nLine with spaces.   \r\nLast line\t",
-			want: ".title Demo\n\nLine with spaces.\nLast line\n",
+			want: ".title Demo\n\nLine with spaces.   \nLast line\n",
+		},
+		{
+			name: "body whitespace kept except around the body",
+			in:   ".title Notes  \n\n\n  indented\nhard break  \n   \nend  \n\n.title Next\nx\n",
+			want: ".title Notes\n\n  indented\nhard break  \n   \nend\n\n.title Next\n\nx\n",
 		},
 		{
 			name: "preserves comments",

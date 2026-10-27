@@ -19,11 +19,17 @@ import (
 	"context"
 
 	"github.com/omniaura/agentflow/cfg"
+	"github.com/omniaura/agentflow/cmd/af/check"
 	"github.com/omniaura/agentflow/cmd/af/demo"
+	"github.com/omniaura/agentflow/cmd/af/eject"
 	fmtcmd "github.com/omniaura/agentflow/cmd/af/fmt"
 	"github.com/omniaura/agentflow/cmd/af/gen"
 	lintcmd "github.com/omniaura/agentflow/cmd/af/lint"
 	"github.com/omniaura/agentflow/cmd/af/lsp"
+	"github.com/omniaura/agentflow/cmd/af/newapp"
+	"github.com/omniaura/agentflow/cmd/af/skills"
+	"github.com/omniaura/agentflow/cmd/af/survey"
+	"github.com/omniaura/agentflow/cmd/af/upgrade"
 	"github.com/omniaura/agentflow/pkg/assert"
 	"github.com/omniaura/agentflow/pkg/logger"
 	"github.com/spf13/cobra"
@@ -32,7 +38,7 @@ import (
 
 func newRootCommand() *cobra.Command {
 	root := &cobra.Command{
-		Version:          cfg.Version, // This line will be updated by the sync-version script
+		Version:          cfg.Version,
 		Use:              "af",
 		Short:            "AgentFlow CLI",
 		Long:             "AgentFlow is a CLI for bootstrapping AI agents.",
@@ -40,11 +46,17 @@ func newRootCommand() *cobra.Command {
 	}
 
 	root.PersistentFlags().StringVar(&cfg.FlagLogLevel, "log", "debug", "Log level")
+	root.AddCommand(check.CMD())
 	root.AddCommand(demo.CMD())
+	root.AddCommand(eject.CMD())
 	root.AddCommand(fmtcmd.CMD())
 	root.AddCommand(gen.CMD())
 	root.AddCommand(lintcmd.CMD())
 	root.AddCommand(lsp.CMD())
+	root.AddCommand(newapp.CMD())
+	root.AddCommand(skills.CMD())
+	root.AddCommand(survey.CMD())
+	root.AddCommand(upgrade.CMD())
 
 	// Bind persistent flags to viper after all commands are added.
 	viper.BindPFlag("log", root.PersistentFlags().Lookup("log"))

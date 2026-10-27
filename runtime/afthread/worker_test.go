@@ -1,0 +1,475 @@
+package afthread_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/omniaura/agentflow/runtime/afagent"
+	"github.com/omniaura/agentflow/runtime/afthread"
+)
+
+// echo answers with the user messages it was given, failing a run whose
+// last message says FAIL.
+func echo(running *atomic.Int32, overlaps *atomic.Int32, delay time.Duration) afthread.Agent {
+	return func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+		if running.Add(1) > 1 {
+			overlaps.Add(1)
+		}
+		defer running.Add(-1)
+		msgs, err := before(ctx, 1, msgs)
+		if err != nil {
+			return afagent.Result{}, err
+		}
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+			return afagent.Result{}, ctx.Err()
+		}
+		if msgs[len(msgs)-1].Content == "FAIL" {
+			return afagent.Result{}, errors.New("model down")
+		}
+		var asked []string
+		for _, m := range msgs {
+			if m.Role == afagent.User {
+				asked = append(asked, m.Content)
+			}
+		}
+		answer := afagent.Message{Role: afagent.Assistant, Content: "re: " + strings.Join(asked, ",")}
+		return afagent.Result{Final: answer.Content, Turns: 1, Messages: append(msgs, answer)}, nil
+	}
+}
+
+func TestWorkerDrainsConcurrentSends(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann", Agent: "support"})
+	var running, overlaps atomic.Int32
+	var runs atomic.Int32
+	w := &afthread.Worker{
+		Store: s,
+		Agent: func(ctx context.Context, t afthread.Thread) (afthread.Agent, error) {
+			if t.Agent != "support" {
+				return nil, fmt.Errorf("no agent %q", t.Agent)
+			}
+			return echo(&running, &overlaps, time.Millisecond), nil
+		},
+		OnRun: func(ctx context.Context, t afthread.Thread, res afagent.Result, err error) { runs.Add(1) },
+	}
+	// Each request sends, then drains, as a server handling it would.
+	var wg sync.WaitGroup
+	for i := range 40 {
+		wg.Go(func() {
+			if _, err := s.Send(ctx, "ann", th.ID, afthread.Incoming{Key: fmt.Sprint(i), Content: fmt.Sprint(i)}); err != nil {
+				t.Error(err)
+			}
+			if err := w.Drain(ctx, "ann", th.ID); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if n := overlaps.Load(); n != 0 {
+		t.Errorf("%d runs overlapped", n)
+	}
+	// Every message is answered, none twice, and no run is left holding the
+	// thread.
+	for _, in := range s.Inbox("ann", th.ID) {
+		if in.Status != afthread.Done {
+			t.Errorf("message %s is %s", in.Content, in.Status)
+		}
+	}
+	got, _ := s.Transcript(ctx, "ann", th.ID)
+	users := 0
+	for _, m := range got {
+		if m.Role == afagent.User {
+			users++
+		}
+	}
+	if users != 40 || int(runs.Load()) != len(got)-users || runs.Load() > 40 {
+		t.Errorf("%d user messages, %d runs, transcript of %d", users, runs.Load(), len(got))
+	}
+	if held, _ := s.Lock(ctx, "ann", th.ID, "after", time.Minute); !held {
+		t.Error("the thread is still leased")
+	}
+}
+
+func TestWorkerKeepsItsLease(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps, calls atomic.Int32
+	w := &afthread.Worker{Store: s, Lease: 30 * time.Millisecond, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		calls.Add(1)
+		return echo(&running, &overlaps, 150*time.Millisecond), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "slow"})
+	done := make(chan error)
+	go func() { done <- w.Drain(ctx, "ann", th.ID) }()
+	// Long past the first lease, the run renews it: another worker leaves the
+	// thread alone.
+	time.Sleep(90 * time.Millisecond)
+	if err := w.Drain(ctx, "ann", th.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if calls.Load() != 1 || overlaps.Load() != 0 {
+		t.Errorf("%d runs, %d overlapping", calls.Load(), overlaps.Load())
+	}
+}
+
+// stolen is a store whose leases are taken by another worker after the
+// first.
+type stolen struct {
+	*afthread.Memory
+	locks atomic.Int32
+}
+
+func (s *stolen) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	if s.locks.Add(1) > 1 {
+		return false, nil
+	}
+	return s.Memory.Lock(ctx, owner, id, worker, lease)
+}
+
+func TestWorkerStopsWhenItLosesTheLease(t *testing.T) {
+	ctx := context.Background()
+	s := &stolen{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	var reportErr error
+	w := &afthread.Worker{Store: s, Lease: 30 * time.Millisecond, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, time.Second), nil
+	}, OnRun: func(ctx context.Context, t afthread.Thread, res afagent.Result, err error) { reportErr = ctx.Err() }}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "slow"})
+	start := time.Now()
+	err := w.Drain(ctx, "ann", th.ID)
+	if !errors.Is(err, afthread.ErrLeaseLost) || time.Since(start) > 500*time.Millisecond {
+		t.Fatalf("Drain = %v after %v", err, time.Since(start))
+	}
+	if in := s.Inbox("ann", th.ID); in[0].Status != afthread.Failed {
+		t.Errorf("message = %+v", in[0])
+	}
+	// OnRun can still report it.
+	if reportErr != nil {
+		t.Errorf("OnRun got a canceled ctx: %v", reportErr)
+	}
+}
+
+func TestWorkerReclaimsACrashedRun(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "lost"})
+	// A worker claimed it and died; its lease has lapsed.
+	s.Claim(ctx, "ann", th.ID)
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 0), nil
+	}}
+	if err := w.Drain(ctx, "ann", th.ID); err != nil {
+		t.Fatal(err)
+	}
+	if in := s.Inbox("ann", th.ID); in[0].Status != afthread.Done {
+		t.Errorf("message = %+v", in[0])
+	}
+}
+
+func TestWorkerFailures(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+
+	// A failed run fails its messages, and those queued since still run.
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "FAIL"})
+	first := true
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		agent := echo(&running, &overlaps, 0)
+		if !first {
+			return agent, nil
+		}
+		first = false
+		return func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+			s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "later"})
+			return agent(ctx, msgs, before)
+		}, nil
+	}}
+	if err := w.Drain(ctx, "ann", th.ID); err == nil || !strings.Contains(err.Error(), "model down") {
+		t.Fatalf("Drain = %v", err)
+	}
+	in := s.Inbox("ann", th.ID)
+	if len(in) != 2 || in[0].Status != afthread.Failed || in[1].Status != afthread.Done {
+		t.Fatalf("inbox = %+v", in)
+	}
+
+	// No agent for the thread: the message waits, and the thread is free.
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "waits"})
+	w.Agent = func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return nil, errors.New("no such agent")
+	}
+	if err := w.Drain(ctx, "ann", th.ID); err == nil || !strings.Contains(err.Error(), "no such agent") {
+		t.Fatalf("Drain without an agent = %v", err)
+	}
+	if in := s.Inbox("ann", th.ID); in[2].Status != afthread.Queued {
+		t.Errorf("message = %+v", in[2])
+	}
+	if held, _ := s.Lock(ctx, "ann", th.ID, "next", time.Minute); !held {
+		t.Error("the thread is still leased")
+	}
+
+	// Nor does a worker without agents, before it takes the thread.
+	w.Agent = nil
+	if err := w.Drain(ctx, "ann", th.ID); err == nil || !strings.Contains(err.Error(), "Agent is nil") {
+		t.Fatalf("Drain without Agent = %v", err)
+	}
+
+	// A store that can't lease threads can't have a worker.
+	type plain struct{ afthread.Store }
+	w.Store = plain{s}
+	if err := w.Drain(ctx, "ann", th.ID); err == nil || !strings.Contains(err.Error(), "doesn't implement Locker") {
+		t.Errorf("Drain on a plain store = %v", err)
+	}
+}
+
+// failing is a store whose lease renewals fail.
+type failing struct {
+	*afthread.Memory
+	locks atomic.Int32
+}
+
+func (s *failing) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	switch s.locks.Add(1) {
+	case 1:
+		return s.Memory.Lock(ctx, owner, id, worker, lease)
+	case 2:
+		return false, errors.New("database down")
+	}
+	// Then the database hangs.
+	<-ctx.Done()
+	return false, ctx.Err()
+}
+
+// A worker that can't renew stops before its lease ends, so no other
+// worker takes the thread while it still runs: even when renewing hangs.
+func TestWorkerStopsBeforeItsLeaseEnds(t *testing.T) {
+	ctx := context.Background()
+	s := &failing{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	lease := 300 * time.Millisecond
+	w := &afthread.Worker{Store: s, Lease: lease, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 10*time.Second), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "slow"})
+	start := time.Now()
+	if err := w.Drain(ctx, "ann", th.ID); !errors.Is(err, afthread.ErrLeaseLost) {
+		t.Fatalf("Drain = %v", err)
+	}
+	if took := time.Since(start); took >= lease {
+		t.Errorf("stopped after %v, past the %v lease", took, lease)
+	}
+}
+
+var errLockBug = errors.New("lock bug")
+
+// renewPanics panics when a worker renews its lease.
+type renewPanics struct {
+	*afthread.Memory
+	locks atomic.Int32
+}
+
+func (s *renewPanics) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	if s.locks.Add(1) > 1 {
+		panic(errLockBug)
+	}
+	return s.Memory.Lock(ctx, owner, id, worker, lease)
+}
+
+// A panic while renewing the lease stops the run as a lost lease, never a
+// crash.
+func TestWorkerRenewalPanic(t *testing.T) {
+	ctx := context.Background()
+	s := &renewPanics{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Lease: 30 * time.Millisecond, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, time.Second), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "slow"})
+	err := w.Drain(ctx, "ann", th.ID)
+	if !errors.Is(err, afthread.ErrLeaseLost) || !errors.Is(err, errLockBug) {
+		t.Fatalf("Drain = %v", err)
+	}
+}
+
+// An agent that panics with an error fails its run with that error.
+func TestRunAgentPanicKeepsTheError(t *testing.T) {
+	ctx := context.Background()
+	s := &afthread.Memory{}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "hi"})
+	bug := errors.New("nil map")
+	_, err := afthread.Run(ctx, s, "ann", th.ID, func(context.Context, []afagent.Message, afthread.BeforeTurn) (afagent.Result, error) {
+		panic(bug)
+	})
+	if !errors.Is(err, bug) {
+		t.Fatalf("Run = %v", err)
+	}
+	if in := s.Inbox("ann", th.ID); in[0].Status != afthread.Failed {
+		t.Errorf("message = %+v", in[0])
+	}
+}
+
+// panicsOnce panics in its first transcript read, as a store with a bug
+// in one row might, after the run claimed its messages; a message arrives
+// just before.
+type panicsOnce struct {
+	*afthread.Memory
+	reads atomic.Int32
+}
+
+func (s *panicsOnce) Transcript(ctx context.Context, owner, id string) ([]afagent.Message, error) {
+	if s.reads.Add(1) == 1 {
+		s.Memory.Send(ctx, owner, id, afthread.Incoming{Content: "second"})
+		panic("bad row")
+	}
+	return s.Memory.Transcript(ctx, owner, id)
+}
+
+// A panic in a run fails that run, and Drain goes on: the message queued
+// meanwhile, and the one the failed run claimed, are answered.
+func TestWorkerGoesOnAfterAPanicInARun(t *testing.T) {
+	ctx := context.Background()
+	s := &panicsOnce{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 0), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "first"})
+	if err := w.Drain(ctx, "ann", th.ID); err == nil || !strings.Contains(err.Error(), "panic: bad row") {
+		t.Fatalf("Drain = %v", err)
+	}
+	for _, in := range s.Inbox("ann", th.ID) {
+		if in.Status != afthread.Done {
+			t.Errorf("message %q is %s", in.Content, in.Status)
+		}
+	}
+}
+
+var errBadRow = errors.New("bad row")
+
+// panicsAlways is a store whose transcript reads panic with an error.
+type panicsAlways struct {
+	*afthread.Memory
+	reads atomic.Int32
+}
+
+func (s *panicsAlways) Transcript(ctx context.Context, owner, id string) ([]afagent.Message, error) {
+	s.reads.Add(1)
+	panic(errBadRow)
+}
+
+// A run that panics queues its messages again, and the error keeps the
+// panic's. Drain tries once more, then leaves them for a later one.
+func TestWorkerRequeuesAfterAPanicInARun(t *testing.T) {
+	ctx := context.Background()
+	s := &panicsAlways{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 0), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "first"})
+	if err := w.Drain(ctx, "ann", th.ID); !errors.Is(err, errBadRow) {
+		t.Fatalf("Drain = %v", err)
+	}
+	if n := s.reads.Load(); n != 2 {
+		t.Errorf("%d runs, want 2", n)
+	}
+	if in := s.Inbox("ann", th.ID); len(in) != 1 || in[0].Status != afthread.Queued {
+		t.Errorf("inbox = %+v", in)
+	}
+	if held, _ := s.Lock(ctx, "ann", th.ID, "next", time.Minute); !held {
+		t.Error("the thread is still leased")
+	}
+}
+
+// locksPanic is a store whose second lease panics.
+type locksPanic struct {
+	*afthread.Memory
+	locks atomic.Int32
+}
+
+func (s *locksPanic) Lock(ctx context.Context, owner, id, worker string, lease time.Duration) (bool, error) {
+	if s.locks.Add(1) == 2 {
+		panic("lock table gone")
+	}
+	return s.Memory.Lock(ctx, owner, id, worker, lease)
+}
+
+// A panic in Drain's own store calls keeps the runs' errors before it.
+func TestWorkerDrainPanicKeepsRunErrors(t *testing.T) {
+	ctx := context.Background()
+	s := &locksPanic{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		agent := echo(&running, &overlaps, 0)
+		return func(ctx context.Context, msgs []afagent.Message, before afthread.BeforeTurn) (afagent.Result, error) {
+			s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "later"})
+			return agent(ctx, msgs, before)
+		}, nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "FAIL"})
+	err := w.Drain(ctx, "ann", th.ID)
+	if err == nil || !strings.Contains(err.Error(), "model down") || !strings.Contains(err.Error(), "lock table gone") {
+		t.Fatalf("Drain = %v", err)
+	}
+}
+
+// reclaimPanics is a store whose runs panic, and so does queueing their
+// messages again.
+type reclaimPanics struct {
+	*afthread.Memory
+	reclaims atomic.Int32
+}
+
+func (s *reclaimPanics) Transcript(ctx context.Context, owner, id string) ([]afagent.Message, error) {
+	panic(errBadRow)
+}
+
+func (s *reclaimPanics) Reclaim(ctx context.Context, owner, id string, before time.Time) (int, error) {
+	if s.reclaims.Add(1) > 1 {
+		panic("reclaim bug")
+	}
+	return s.Memory.Reclaim(ctx, owner, id, before)
+}
+
+// A panic while queueing a panicked run's messages again still lets go of
+// the lease.
+func TestWorkerUnlocksAfterAPanicInReclaim(t *testing.T) {
+	ctx := context.Background()
+	s := &reclaimPanics{Memory: &afthread.Memory{}}
+	th, _ := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	var running, overlaps atomic.Int32
+	w := &afthread.Worker{Store: s, Agent: func(context.Context, afthread.Thread) (afthread.Agent, error) {
+		return echo(&running, &overlaps, 0), nil
+	}}
+	s.Send(ctx, "ann", th.ID, afthread.Incoming{Content: "first"})
+	err := w.Drain(ctx, "ann", th.ID)
+	if !errors.Is(err, errBadRow) || !strings.Contains(err.Error(), "reclaim bug") {
+		t.Fatalf("Drain = %v", err)
+	}
+	if held, _ := s.Lock(ctx, "ann", th.ID, "next", time.Minute); !held {
+		t.Error("the thread is still leased")
+	}
+}

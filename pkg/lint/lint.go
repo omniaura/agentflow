@@ -17,10 +17,16 @@ package lint
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"os"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/ast"
+	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/token"
 	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv/bytcase"
@@ -46,18 +52,25 @@ type frame struct {
 	path    string
 	tok     token.T
 	sawElse bool
+	loop    bool
 }
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var symbolicConditionalPattern = regexp.MustCompile(`<\?[^\n>]*(>=|<=|==|!=)`)
 
 func Lint(name string, src []byte) ([]Diagnostic, error) {
+	return LintRead(name, src, os.ReadFile)
+}
+
+// LintRead is Lint reading the other .af files of name's directory, whose
+// tools an agent may name, with read: an editor passes its open buffers.
+func LintRead(name string, src []byte, read ast.ReadFunc) ([]Diagnostic, error) {
 	tokens, err := token.Tokenize(src)
 	if err != nil {
 		return nil, err
 	}
 
-	l := &linter{name: name, src: src, lineStarts: lineStarts(src)}
+	l := &linter{name: name, src: src, lineStarts: lineStarts(src), read: read}
 	l.checkRawSymbolicOperators()
 	l.check(tokens)
 	return l.diagnostics, nil
@@ -77,8 +90,17 @@ type linter struct {
 	stack       []frame
 	types       map[string]string
 	titles      map[string]token.T
-	hasTitle    bool
-	hasContent  bool
+	sections    map[string]bool
+	// titleTexts, tools and agents are checked against each other once
+	// the whole file is read.
+	titleTexts []string
+	tools      []string
+	toolDecls  []*decl.Tool
+	read       ast.ReadFunc
+	outputs    []string
+	agents     []*decl.Agent
+	hasTitle   bool
+	hasContent bool
 }
 
 func (l *linter) check(tokens token.Slice) {
@@ -96,15 +118,140 @@ func (l *linter) check(tokens token.Slice) {
 			}
 		case kind.OpenBracket:
 			i = l.checkDirective(tokens, i)
+		case kind.Section:
+			l.checkSection(tok)
 		}
 	}
 
 	for _, f := range l.stack {
-		l.add(f.tok, SeverityError, "AF003", fmt.Sprintf("unclosed conditional <?%s>", f.path))
+		if f.loop {
+			l.add(f.tok, SeverityError, "AF003", fmt.Sprintf("unclosed loop <*%s>", f.path))
+		} else {
+			l.add(f.tok, SeverityError, "AF003", fmt.Sprintf("unclosed conditional <?%s>", f.path))
+		}
 	}
 	if !l.hasTitle && l.hasContent {
 		l.add(token.T{Start: 0, End: 0}, SeverityError, "AF001", "file has content but no .title section")
 	}
+	for _, a := range l.agents {
+		l.checkAgent(a)
+	}
+}
+
+// checkAgent reports an agent whose system prompt, tools or output are not
+// in the file.
+func (l *linter) checkAgent(a *decl.Agent) {
+	quoted := make([]string, len(l.titleTexts))
+	for i, t := range l.titleTexts {
+		quoted[i] = strconv.Quote(t)
+	}
+	switch {
+	case a.System != "" && !slices.Contains(l.titleTexts, a.System):
+		off := l.directiveOffset(a, ".system")
+		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: no prompt titled %q in this file (have %s)", a.Name, a.System, strings.Join(quoted, ", ")))
+	case a.System == "" && len(l.titleTexts) > 1:
+		l.add(token.T{Start: a.Start, End: a.Start}, SeverityError, "AF011", fmt.Sprintf("agent %s: the file has %d prompts; name the system prompt with .system <title>", a.Name, len(l.titleTexts)))
+	}
+	if a.Returns != "" && !slices.Contains(l.outputs, a.Returns) {
+		have := "it declares none"
+		if len(l.outputs) > 0 {
+			have = "have " + strings.Join(l.outputs, ", ")
+		}
+		off := l.directiveOffset(a, ".returns")
+		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: no output %s in this file (%s)", a.Name, a.Returns, have))
+	}
+	if a.Tools == nil {
+		return
+	}
+	// .tools may name tools of the other .af files of the package.
+	siblings := ast.SiblingToolsRead(l.name, l.read)
+	cycled := false
+	for _, name := range a.Tools {
+		off := l.directiveOffset(a, ".tools")
+		_, sub, err := ast.FindTool(l.toolDecls, l.agents, siblings, name)
+		switch {
+		case err != nil:
+			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: %v", a.Name, err))
+		case sub != nil && sub.Name == a.Name:
+			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s lists itself in .tools", a.Name))
+		case sub != nil && strings.TrimSpace(sub.Description) == "":
+			l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agent %s: agent %s needs a description to be called as a tool: the model reads it to know when to call it", a.Name, sub.Name))
+		case sub != nil && !cycled:
+			if cycle := ast.SubagentCycle(a.Name, ast.PackageAgents(l.agents, siblings)); cycle != nil {
+				// Once per agent; its other names are still checked.
+				cycled = true
+				l.add(token.T{Start: off, End: off}, SeverityError, "AF011", fmt.Sprintf("agents call each other in a cycle (%s), which could delegate without end", strings.Join(cycle, " → ")))
+			}
+		}
+	}
+}
+
+// directiveOffset returns the offset of a directive line in an agent
+// section, or the section's start.
+func (l *linter) directiveOffset(a *decl.Agent, directive string) int {
+	off := a.Start
+	for off < a.End {
+		end := bytes.IndexByte(l.src[off:a.End], '\n')
+		if end < 0 {
+			end = a.End - off
+		}
+		if line := l.src[off : off+end]; bytes.HasPrefix(line, []byte(directive)) && (len(line) == len(directive) || line[len(directive)] == ' ' || line[len(directive)] == '\t') {
+			return off
+		}
+		off += end + 1
+	}
+	return a.Start
+}
+
+// checkSection reports declaration errors in a section such as .tool or
+// .route.
+func (l *linter) checkSection(tok token.T) {
+	sec, err := decl.ParseSection(l.src, tok.Start, tok.End)
+	if err != nil {
+		off := tok.Start
+		var de *decl.Error
+		if errors.As(err, &de) {
+			off = de.Offset
+		}
+		l.add(token.T{Start: off, End: off}, SeverityError, "AF011", err.Error())
+		return
+	}
+	if l.sections == nil {
+		l.sections = map[string]bool{}
+	}
+	key := ""
+	switch s := sec.(type) {
+	case *decl.Tool:
+		for _, w := range s.Warnings {
+			l.add(token.T{Start: w.Offset, End: w.Offset}, SeverityWarning, "AF012", w.Msg)
+		}
+		key = fmt.Sprintf("tool %q", s.Name)
+		if s.Output {
+			key = fmt.Sprintf("output %q", s.Name)
+			l.outputs = append(l.outputs, s.Name)
+		} else {
+			l.tools = append(l.tools, s.Name)
+			l.toolDecls = append(l.toolDecls, s)
+		}
+	case *decl.Route:
+		key = "route " + s.Method + " " + s.Path
+	case *decl.Agent:
+		key = fmt.Sprintf("agent %q", s.Name)
+		l.agents = append(l.agents, s)
+		if s.ServePath != "" {
+			// An agent's route shares the mux with .route sections.
+			route := "route " + s.ServeMethod + " " + s.ServePath
+			if l.sections[route] {
+				off := l.directiveOffset(s, ".serve")
+				l.add(token.T{Start: off, End: off}, SeverityError, "AF011", route+" is declared twice")
+			}
+			l.sections[route] = true
+		}
+	}
+	if l.sections[key] {
+		l.add(tok, SeverityError, "AF011", key+" is declared twice")
+	}
+	l.sections[key] = true
 }
 
 func (l *linter) checkTitle(tokens token.Slice, start int) int {
@@ -120,6 +267,7 @@ func (l *linter) checkTitle(tokens token.Slice, start int) int {
 	}
 
 	title := strings.TrimSpace(string(tokens[i].Get(l.src)))
+	l.titleTexts = append(l.titleTexts, title)
 	generated := string(bytcase.ToCamel([]byte(title)))
 	if first, ok := l.titles[generated]; ok {
 		_ = first
@@ -135,6 +283,8 @@ func (l *linter) checkDirective(tokens token.Slice, start int) int {
 		return start
 	}
 	switch tokens[start+1].Kind {
+	case kind.DirectiveLoop:
+		return l.checkLoop(tokens, start)
 	case kind.DirectiveVar:
 		return l.checkVar(tokens, start)
 	case kind.DirectiveCond:
@@ -181,8 +331,14 @@ func (l *linter) checkCond(tokens token.Slice, start int) int {
 			l.checkType(tokens[start], path, parts[1])
 		}
 	} else if len(parts) >= 3 {
-		if isSymbolicOperator(parts[1]) || !isOperator(parts[1]) {
-			l.add(tokens[start], SeverityError, "AF009", fmt.Sprintf("invalid comparison operator %q", parts[1]))
+		op := parts[1]
+		// <?path type op value> declares the type before the comparison.
+		if len(parts) >= 4 && !isOperator(op) && !isSymbolicOperator(op) {
+			l.checkType(tokens[start], path, op)
+			op = parts[2]
+		}
+		if isSymbolicOperator(op) || !isOperator(op) {
+			l.add(tokens[start], SeverityError, "AF009", fmt.Sprintf("invalid comparison operator %q", op))
 		}
 	}
 	l.stack = append(l.stack, frame{path: path, tok: tokens[start]})
@@ -219,6 +375,10 @@ func (l *linter) checkElse(tokens token.Slice, start int) int {
 		return end
 	}
 	top := &l.stack[len(l.stack)-1]
+	if top.loop {
+		l.add(tokens[start], SeverityError, "AF006", "else is not supported on a loop")
+		return end
+	}
 	if top.sawElse {
 		l.add(tokens[start], SeverityError, "AF005", fmt.Sprintf("duplicate else in conditional <?%s>", top.path))
 	}
@@ -275,6 +435,11 @@ func lineStarts(src []byte) []int {
 	return starts
 }
 
+// Position returns the 1-based line and column of a byte offset in src.
+func Position(src []byte, offset int) (line, column int) {
+	return position(lineStarts(src), offset)
+}
+
 func position(starts []int, offset int) (int, int) {
 	line := 0
 	for i := range starts {
@@ -318,4 +483,16 @@ func isOperator(op string) bool {
 
 func isSymbolicOperator(op string) bool {
 	return bytes.ContainsAny([]byte(op), "=<>!")
+}
+
+func (l *linter) checkLoop(tokens token.Slice, start int) int {
+	end, content := l.directiveContent(tokens, start)
+	parts := strings.Fields(content)
+	if len(parts) != 4 || parts[2] != "as" || !identifierPattern.MatchString(parts[3]) || (!strings.HasPrefix(parts[1], "[]") || len(parts[1]) == 2) {
+		l.add(tokens[start], SeverityError, "AF010", "expected <*path []Type as alias>")
+		return end
+	}
+	l.checkPath(tokens[start], parts[0])
+	l.stack = append(l.stack, frame{path: parts[0], tok: tokens[start], loop: true})
+	return end
 }

@@ -19,15 +19,18 @@ func TestCleanPackageName(t *testing.T) {
 			want:  "agentflowcliname",
 		},
 		{
-			name:  "preserves other punctuation",
+			name:  "drops other punctuation",
 			input: "pkg.name/v2",
-			want:  "pkg.name/v2",
+			want:  "pkgnamev2",
 		},
 		{
 			name:  "handles empty strings",
 			input: "",
-			want:  "",
+			want:  "p",
 		},
+		{name: "leading digit", input: "003", want: "p003"},
+		{name: "keyword", input: "func", want: "pfunc"},
+		{name: "dots", input: "v1.2", want: "v12"},
 	}
 
 	for _, tt := range tests {

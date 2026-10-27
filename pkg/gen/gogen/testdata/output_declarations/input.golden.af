@@ -1,0 +1,18 @@
+.title Judge
+
+You decide whether a task a person did with their AI assistant is worth
+saving as a reusable workflow.
+
+Return JSON with these fields:
+<!fields>
+
+.output task_value_check
+.field repeatable bool Would the person plausibly want this exact task done again, on new data?
+.field confidence float 0 to 1, how sure you are. Be conservative.
+.field why One short sentence a user would understand, citing the evidence.
+.field title? A short name for the task, at most 60 characters.
+.field cadence? enum(daily, weekly, monthly) How often the task would run.
+.field sources[].name The app or site the task reads.
+.field sources[].kind enum(app, web, file)
+
+Whether the user would plausibly want this exact task done again.

@@ -1,0 +1,57 @@
+.title Support
+
+You are a support agent for <!shop>. Look orders up before answering
+questions about them. Offer a refund only for damaged or late orders.
+
+.tool lookup_order
+.param order_id The order ID, as printed on the receipt.
+
+Load one order by ID. Returns its status and total.
+
+.tool offer_refund
+.param order_id The order to refund.
+.param reason enum(damaged, late) Why the order qualifies.
+
+Show the customer a refund offer they must accept.
+
+.agent support
+.maxturns 6
+
+Answers customer questions about their orders.
+
+.output triage
+.field category enum(order, refund, account, other) What the customer needs.
+.field order_id? The order the message is about, if any.
+.field urgent bool Whether a person should answer within the hour.
+
+Sorts one customer message.
+
+.agent triager
+.tools lookup_order
+.returns triage
+.serve POST /triage
+.maxturns 3
+
+Sorts customer messages, looking orders up when it helps.
+
+.agent tracker
+.tools lookup_order, track_shipment
+.maxcalls 3
+.maxturns 4
+
+Tells customers where their parcel is. track_shipment is declared in
+shipping.af: an agent may use the tools of any .af file in its package.
+
+.agent concierge
+.tools lookup_order, tracker
+.maxturns 4
+
+Answers any customer question, handing parcel tracking to the tracker
+agent, which runs as a subagent with its own tools.
+
+.agent coordinator
+.tools list_agents, send_message
+.maxturns 4
+
+Coordinates the other agents: finds who can help and messages them.
+send_message and list_agents are built in; set Messenger to run them.

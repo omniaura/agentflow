@@ -18,8 +18,10 @@ package format
 import (
 	"bytes"
 	"regexp"
+	"slices"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/token"
 	"github.com/omniaura/agentflow/pkg/token/kind"
 )
@@ -50,11 +52,19 @@ func normalizeDirectives(tokens token.Slice, src []byte) []byte {
 	for i := 0; i < len(tokens); i++ {
 		tok := tokens[i]
 		switch tok.Kind {
+		case kind.Comment:
+			comment := tok.Get(src)
+			out.Write(bytes.TrimRight(comment, " \t\n"))
+			if bytes.HasSuffix(comment, []byte("\n")) {
+				out.WriteByte('\n')
+			}
 		case kind.TitleDirective:
 			i = writeTitle(&out, tokens, src, i)
 		case kind.OpenBracket:
 			if next, ok := peek(tokens, i+1); ok {
 				switch next.Kind {
+				case kind.DirectiveLoop:
+					i = writeTag(&out, tokens, src, i, "<*", ">", true)
 				case kind.DirectiveVar:
 					i = writeTag(&out, tokens, src, i, "<!", ">", true)
 				case kind.DirectiveCond:
@@ -141,47 +151,93 @@ func peek(tokens token.Slice, index int) (token.T, bool) {
 	return tokens[index], true
 }
 
+// normalizeStructuralLines puts one blank line around each title and trims
+// trailing whitespace on title lines and at the end of each prompt body. It
+// leaves body lines otherwise untouched: the generator ignores exactly the
+// whitespace removed here, so formatting never changes generated code.
 func normalizeStructuralLines(src string) string {
 	lines := strings.Split(src, "\n")
-	for i := range lines {
-		lines[i] = strings.TrimRight(lines[i], " \t")
-	}
-	for len(lines) > 0 && lines[len(lines)-1] == "" {
+	for len(lines) > 0 && isBlank(lines[len(lines)-1]) {
 		lines = lines[:len(lines)-1]
 	}
 
 	out := make([]string, 0, len(lines)+4)
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
-		if isTitleLine(line) {
-			trimTrailingBlankLines(&out)
+		if isTitleLine(strings.TrimRight(line, " \t")) {
+			endBody(&out)
 			if hasNonEmptyLine(out) {
 				out = append(out, "")
 			}
 
-			out = append(out, line)
-			for i+1 < len(lines) && lines[i+1] == "" {
+			out = append(out, strings.TrimRight(line, " \t"))
+			for i+1 < len(lines) && isBlank(lines[i+1]) {
 				i++
 			}
-			if i+1 < len(lines) && !isTitleLine(lines[i+1]) {
+			if i+1 < len(lines) && !isTitleLine(strings.TrimRight(lines[i+1], " \t")) {
 				out = append(out, "")
 			}
 			continue
+		}
+		if isSectionLine(strings.TrimRight(line, " \t")) {
+			endBody(&out)
+			if hasNonEmptyLine(out) {
+				out = append(out, "")
+			}
+			out = append(out, strings.TrimRight(line, " \t"))
+			continue
+		}
+		if isSectionDirectiveLine(line) {
+			line = strings.TrimRight(line, " \t")
 		}
 
 		out = append(out, line)
 	}
 
-	trimTrailingBlankLines(&out)
+	endBody(&out)
 	return strings.Join(out, "\n") + "\n"
+}
+
+// endBody trims the blank lines and trailing whitespace that end a prompt
+// body.
+func endBody(lines *[]string) {
+	trimTrailingBlankLines(lines)
+	if n := len(*lines); n > 0 {
+		(*lines)[n-1] = strings.TrimRight((*lines)[n-1], " \t")
+	}
+}
+
+func isBlank(line string) bool {
+	return strings.TrimLeft(line, " \t") == ""
 }
 
 func isTitleLine(line string) bool {
 	return line == ".title" || strings.HasPrefix(line, ".title ")
 }
 
+// isSectionLine reports whether line opens a declaration section, such as
+// .tool. Sections get a blank line before them, like titles, but keep their
+// directive lines together.
+func isSectionLine(line string) bool {
+	for _, d := range decl.SectionDirectives {
+		if line == d || strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
+			return true
+		}
+	}
+	return false
+}
+
+func isSectionDirectiveLine(line string) bool {
+	for _, d := range slices.Concat(decl.ToolDirectives, decl.OutputDirectives, decl.RouteDirectives, decl.AgentDirectives) {
+		if line == d || strings.HasPrefix(line, d+" ") || strings.HasPrefix(line, d+"\t") {
+			return true
+		}
+	}
+	return false
+}
+
 func trimTrailingBlankLines(lines *[]string) {
-	for len(*lines) > 0 && (*lines)[len(*lines)-1] == "" {
+	for len(*lines) > 0 && isBlank((*lines)[len(*lines)-1]) {
 		*lines = (*lines)[:len(*lines)-1]
 	}
 }

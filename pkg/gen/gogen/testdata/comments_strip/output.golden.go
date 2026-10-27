@@ -16,11 +16,11 @@ func (input *CommentedPrompt) String() string {
 	length += 6
 	length += len(input.Name)
 	length += 1
-	length += 9
+	length += 8
 	b.Grow(length)
 	b.WriteString("Hello ")
 	b.WriteString(input.Name)
 	b.WriteRune('\n')
-	b.WriteString("Goodbye.\n")
+	b.WriteString("Goodbye.")
 	return b.String()
 }

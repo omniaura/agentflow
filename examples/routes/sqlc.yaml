@@ -1,0 +1,17 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema: db/schema.sql
+    queries:
+      - db/queries.sql
+      - db/search.sql
+      - notes_af.sql
+      - assistant_af.sql
+      - note_copies_af.sql
+    gen:
+      go:
+        package: db
+        out: db
+        sql_package: pgx/v5
+        emit_json_tags: true
+        json_tags_case_style: camel

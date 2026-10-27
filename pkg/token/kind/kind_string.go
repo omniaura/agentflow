@@ -25,16 +25,19 @@ func _() {
 	_ = x[BoolValue-14]
 	_ = x[Text-15]
 	_ = x[Whitespace-16]
-	_ = x[Comment-17]
+	_ = x[DirectiveLoop-17]
+	_ = x[Section-18]
+	_ = x[Comment-19]
 }
 
-const _Kind_name = "UnsetOpenBracketCloseBracketDirectiveVarDirectiveCondDirectiveEndDirectiveElseTitleDirectiveTitleTextVarNameTypeNameOperatorStringValueIntValueBoolValueTextWhitespaceComment"
+const _Kind_name = "UnsetOpenBracketCloseBracketDirectiveVarDirectiveCondDirectiveEndDirectiveElseTitleDirectiveTitleTextVarNameTypeNameOperatorStringValueIntValueBoolValueTextWhitespaceDirectiveLoopSectionComment"
 
-var _Kind_index = [...]uint8{0, 5, 16, 28, 40, 53, 65, 78, 92, 101, 108, 116, 124, 135, 143, 152, 156, 166, 173}
+var _Kind_index = [...]uint8{0, 5, 16, 28, 40, 53, 65, 78, 92, 101, 108, 116, 124, 135, 143, 152, 156, 166, 179, 186, 193}
 
 func (i Kind) String() string {
-	if i < 0 || i >= Kind(len(_Kind_index)-1) {
+	idx := int(i) - 0
+	if i < 0 || idx >= len(_Kind_index)-1 {
 		return "Kind(" + strconv.FormatInt(int64(i), 10) + ")"
 	}
-	return _Kind_name[_Kind_index[i]:_Kind_index[i+1]]
+	return _Kind_name[_Kind_index[idx]:_Kind_index[idx+1]]
 }

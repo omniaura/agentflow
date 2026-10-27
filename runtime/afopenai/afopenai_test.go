@@ -1,0 +1,280 @@
+package afopenai
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+
+	"github.com/omniaura/agentflow/runtime/afagent"
+)
+
+// fakeOpenAI answers chat completions with each scripted response in turn
+// and records the request bodies.
+type fakeOpenAI struct {
+	mu      sync.Mutex
+	answers []string
+	chunks  []string // Streamed to requests with "stream": true.
+	bodies  []map[string]any
+}
+
+func (f *fakeOpenAI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r.URL.Path != "/chat/completions" {
+		http.Error(w, "not found: "+r.URL.Path, http.StatusNotFound)
+		return
+	}
+	b, _ := io.ReadAll(r.Body)
+	var body map[string]any
+	if err := json.Unmarshal(b, &body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	f.bodies = append(f.bodies, body)
+	if body["stream"] == true {
+		// Stream the scripted chunks.
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, c := range f.chunks {
+			io.WriteString(w, "data: "+c+"\n\n")
+		}
+		io.WriteString(w, "data: [DONE]\n\n")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if len(f.bodies) > len(f.answers) {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":{"message":"no more answers","type":"invalid_request_error"}}`)
+		return
+	}
+	io.WriteString(w, f.answers[len(f.bodies)-1])
+}
+
+func completion(finish, message string) string {
+	return `{"id":"cc_1","object":"chat.completion","created":1,"model":"m","choices":[{"index":0,"finish_reason":"` + finish + `","logprobs":null,"message":` + message + `}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"prompt_tokens_details":{"cached_tokens":64}}}`
+}
+
+func newModel(t *testing.T, f *fakeOpenAI) *Model {
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	c := openai.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("test"), option.WithMaxRetries(0))
+	return &Model{Client: &c, Model: "test-model"}
+}
+
+var lookupSchema = json.RawMessage(`{"type":"object","properties":{"order_id":{"type":"string"}},"required":["order_id"],"additionalProperties":false}`)
+
+func TestAgentLoopOnOpenAI(t *testing.T) {
+	f := &fakeOpenAI{answers: []string{
+		completion("tool_calls", `{"role":"assistant","content":null,"refusal":null,"tool_calls":[
+			{"id":"call_1","type":"function","function":{"name":"lookup_order","arguments":"{\"order_id\":\"A-1\"}"}},
+			{"id":"call_2","type":"function","function":{"name":"lookup_order","arguments":"{\"order_id\":\"B-2\"}"}}]}`),
+		completion("stop", `{"role":"assistant","content":"A-1 is late.","refusal":null}`),
+	}}
+	m := newModel(t, f)
+	m.MaxCompletionTokens = 1000
+	loop := afagent.Loop{
+		Model:  m,
+		System: "You are support.",
+		Tools:  []afagent.ToolSpec{{Name: "lookup_order", Description: "Load an order.", Schema: lookupSchema}},
+		Dispatch: func(ctx context.Context, c afagent.ToolCall) (string, error) {
+			if strings.Contains(c.Arguments, "B-2") {
+				return "", errors.New("no order B-2")
+			}
+			return "late", nil
+		},
+	}
+	res, err := loop.Run(context.Background(), []afagent.Message{{Role: afagent.User, Content: "Where are A-1 and B-2?"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Final != "A-1 is late." || res.Usage != (afagent.Usage{InputTokens: 200, CachedInputTokens: 128, OutputTokens: 40}) {
+		t.Errorf("res = %+v", res)
+	}
+	if c := res.Messages[1].ToolCalls; len(c) != 2 || c[1].ID != "call_2" || c[1].Arguments != `{"order_id":"B-2"}` {
+		t.Errorf("tool calls = %+v", c)
+	}
+
+	req := f.bodies[0]
+	if req["model"] != "test-model" || req["max_completion_tokens"] != float64(1000) {
+		t.Errorf("request = %v", req)
+	}
+	fn := req["tools"].([]any)[0].(map[string]any)["function"].(map[string]any)
+	if fn["name"] != "lookup_order" || fn["description"] != "Load an order." || fn["parameters"].(map[string]any)["additionalProperties"] != false {
+		t.Errorf("tool = %v", fn)
+	}
+
+	msgs := f.bodies[1]["messages"].([]any)
+	var roles []string
+	for _, m := range msgs {
+		roles = append(roles, m.(map[string]any)["role"].(string))
+	}
+	if strings.Join(roles, ",") != "system,user,assistant,tool,tool" {
+		t.Fatalf("roles = %v", roles)
+	}
+	calls := msgs[2].(map[string]any)["tool_calls"].([]any)
+	if len(calls) != 2 || calls[0].(map[string]any)["function"].(map[string]any)["arguments"] != `{"order_id":"A-1"}` {
+		t.Errorf("assistant tool calls = %v", calls)
+	}
+	if _, ok := msgs[2].(map[string]any)["content"]; ok {
+		t.Errorf("assistant message without text sent content: %v", msgs[2])
+	}
+	if r := msgs[4].(map[string]any); r["tool_call_id"] != "call_2" || r["content"] != "Error: no order B-2" {
+		t.Errorf("failed result = %v", r)
+	}
+}
+
+func TestFinishReasons(t *testing.T) {
+	for _, tt := range []struct {
+		finish, message string
+		want            error
+	}{
+		{"length", `{"role":"assistant","content":"part","refusal":null}`, afagent.ErrTruncated},
+		{"content_filter", `{"role":"assistant","content":"","refusal":null}`, afagent.ErrRefused},
+		{"stop", `{"role":"assistant","content":null,"refusal":"I can't help with that."}`, afagent.ErrRefused},
+	} {
+		f := &fakeOpenAI{answers: []string{completion(tt.finish, tt.message)}}
+		_, err := newModel(t, f).Complete(context.Background(), afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}})
+		if !errors.Is(err, tt.want) {
+			t.Errorf("%s: got %v, want %v", tt.finish, err, tt.want)
+		}
+	}
+}
+
+func TestParamsHookAndErrors(t *testing.T) {
+	f := &fakeOpenAI{}
+	m := newModel(t, f)
+	m.Params = func(p *openai.ChatCompletionNewParams) { p.ParallelToolCalls = openai.Bool(false) }
+	_, err := m.Complete(context.Background(), afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}})
+	// The SDK's error stays reachable, with the status and message.
+	var apiErr *openai.Error
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest || apiErr.Message != "no more answers" {
+		t.Fatalf("got %v, want the API error", err)
+	}
+	if f.bodies[0]["parallel_tool_calls"] != false {
+		t.Errorf("Params not applied: %v", f.bodies[0])
+	}
+	if _, err := (&Model{}).Complete(context.Background(), afagent.Request{}); err == nil || !strings.Contains(err.Error(), "Model.Model is empty") {
+		t.Errorf("empty model: %v", err)
+	}
+	if _, err := m.Complete(context.Background(), afagent.Request{Messages: []afagent.Message{{Role: "system"}}}); err == nil || !strings.Contains(err.Error(), `unknown role "system"`) {
+		t.Errorf("bad role: %v", err)
+	}
+}
+
+func TestStructuredOutput(t *testing.T) {
+	f := &fakeOpenAI{answers: []string{completion("stop", `{"role":"assistant","content":"{\"ok\":true}","refusal":null}`)}}
+	resp, err := newModel(t, f).Complete(context.Background(), afagent.Request{
+		Messages: []afagent.Message{{Role: afagent.User, Content: "judge"}},
+		Output:   &afagent.OutputSpec{Name: "verdict", Description: "The verdict.", Schema: json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`)},
+	})
+	if err != nil || resp.Message.Content != `{"ok":true}` {
+		t.Fatalf("got %v, %+v", err, resp)
+	}
+	rf := f.bodies[0]["response_format"].(map[string]any)
+	js := rf["json_schema"].(map[string]any)
+	if rf["type"] != "json_schema" || js["name"] != "verdict" || js["strict"] != true || js["description"] != "The verdict." || js["schema"].(map[string]any)["required"].([]any)[0] != "ok" {
+		t.Errorf("response_format = %v", rf)
+	}
+}
+
+func TestStreamsText(t *testing.T) {
+	chunk := func(delta, finish string) string {
+		fr := "null"
+		if finish != "" {
+			fr = `"` + finish + `"`
+		}
+		return `{"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":` + delta + `,"finish_reason":` + fr + `}]}`
+	}
+	f := &fakeOpenAI{chunks: []string{
+		chunk(`{"role":"assistant","content":"Look"}`, ""),
+		chunk(`{"content":"ing up."}`, ""),
+		chunk(`{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup_order","arguments":"{\"order_id\":"}}]}`, ""),
+		chunk(`{"tool_calls":[{"index":0,"function":{"arguments":"\"A-1\"}"}}]}`, ""),
+		chunk(`{}`, "tool_calls"),
+		`{"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"prompt_tokens_details":{"cached_tokens":64}}}`,
+	}}
+	var deltas []string
+	resp, err := newModel(t, f).Complete(context.Background(), afagent.Request{
+		Messages: []afagent.Message{{Role: afagent.User, Content: "where is A-1"}},
+		OnText:   func(s string) { deltas = append(deltas, s) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(deltas, "|") != "Look|ing up." || resp.Message.Content != "Looking up." {
+		t.Errorf("deltas %q, content %q", deltas, resp.Message.Content)
+	}
+	if c := resp.Message.ToolCalls; len(c) != 1 || c[0].ID != "call_1" || c[0].Arguments != `{"order_id":"A-1"}` {
+		t.Errorf("tool calls = %+v", c)
+	}
+	if resp.Usage != (afagent.Usage{InputTokens: 100, CachedInputTokens: 64, OutputTokens: 20}) {
+		t.Errorf("usage = %+v", resp.Usage)
+	}
+	req := f.bodies[0]
+	if req["stream"] != true || req["stream_options"].(map[string]any)["include_usage"] != true {
+		t.Errorf("request = %v", req)
+	}
+}
+
+func TestAPIErrorsCarryStatus(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Retry-After-Ms", "1500")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(429)
+			io.WriteString(w, `{"error":{"message":"Rate limited","type":"rate_limit_exceeded","param":null,"code":"rate_limit_exceeded"}}`)
+		}))
+		c := openai.NewClient(option.WithBaseURL(srv.URL), option.WithAPIKey("test"), option.WithMaxRetries(0))
+		req := afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}}
+		if stream {
+			req.OnText = func(string) {}
+		}
+		_, err := (&Model{Client: &c, Model: "m"}).Complete(context.Background(), req)
+		srv.Close()
+		var me *afagent.ModelError
+		if !errors.As(err, &me) || me.Status != 429 || me.RetryAfter != 1500*time.Millisecond || !strings.HasPrefix(err.Error(), "afopenai: ") {
+			t.Errorf("stream=%v: got %#v", stream, err)
+		}
+	}
+}
+
+func TestNoToolCalls(t *testing.T) {
+	tools := []afagent.ToolSpec{{Name: "x", Schema: json.RawMessage(`{"type":"object","properties":{}}`)}}
+	answer := completion("stop", `{"role":"assistant","content":"a","refusal":null}`)
+	f := &fakeOpenAI{answers: []string{answer, answer}}
+	m := newModel(t, f)
+	for _, no := range []bool{true, false} {
+		if _, err := m.Complete(context.Background(), afagent.Request{Messages: []afagent.Message{{Role: afagent.User, Content: "hi"}}, Tools: tools, NoToolCalls: no}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if f.bodies[0]["tool_choice"] != "none" || len(f.bodies[0]["tools"].([]any)) != 1 {
+		t.Errorf("forced answer: tool_choice = %v, tools = %v", f.bodies[0]["tool_choice"], f.bodies[0]["tools"])
+	}
+	if _, set := f.bodies[1]["tool_choice"]; set {
+		t.Errorf("tool_choice set on a normal turn: %v", f.bodies[1]["tool_choice"])
+	}
+
+	// A forced structured answer keeps its format alongside the tools: the
+	// conversation may hold tool calls, which some providers behind
+	// OpenAI-compatible gateways reject when no tools are defined.
+	f = &fakeOpenAI{answers: []string{completion("stop", `{"role":"assistant","content":"{}","refusal":null}`)}}
+	_, err := newModel(t, f).Complete(context.Background(), afagent.Request{
+		Messages:    []afagent.Message{{Role: afagent.User, Content: "hi"}},
+		Tools:       tools,
+		NoToolCalls: true,
+		Output:      &afagent.OutputSpec{Name: "v", Schema: json.RawMessage(`{"type":"object","properties":{},"additionalProperties":false}`)},
+	})
+	if err != nil || f.bodies[0]["tool_choice"] != "none" || len(f.bodies[0]["tools"].([]any)) != 1 || f.bodies[0]["response_format"].(map[string]any)["type"] != "json_schema" {
+		t.Errorf("forced structured answer: %v, body %v", err, f.bodies[0])
+	}
+}

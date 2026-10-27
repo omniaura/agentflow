@@ -1,0 +1,57 @@
+.title Notes Assistant
+
+You help <!name> with their notes. Look notes up before you change them,
+and say which note you changed.
+
+.tool list_notes
+.auth owner_id
+
+Lists the caller's notes, pinned first.
+
+.sql :many
+SELECT id, body, pinned FROM notes
+WHERE owner_id = @owner_id
+ORDER BY pinned DESC, id
+
+.tool find_notes
+.param text The words to look for.
+.auth owner_id
+
+Finds the caller's notes that contain the text.
+
+.sql :many
+SELECT id, body, pinned FROM notes
+WHERE owner_id = @owner_id AND strpos(lower(body), lower(@text)) > 0
+ORDER BY id
+
+.tool add_note
+.auth owner_id
+
+Adds a note for the caller.
+
+.sql :one
+INSERT INTO notes (owner_id, body) VALUES (@owner_id, @body) RETURNING id, body
+
+.tool pin_note
+.auth owner_id
+.empty no note of yours has that id
+
+Pins one of the caller's notes.
+
+.sql :execrows
+UPDATE notes SET pinned = true WHERE id = @note_id AND owner_id = @owner_id
+
+.tool unpin_notes
+.auth owner_id
+
+Unpins some of the caller's notes.
+
+.sql :execrows
+UPDATE notes SET pinned = false
+WHERE id = ANY(@note_ids::bigint[]) AND owner_id = @owner_id
+
+.agent notes
+.serve POST /assistant
+.maxturns 6
+
+Answers questions about the caller's notes and pins them.

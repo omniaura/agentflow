@@ -1,0 +1,194 @@
+package gogen
+
+import (
+	"bytes"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/omniaura/agentflow/pkg/ast"
+	"github.com/omniaura/agentflow/pkg/decl"
+	"github.com/omniaura/agentflow/pkg/sqlcgo"
+)
+
+const findSQL = "\n.sql :many\nSELECT id, body, pinned FROM notes WHERE owner_id = @owner_id AND strpos(lower(body), lower(@text)) > 0\n"
+
+func TestSQLTools(t *testing.T) {
+	code, err := genRoutesFile(t, ".title A\nHi.\n\n.tool find_notes\n.param text What to find.\n.auth owner_id\nFinds notes."+findSQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"type ApiSQLTools struct",
+		"Caller func(ctx context.Context) (Caller, error)",
+		"func (t *ApiSQLTools) FindNotes(ctx context.Context, args FindNotesArgs) (string, error) {",
+		"arg.OwnerID = caller.OwnerID",
+		"arg.Text = args.Text",
+		// The model sees text, with its description, and not owner_id.
+		`"text":{"type":"string","description":"What to find."}`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(code, `"owner_id"`) {
+		t.Error("owner_id is in the tool's schema")
+	}
+}
+
+func TestSQLToolInfersParams(t *testing.T) {
+	code, err := genRoutesFile(t, ".title A\nHi.\n\n.tool pin_note\n.auth owner_id\nPins.\n.sql :execrows\nUPDATE notes SET pinned = true WHERE id = @note_id AND owner_id = @owner_id\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"note_id":{"type":"integer"}`, `"required":["note_id"]`, "arg.NoteID = int64(args.NoteId)"} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+}
+
+func TestSQLToolErrors(t *testing.T) {
+	for _, tt := range []struct{ name, src, msg string }{
+		{"stray param", ".tool find_notes\n.param words\n.auth owner_id\nFinds." + findSQL, "parameter words matches no argument of query FindNotesTool (ownerId, text)"},
+		{"stray auth", ".tool find_notes\n.auth owner_id, team_id\nFinds." + findSQL, ".auth team_id matches no argument"},
+		{"wrong type", ".tool find_notes\n.param text bool\n.auth owner_id\nFinds." + findSQL, "parameter text is bool, but query argument text is string"},
+		{"object", ".tool find_notes\n.param text.words\n.auth owner_id\nFinds." + findSQL, "parameter text is an object"},
+		{"not generated", ".tool nope\nNope.\n.sql :one\nSELECT 1\n", "no sqlc query NopeTool"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := genRoutesFile(t, ".title A\nHi.\n\n"+tt.src)
+			var de *DeclError
+			if !errors.As(err, &de) || !strings.Contains(err.Error(), tt.msg) {
+				t.Fatalf("got %v, want %q", err, tt.msg)
+			}
+		})
+	}
+}
+
+func TestConvert(t *testing.T) {
+	field := func(expr string) sqlcgo.Field {
+		return sqlcgo.Field{Name: "X", JSON: "x", Type: sqlcgo.Type{Expr: expr}}
+	}
+	param := func(kind decl.Kind, array bool) *decl.Param {
+		p := &decl.Param{Name: "x"}
+		p.Type.Kind, p.Type.Array = kind, array
+		return p
+	}
+	for _, tt := range []struct {
+		name string
+		p    *decl.Param
+		to   string
+		want string
+	}{
+		{"int64", param(decl.Int, false), "int64", "arg.X = int64(args.X)"},
+		{"int32 range-checked", param(decl.Int, false), "int32", `afhttp.Parse("x", strconv.Itoa(args.X), &arg.X)`},
+		// float32(1e300) would be +Inf: parse instead, which rejects it.
+		{"float32 range-checked", param(decl.Float, false), "float32", `afhttp.Parse("x", strconv.FormatFloat(args.X, 'g', -1, 64), &arg.X)`},
+		{"[]int64", param(decl.Int, true), "[]int64", "arg.X = make([]int64, len(args.X))\nfor i, v := range args.X {\narg.X[i] = int64(v)\n}"},
+		{"[]int32", param(decl.Int, true), "[]int32", `afhttp.Parse("x", strconv.Itoa(v), &arg.X[i])`},
+		{"[]string", param(decl.String, true), "[]string", "arg.X = args.X"},
+		{"database type", param(decl.String, false), "pgtype.UUID", "if err := afhttp.Parse(\"x\", args.X, &arg.X); err != nil {"},
+		// Left out, an optional value stays NULL.
+		{"optional database type", &decl.Param{Name: "x", Optional: true}, "pgtype.Text", "if args.X != \"\" {\nif err := afhttp.Parse(\"x\", args.X, &arg.X)"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := convert(&buf, map[string]bool{}, tt.p, field(tt.to), "arg.X", "args.X"); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(buf.String(), tt.want) {
+				t.Errorf("got\n%s\nwant %s", buf.String(), tt.want)
+			}
+		})
+	}
+	// An optional list still parses every element: only the list may be
+	// left out.
+	var list bytes.Buffer
+	optional := &decl.Param{Name: "x", Optional: true}
+	optional.Type.Array = true
+	if err := convert(&list, map[string]bool{}, optional, field("[]pgtype.UUID"), "arg.X", "args.X"); err != nil || strings.Contains(list.String(), `if v != ""`) || !strings.Contains(list.String(), `afhttp.Parse("x", v, &arg.X[i])`) {
+		t.Errorf("optional list (%v):\n%s", err, list.String())
+	}
+	var buf bytes.Buffer
+	if err := convert(&buf, map[string]bool{}, param(decl.Bool, true), field("[]int64"), "a", "b"); err == nil {
+		t.Error("a list of bools converted to []int64")
+	}
+	// Inference accepts integer lists, which convert handles, and refuses
+	// lists of database types.
+	if p, err := inferParam(field("[]int64")); err != nil || p.Type.Kind != decl.Int || !p.Type.Array {
+		t.Errorf("[]int64: %+v, %v", p, err)
+	}
+	if _, err := inferParam(field("[]pgtype.UUID")); err == nil {
+		t.Error("[]pgtype.UUID inferred")
+	}
+	// sqlc uses pgtype.Bool only for values that may be NULL, so the model
+	// may leave it out; pgtype.UUID is used for NOT NULL columns too.
+	for typ, optional := range map[string]bool{"pgtype.Bool": true, "pgtype.Int8": true, "sql.NullString": true, "pgtype.UUID": false, "string": false} {
+		if p, err := inferParam(field(typ)); err != nil || p.Optional != optional || p.Type.Kind != decl.String {
+			t.Errorf("%s: %+v, %v", typ, p, err)
+		}
+	}
+}
+
+// Tools that link queries with .sqlc run them like tools written in SQL.
+func TestSQLCTools(t *testing.T) {
+	code, err := genRoutesFile(t, ".title A\nHi.\n\n.tool get_todo\n.sqlc GetTodo\n.auth owner_id\nGets a todo.\n\n.tool peek_todo\n.sqlc db.GetTodo\n.auth owner_id\nPeeks at a todo.\n\n.tool list_todos\n.sqlc ListTodos\n.auth owner_id\nLists todos.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		// Two tools share GetTodo: the interface declares it once.
+		"type ApiToolQueries interface {\n\tGetTodo(ctx context.Context, arg db.GetTodoParams) (db.Todo, error)\n\tListTodos(",
+		"func (t *ApiSQLTools) PeekTodo(ctx context.Context, args PeekTodoArgs) (string, error) {",
+		"row, err := t.Queries.GetTodo(ctx, arg)",
+		// sqlc.narg('done') is optional.
+		`ListTodosTool = &aftool.Def[ListTodosArgs]{`,
+		`"properties":{"done":{"type":"string"}},"additionalProperties":false}`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q\n%s", want, code)
+		}
+	}
+	// A .sqlc file that af gen hasn't resolved to a query is an error.
+	f, _ := ast.NewFile("api.af", []byte(".title A\nHi.\n\n.tool t\n.sqlc x.sql\nDoes t.\n"))
+	if err := GenFileOptions(&bytes.Buffer{}, f, "api", Options{Queries: func(string) (*sqlcgo.Package, *sqlcgo.Query, error) { return nil, nil, errors.New("unreachable") }}); err == nil || !strings.Contains(err.Error(), ".sqlc x.sql: name the query") {
+		t.Errorf("unresolved file: %v", err)
+	}
+}
+
+func TestSQLCToolsShareOnePackage(t *testing.T) {
+	pkgs := map[string]*sqlcgo.Package{
+		"a.Q": {Name: "a", ImportPath: "example.com/a", Queries: map[string]*sqlcgo.Query{"Q": {Name: "Q", Kind: sqlcgo.Exec}}},
+		"b.Q": {Name: "b", ImportPath: "example.com/b", Queries: map[string]*sqlcgo.Query{"Q": {Name: "Q", Kind: sqlcgo.Exec}}},
+	}
+	f, _ := ast.NewFile("api.af", []byte(".title A\nHi.\n\n.tool one\n.sqlc a.Q\nOne.\n\n.tool two\n.sqlc b.Q\nTwo.\n"))
+	err := GenFileOptions(&bytes.Buffer{}, f, "api", Options{Queries: func(name string) (*sqlcgo.Package, *sqlcgo.Query, error) {
+		p := pkgs[name]
+		return p, p.Queries["Q"], nil
+	}})
+	if err == nil || !strings.Contains(err.Error(), "tool two runs a query of sqlc package b, but tool one runs one of a") {
+		t.Errorf("got %v", err)
+	}
+}
+
+func TestSQLToolEmpty(t *testing.T) {
+	code, err := genRoutesFile(t, ".title A\nHi.\n\n.tool get_todo\n.sqlc GetTodo\n.auth owner_id\n.empty no todo has that id\nGets a todo.\n\n.tool finish_todo\n.sqlc SetTodoDone\n.auth owner_id\n.empty that todo is \"gone\"\nFinishes a todo.\n\n.tool delete_todo\n.sqlc DeleteTodo\n.auth owner_id\nDeletes a todo.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`return "", &aftool.Error{Msg: "no todo has that id", Err: err}`,
+		`return "", &aftool.Error{Msg: "that todo is \"gone\""}`,
+		// Without .empty: not found.
+		`return "", &aftool.Error{Msg: "not found"}`,
+	} {
+		if !strings.Contains(code, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	_, err = genRoutesFile(t, ".title A\nHi.\n\n.tool list_todos\n.sqlc ListTodos\n.auth owner_id\n.empty none\nLists.\n")
+	if err == nil || !strings.Contains(err.Error(), ".empty applies to a :one query") {
+		t.Errorf("got %v", err)
+	}
+}

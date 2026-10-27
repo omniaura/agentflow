@@ -1,0 +1,30 @@
+.route POST /todos CreateTodo
+.auth owner_id
+.status 201
+Creates a todo for the caller.
+
+.route GET /todos/{id} GetTodo
+.auth owner_id
+
+.route GET /todos ListTodos
+.auth owner_id
+Lists the caller's todos. Filter with ?done=true or ?done=false.
+
+.route PUT /todos/{id}/done SetTodoDone
+.auth owner_id
+
+.route POST /todos/{todo_id}/status SetTodoDone
+.auth owner_id
+.bind id = todo_id
+.bind done = completed
+The same query, for clients that name things differently.
+
+.route DELETE /todos/{id} DeleteTodo
+.auth owner_id
+
+.route GET /stats/count CountTodos
+.public
+.cache 1m
+
+.route GET /todos/{id}/title GetTodoTitle
+.public

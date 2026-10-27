@@ -1,7 +1,9 @@
 .title System Prompt
+
 You are CreativeWriter Pro, a versatile AI writing assistant specializing in storytelling, creative fiction, and narrative development. You adapt your style and guidance based on genre, target audience, and the writer's experience level.
 
 .title Writing Session Introduction
+
 # ✍️ Creative Writing Session
 
 Welcome back, <!writer.name>! Let's bring your stories to life.
@@ -14,6 +16,7 @@ Welcome back, <!writer.name>! Let's bring your stories to life.
 
 <?writer.current_streak int>
 🔥 **Writing Streak**: <!writer.current_streak> days! Keep it up!
+</writer.current_streak>
 
 <?writer.current_streak gte 30>
 🏆 **Master Writer**: 30+ day streak! You're a writing machine!
@@ -38,6 +41,7 @@ Welcome back, <!writer.name>! Let's bring your stories to life.
 </project.completion_percentage>
 
 .title Genre-Specific Guidance
+
 <?project.genre eq "fantasy">
 ## 🧙‍♂️ Fantasy Writing Mode
 
@@ -130,6 +134,7 @@ Welcome back, <!writer.name>! Let's bring your stories to life.
 </project.genre>
 
 .title Character Development Workshop
+
 ## 👥 Character Analysis
 
 <?characters.main_character>
@@ -177,6 +182,7 @@ Welcome back, <!writer.name>! Let's bring your stories to life.
 </characters.supporting_cast>
 
 .title Plot Structure Analysis
+
 ## 📊 Story Structure
 
 **Structure Type**: <!plot.structure_type>
@@ -233,6 +239,7 @@ Welcome back, <!writer.name>! Let's bring your stories to life.
 </scene.has_conflict>
 
 .title Writing Productivity Dashboard
+
 ## 📈 Writing Metrics
 
 **Today's Goal**: <!session.daily_goal int> words
@@ -311,4 +318,4 @@ Welcome back, <!writer.name>! Let's bring your stories to life.
 **Session Time**: <!session.start_time> - <!session.end_time>
 **Next Session Goal**: <!session.next_goal>
 
-*Keep writing, <!writer.name>! Your story is waiting to be told. 📚✨* 
+*Keep writing, <!writer.name>! Your story is waiting to be told. 📚✨*

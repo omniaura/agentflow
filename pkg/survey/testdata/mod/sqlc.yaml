@@ -1,0 +1,8 @@
+version: "2"
+sql:
+  - queries: q.sql
+    gen:
+      go: {package: db, out: db}
+  - queries: audit.sql
+    gen:
+      go: {package: audit, out: audit}

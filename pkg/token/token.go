@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/omniaura/agentflow/pkg/decl"
 	"github.com/omniaura/agentflow/pkg/token/kind"
 	"github.com/peyton-spencer/caseconv/bytcase"
 )
@@ -90,6 +91,12 @@ func Tokenize(input []byte) (Slice, error) {
 
 		// Check for .title directive at start of line
 		if i == 0 || (i > 0 && input[i-1] == '\n') {
+			if i < len(input) && input[i] == '.' && decl.IsSectionStart(input, i) {
+				end := decl.SectionEnd(input, i)
+				tokens = append(tokens, T{Kind: kind.Section, Start: i, End: end})
+				i = end
+				continue
+			}
 			if i < len(input) && input[i] == '.' {
 				if title := tryParseTitle(input, i); title != nil {
 					tokens = append(tokens, title...)
@@ -196,6 +203,12 @@ func tryParseTag(input []byte, start int) []T {
 	}
 
 	switch input[start+1] {
+	case '*':
+		tags := parseVarTag(input, start)
+		if len(tags) > 1 {
+			tags[1].Kind = kind.DirectiveLoop
+		}
+		return tags
 	case '!':
 		return parseVarTag(input, start)
 	case '?':
@@ -498,8 +511,8 @@ func parseText(input []byte, start int) T {
 			break
 		}
 		if input[pos] == '.' && (pos == 0 || input[pos-1] == '\n') {
-			// Check if this might be a title directive
-			if tryParseTitle(input, pos) != nil {
+			// Check if this might be a title directive or a section
+			if tryParseTitle(input, pos) != nil || decl.IsSectionStart(input, pos) {
 				break
 			}
 		}

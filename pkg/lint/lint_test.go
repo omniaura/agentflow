@@ -1,6 +1,10 @@
 package lint
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/omniaura/agentflow/pkg/assert/require"
@@ -16,6 +20,13 @@ Premium.
 Default.
 </user.premium>
 `)
+	if len(diagnostics) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diagnostics)
+	}
+}
+
+func TestLintAcceptsTypedComparison(t *testing.T) {
+	diagnostics := lintString(t, ".title Test\n<?age int gte 18>\nAdult\n<else>\nMinor\n</age>\n")
 	if len(diagnostics) != 0 {
 		t.Fatalf("expected no diagnostics, got %#v", diagnostics)
 	}
@@ -38,10 +49,21 @@ func TestLintRules(t *testing.T) {
 		{"invalid end path", ".title Test\n</user.>\n", "AF007"},
 		{"invalid type", ".title Test\n<!count float>\n", "AF008"},
 		{"symbolic operator", ".title Test\n<?count >= 3>\n</count>\n", "AF009"},
+		{"typed symbolic operator", ".title Test\n<?count int >= 3>\n</count>\n", "AF009"},
+		{"typed comparison with invalid type", ".title Test\n<?count float gte 3>\n</count>\n", "AF008"},
 		{"inconsistent type", ".title Test\n<!count int> <!count bool>\n", "AF101"},
 		{"duplicate title", ".title Hello User\nOne\n.title hello user\nTwo\n", "AF102"},
 		{"empty title", ".title   \nBody\n", "AF103"},
 		{"empty directive", ".title Test\n<!>\n", "AF104"},
+		{"bad tool name", ".tool bad name\nDoes x.\n", "AF011"},
+		{"bad param path", ".tool x\n.param a-b\nDoes x.\n", "AF011"},
+		{"scalar parent", ".tool x\n.param a int\n.param a.b\nDoes x.\n", "AF011"},
+		{"output any", ".output o\n.field x any\n", "AF011"},
+		{"duplicate output", ".output o\nOne.\n.output o\nTwo.\n", "AF011"},
+		{"bad route", ".route GET /x getx\n", "AF011"},
+		{"duplicate route", ".route GET /x Q\n\n.route GET /x R\n", "AF011"},
+		{"misspelled param type", ".tool x\n.param a strng The a.\nDoes x.\n", "AF012"},
+		{"duplicate tool", ".tool x\nOne.\n.tool x\nTwo.\n", "AF011"},
 	}
 
 	for _, tt := range tests {
@@ -51,6 +73,17 @@ func TestLintRules(t *testing.T) {
 				t.Fatalf("expected %s, got %#v", tt.code, diagnostics)
 			}
 		})
+	}
+}
+
+func TestLintToolSection(t *testing.T) {
+	diagnostics := lintString(t, ".tool search\n.param query string What to find.\nSearch the web.\n\n.title System\nUse <!tool_name>.\n")
+	if len(diagnostics) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", diagnostics)
+	}
+	diagnostics = lintString(t, ".title System\nHi.\n\n.tool x\n.param a int\n.param a int\nDoes x.\n")
+	if len(diagnostics) != 1 || diagnostics[0].Code != "AF011" || diagnostics[0].Line != 6 {
+		t.Fatalf("expected AF011 on line 6, got %#v", diagnostics)
 	}
 }
 
@@ -68,4 +101,108 @@ func hasCode(diagnostics []Diagnostic, code string) bool {
 		}
 	}
 	return false
+}
+
+func TestLoopDiagnostics(t *testing.T) {
+	for _, tt := range []struct{ name, source, code, message string }{
+		{"missing element", ".title Test\n<*items [] as item></items>", "AF010", "expected <*path []Type as alias>"},
+		{"empty directive", ".title Test\nA<*>B", "AF010", "expected <*path []Type as alias>"},
+		{"unclosed loop", ".title Test\n<*items []Item as item>", "AF003", "unclosed loop <*items>"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ds := lintString(t, tt.source)
+			found := false
+			for _, d := range ds {
+				if d.Code == tt.code && d.Message == tt.message {
+					found = true
+				}
+			}
+			var err error
+			if !found {
+				err = fmt.Errorf("missing %s %q in %#v", tt.code, tt.message, ds)
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestLintAgentReferences(t *testing.T) {
+	const ok = ".title A\nHi.\n\n.title B\nYo.\n\n.tool look\nLooks.\n\n.output o\n.field x\n\n.agent helper\n.system B\n.tools look\n.returns o\n"
+	if d := lintString(t, ok); len(d) != 0 {
+		t.Fatalf("expected no diagnostics, got %#v", d)
+	}
+	for _, tt := range []struct {
+		name, src, msg string
+		line           int
+	}{
+		{"unknown system", ".title A\nHi.\n\n.agent x\n.tools\n", "", 0},
+		{"unknown system title", ".title A\nHi.\n\n.agent x\n.maxturns 3\n.system Nope\n", `no prompt titled "Nope" in this file (have "A")`, 6},
+		{"ambiguous system", ".title A\nHi.\n\n.title B\nYo.\n\n.agent x\n", "the file has 2 prompts", 7},
+		{"unknown tool", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, find\n", "no tool or agent find in this file or the other .af files of its directory (have look, x)", 8},
+		{"unknown output", ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.returns look\n", "no output look in this file (it declares none)", 8},
+		{"route served twice", ".title A\nHi.\n\n.agent x\n.serve POST /chat\n\n.agent y\n.serve POST /chat\n", "route POST /chat is declared twice", 8},
+		{"itself", ".title A\nHi.\n\n.agent x\n.tools x\n\nDoes x.\n", "agent x lists itself in .tools", 5},
+		{"subagent without a description", ".title A\nHi.\n\n.agent x\n.tools y\n\n.agent y\n", "agent y needs a description to be called as a tool", 5},
+		{"output is not a tool", ".title A\nHi.\n\n.output o\n.field x\n\n.agent x\n.tools o\n", "no tool or agent o in this file or the other .af files of its directory (have x)", 8},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			d := lintString(t, tt.src)
+			if len(d) != 1 || d[0].Code != "AF011" || !strings.Contains(d[0].Message, tt.msg) || (tt.line != 0 && d[0].Line != tt.line) {
+				t.Fatalf("want one AF011 %q on line %d, got %#v", tt.msg, tt.line, d)
+			}
+		})
+	}
+}
+
+func TestLintAgentToolsOfOtherFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "shipping.af"), []byte(".tool track\n.param id The id.\n\nTracks.\n"), 0o644)
+	name := filepath.Join(dir, "support.af")
+	src := ".title A\nHi.\n\n.tool look\nLooks.\n\n.agent x\n.tools look, track\n"
+	if d, err := Lint(name, []byte(src)); err != nil || len(d) != 0 {
+		t.Fatalf("tool of another file: %v %#v", err, d)
+	}
+	// A tool declared twice in the package is reported where it's used.
+	dup := src + "\n.tool track\nAgain.\n"
+	d, err := Lint(name, []byte(dup))
+	if err != nil || len(d) != 1 || d[0].Code != "AF011" || d[0].Line != 8 || !strings.Contains(d[0].Message, "track is declared in this file and shipping.af") {
+		t.Fatalf("duplicate: %v %#v", err, d)
+	}
+}
+
+// Each agent on a cycle is reported at its .tools line.
+func TestLintSubagentCycle(t *testing.T) {
+	d := lintString(t, ".title A\nHi.\n\n.agent x\n.tools y\n\nDoes x.\n\n.agent y\n.tools z\n\nDoes y.\n\n.agent z\n.tools x\n\nDoes z.\n")
+	var got []string
+	for _, x := range d {
+		got = append(got, fmt.Sprintf("%d %s", x.Line, x.Message))
+	}
+	want := []string{
+		"5 agents call each other in a cycle (x → y → z → x), which could delegate without end",
+		"10 agents call each other in a cycle (y → z → x → y), which could delegate without end",
+		"15 agents call each other in a cycle (z → x → y → z), which could delegate without end",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got\n%s", strings.Join(got, "\n"))
+	}
+}
+
+// A cycle doesn't hide the agent's other bad names, and is reported once.
+func TestLintSubagentCycleKeepsChecking(t *testing.T) {
+	d := lintString(t, ".title A\nHi.\n\n.agent x\n.tools y, z, nope\n\nDoes x.\n\n.agent y\n.tools x\n\nDoes y.\n\n.agent z\n\nDoes z.\n")
+	var got []string
+	for _, x := range d {
+		if x.Line == 5 {
+			got = append(got, x.Message)
+		}
+	}
+	if len(got) != 2 || !strings.Contains(got[0], "cycle (x → y → x)") || !strings.Contains(got[1], "no tool or agent nope") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLintBuiltinTools(t *testing.T) {
+	if d := lintString(t, ".title A\nHi.\n\n.agent x\n.tools send_message, list_agents\n"); len(d) != 0 {
+		t.Fatalf("built-ins flagged: %#v", d)
+	}
 }

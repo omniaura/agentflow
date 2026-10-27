@@ -264,3 +264,32 @@ func TestGroupingHelpersValidateRanges(t *testing.T) {
 		t.Fatal("groupEndTagTokens() truncated = true, want false")
 	}
 }
+
+func TestConvertTrimsBlankLinesAroundPromptBody(t *testing.T) {
+	for _, tt := range []struct {
+		name, src string
+		want      []string
+	}{
+		{"single newline after title", ".title A\nbody", []string{"A", "body"}},
+		{"blank line after title", ".title A\n\nbody", []string{"A", "body"}},
+		{"several blank lines after title", ".title A\n\n\n\nbody", []string{"A", "body"}},
+		{"indentation kept after blank line", ".title A\n\n  body", []string{"A", "  body"}},
+		{"newline at end of file", ".title A\nbody\n", []string{"A", "body"}},
+		{"blank lines at end of file", ".title A\nbody\n\n\n", []string{"A", "body"}},
+		{"inner blank lines kept", ".title A\none\n\ntwo\n", []string{"A", "one\n\ntwo"}},
+		{"title only", ".title A\n\n", []string{"A"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			src := []byte(tt.src)
+			tokens, err := token.Tokenize(src)
+			require.NoError(t, err)
+			var got []string
+			for _, tok := range Convert(tokens, src) {
+				got = append(got, string(src[tok.Start:tok.End]))
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

@@ -1,0 +1,121 @@
+// Command {{.Name}} serves the assistant agent declared in assistant.af over
+// HTTP. Conversations live in Postgres: any server can answer any thread,
+// and a restart loses nothing.
+package main
+
+import (
+	"context"
+	"crypto/subtle"
+	"errors"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/omniaura/agentflow/adapters/afthreadpg"
+	"github.com/omniaura/agentflow/runtime/afagent"
+	"github.com/omniaura/agentflow/runtime/afanthropic"
+	"github.com/omniaura/agentflow/runtime/afhttp"
+	"github.com/omniaura/agentflow/runtime/afopenai"
+	"github.com/omniaura/agentflow/runtime/afthread"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := run(ctx); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(ctx context.Context) error {
+	pool, err := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	// Creates afthread's tables, once. Use your migration tool instead with
+	// afthreadpg.Migrations if you have one.
+	if err := afthreadpg.Migrate(ctx, pool); err != nil {
+		return err
+	}
+	store := afthreadpg.New(pool)
+	m, err := model()
+	if err != nil {
+		return err
+	}
+	assistant := &AssistantAgent{Model: m, Tools: tools{}}
+	threads := &afthread.Server{
+		Store:  store,
+		Agents: []string{"assistant"},
+		Owner:  owner,
+		Worker: &afthread.Worker{Store: store, Agent: func(ctx context.Context, t afthread.Thread) (afthread.Agent, error) {
+			return assistant.ForThread(&Assistant{}), nil
+		}},
+		OnDrainError: func(ctx context.Context, owner, thread string, err error) {
+			log.Printf("thread %s: %v", thread, err)
+		},
+	}
+	mux := http.NewServeMux()
+	threads.Register(mux, "/threads")
+
+	addr := ":" + envOr("PORT", "8080")
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	stopped := make(chan error, 1)
+	go func() {
+		<-ctx.Done()
+		// Stop taking requests, then let runs finish, for up to 30s.
+		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stopped <- errors.Join(srv.Shutdown(shutdown), threads.Shutdown(shutdown))
+	}()
+	log.Printf("listening on %s", addr)
+	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	// ListenAndServe returns as Shutdown starts: wait for the runs, which
+	// still use the pool. Past the deadline, the error says what was cut
+	// short.
+	if err := <-stopped; err != nil {
+		return fmt.Errorf("shutdown: %w", err)
+	}
+	return nil
+}
+
+// owner authenticates a request and returns whose threads it may use.
+// This one lets in a single user holding APP_TOKEN: replace it with your
+// authentication, returning your user's ID.
+func owner(r *http.Request) (string, error) {
+	token, want := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "), os.Getenv("APP_TOKEN")
+	if want == "" || subtle.ConstantTimeCompare([]byte(token), []byte(want)) != 1 {
+		return "", afhttp.Unauthorized(r.Context(), errors.New("bad or missing token"))
+	}
+	return envOr("APP_USER", "me"), nil
+}
+
+// model is Claude when ANTHROPIC_API_KEY is set, or else an OpenAI model
+// named by OPENAI_MODEL.
+func model() (afagent.Model, error) {
+	if os.Getenv("ANTHROPIC_API_KEY") != "" {
+		return &afanthropic.Model{Model: os.Getenv("ANTHROPIC_MODEL")}, nil
+	}
+	if os.Getenv("OPENAI_API_KEY") != "" {
+		if os.Getenv("OPENAI_MODEL") == "" {
+			return nil, errors.New("set OPENAI_MODEL to the model to use")
+		}
+		return &afopenai.Model{Model: os.Getenv("OPENAI_MODEL")}, nil
+	}
+	return nil, errors.New("set ANTHROPIC_API_KEY, or OPENAI_API_KEY and OPENAI_MODEL")
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
