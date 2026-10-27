@@ -242,9 +242,11 @@ func writeSwag(buf *bytes.Buffer, b *boundRoute, bodyType string, sw *Swag, impo
 			empty := map[string]any{"condition": "empty query result"}
 			emptyType := b.emptyFn.Result
 			if e.Func != "" {
-				empty["function"], empty["goType"] = e.Func, emptyType
+				empty["function"] = e.Func
 				if emptyType == "" {
 					emptyType = "result of " + e.Func
+				} else {
+					empty["goType"] = emptyType
 				}
 			} else {
 				empty["json"] = json.RawMessage(e.Body)
