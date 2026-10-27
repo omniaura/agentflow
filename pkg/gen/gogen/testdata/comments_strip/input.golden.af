@@ -1,0 +1,5 @@
+.title Commented Prompt
+# This line documents the prompt but should not render.
+Hello <!name>
+# Comments between rendered lines should also disappear.
+Goodbye.

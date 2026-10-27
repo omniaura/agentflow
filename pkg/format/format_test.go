@@ -104,6 +104,11 @@ Body two.
 			in:   ".title Notes  \n\n\n  indented\nhard break  \n   \nend  \n\n.title Next\nx\n",
 			want: ".title Notes\n\n  indented\nhard break  \n   \nend\n\n.title Next\n\nx\n",
 		},
+		{
+			name: "preserves comments",
+			in:   ".title   Demo\n# internal note   \nHello <! name >\n",
+			want: ".title Demo\n\n# internal note\nHello <!name>\n",
+		},
 	}
 
 	for _, tt := range tests {

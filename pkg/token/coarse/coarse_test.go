@@ -2,6 +2,7 @@ package coarse
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/omniaura/agentflow/pkg/assert/require"
@@ -182,6 +183,33 @@ func TestConvertGroupsTitleAndTrimsInterPromptWhitespace(t *testing.T) {
 	}
 }
 
+func TestConvertSkipsComments(t *testing.T) {
+	input := []byte(".title Demo\n# internal note\nHello")
+	tokens := token.Slice{
+		{Kind: kind.TitleDirective, Start: 0, End: 6},
+		{Kind: kind.Whitespace, Start: 6, End: 7},
+		{Kind: kind.TitleText, Start: 7, End: 11},
+		{Kind: kind.Whitespace, Start: 11, End: 12},
+		{Kind: kind.Comment, Start: 12, End: 28},
+		{Kind: kind.Text, Start: 28, End: 33},
+	}
+
+	got := Convert(tokens, input)
+	want := []Token{
+		{Kind: Title, Start: 7, End: 11},
+		{Kind: Text, Start: 28, End: 33},
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("expected %d tokens, got %d", len(want), len(got))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("token %d mismatch: got %+v want %+v", i, got[i], want[i])
+		}
+	}
+}
+
 func TestConvertTreatsStandaloneBracketAsText(t *testing.T) {
 	input := []byte("<")
 	tokens := token.Slice{{Kind: kind.OpenBracket, Start: 0, End: 1}}
@@ -262,6 +290,35 @@ func TestConvertTrimsBlankLinesAroundPromptBody(t *testing.T) {
 			}
 			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
 				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// A comment must not change the whitespace at either edge of a prompt body.
+func TestCommentBodyBoundaries(t *testing.T) {
+	for _, tc := range []struct{ name, src, want string }{
+		{"footer", ".title A\nHello\n# footer\n", "Hello"},
+		{"footer without newline", ".title A\nHello\n# footer", "Hello"},
+		{"footer then blanks", ".title A\nHello  \n# footer\n\n", "Hello"},
+		{"header then blanks", ".title A\n# header\n\n  Hello\n", "  Hello"},
+		{"between text", ".title A\nHello\n# comment\nWorld\n", "Hello\nWorld"},
+		{"before next title", ".title A\nHello\n# footer\n\n.title B\nWorld\n", "HelloWorld"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte(tc.src)
+			granular, err := token.Tokenize(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rendered strings.Builder
+			for _, tok := range Convert(granular, src) {
+				if tok.Kind == Text {
+					rendered.Write(tok.Get(src))
+				}
+			}
+			if got := rendered.String(); got != tc.want {
+				t.Fatalf("rendered %q, want %q", got, tc.want)
 			}
 		})
 	}

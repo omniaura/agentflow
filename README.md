@@ -86,6 +86,17 @@ Set `DATABASE_URL`, `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY` and `OPENAI_MODEL`)
 
 AgentFlow uses a simple but powerful syntax for creating dynamic prompt templates with type-safe variable interpolation.
 
+### Comments
+
+Single-`#` lines document templates without rendering into generated output. Markdown headings that start with `##`, or with a single `#` followed by an emoji, still render as normal text.
+
+```af
+.title System Prompt
+# Internal note for maintainers only.
+## Rendered Heading
+You are a helpful assistant.
+```
+
 ### Titles
 
 Titles define distinct prompt sections within a file. Each title becomes a separate Go function.

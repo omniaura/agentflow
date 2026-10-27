@@ -55,10 +55,10 @@ const (
 	// Section is a whole declaration section, such as a .tool section,
 	// which pkg/decl parses.
 	Section
+	Comment // "# comment" line comments
 
 	// Future extension tokens (for later)
 	// RawBlock       // For future raw block support
-	// Comment        // For future comment support
 )
 
 func (k Kind) IsTag() bool {
@@ -98,7 +98,7 @@ func (k Kind) IsValue() bool {
 
 func (k Kind) IsContent() bool {
 	switch k {
-	case Text:
+	case Text, Comment:
 		return true
 	}
 	return false

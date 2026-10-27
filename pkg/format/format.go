@@ -52,6 +52,12 @@ func normalizeDirectives(tokens token.Slice, src []byte) []byte {
 	for i := 0; i < len(tokens); i++ {
 		tok := tokens[i]
 		switch tok.Kind {
+		case kind.Comment:
+			comment := tok.Get(src)
+			out.Write(bytes.TrimRight(comment, " \t\n"))
+			if bytes.HasSuffix(comment, []byte("\n")) {
+				out.WriteByte('\n')
+			}
 		case kind.TitleDirective:
 			i = writeTitle(&out, tokens, src, i)
 		case kind.OpenBracket:
