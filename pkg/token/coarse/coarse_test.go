@@ -2,6 +2,7 @@ package coarse
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/omniaura/agentflow/pkg/assert/require"
@@ -289,6 +290,35 @@ func TestConvertTrimsBlankLinesAroundPromptBody(t *testing.T) {
 			}
 			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
 				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// A comment must not change the whitespace at either edge of a prompt body.
+func TestCommentBodyBoundaries(t *testing.T) {
+	for _, tc := range []struct{ name, src, want string }{
+		{"footer", ".title A\nHello\n# footer\n", "Hello"},
+		{"footer without newline", ".title A\nHello\n# footer", "Hello"},
+		{"footer then blanks", ".title A\nHello  \n# footer\n\n", "Hello"},
+		{"header then blanks", ".title A\n# header\n\n  Hello\n", "  Hello"},
+		{"between text", ".title A\nHello\n# comment\nWorld\n", "Hello\nWorld"},
+		{"before next title", ".title A\nHello\n# footer\n\n.title B\nWorld\n", "HelloWorld"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			src := []byte(tc.src)
+			granular, err := token.Tokenize(src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var rendered strings.Builder
+			for _, tok := range Convert(granular, src) {
+				if tok.Kind == Text {
+					rendered.Write(tok.Get(src))
+				}
+			}
+			if got := rendered.String(); got != tc.want {
+				t.Fatalf("rendered %q, want %q", got, tc.want)
 			}
 		})
 	}

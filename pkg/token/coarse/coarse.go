@@ -220,6 +220,14 @@ func Convert(tokens token.Slice, input []byte) []Token {
 			}
 
 		case kind.Comment:
+			// Leading comments are transparent to the prompt body's blank
+			// line boundary, while indentation on its first rendered line stays.
+			if tokens[i].Start == bodyStart {
+				bodyStart = tokens[i].End
+				for bodyStart < len(input) && input[bodyStart] == '\n' {
+					bodyStart++
+				}
+			}
 			i++
 
 		case kind.Text, kind.Whitespace:
@@ -246,7 +254,7 @@ func Convert(tokens token.Slice, input []byte) []Token {
 
 			// Trim trailing whitespace at the end of a prompt body: before the
 			// next title directive or section, or at end of file.
-			if i == len(tokens) || endsBody(tokens[i].Kind) {
+			if bodyEndsAfterComments(tokens, input, i) {
 				end = start + len(bytes.TrimRight(input[start:end], " \t\r\n"))
 			}
 
@@ -265,6 +273,20 @@ func Convert(tokens token.Slice, input []byte) []Token {
 	}
 
 	return coarse
+}
+
+// bodyEndsAfterComments treats comments and blank whitespace as transparent
+// when deciding whether the preceding rendered text ends a prompt body.
+func bodyEndsAfterComments(tokens token.Slice, input []byte, i int) bool {
+	for i < len(tokens) {
+		tok := tokens[i]
+		blank := (tok.Kind == kind.Whitespace || tok.Kind == kind.Text) && len(bytes.Trim(tok.Get(input), " \t\r\n")) == 0
+		if tok.Kind != kind.Comment && !blank {
+			break
+		}
+		i++
+	}
+	return i == len(tokens) || endsBody(tokens[i].Kind)
 }
 
 // endsBody reports whether a token of kind k ends the prompt body before it.
