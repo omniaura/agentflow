@@ -151,6 +151,9 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if err != nil {
 		return afagent.Result{}, err
 	}
+	if catalog.HasAdditional() && a.DispatchAdditional == nil {
+		return afagent.Result{}, errors.New("additional tools need a dispatcher")
+	}
 	loop := afagent.Loop{
 		Model:         a.Model,
 		System:        system.String(),
@@ -300,6 +303,9 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	catalog, err := afagent.PrepareTools(ctx, TriagerAgentTools, a.AdditionalTools, a.Allow)
 	if err != nil {
 		return TriagerAgentResult{}, err
+	}
+	if catalog.HasAdditional() && a.DispatchAdditional == nil {
+		return TriagerAgentResult{}, errors.New("additional tools need a dispatcher")
 	}
 	loop := afagent.Loop{
 		Model:         a.Model,

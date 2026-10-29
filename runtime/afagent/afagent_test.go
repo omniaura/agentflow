@@ -125,6 +125,18 @@ func TestLoopMaxTurns(t *testing.T) {
 	}
 }
 
+// With no offered tools the provider cannot receive tool_choice=none. The
+// last-turn flag cannot change that request or rescue a hallucinated call.
+func TestLoopLastTurnWithoutOfferedTools(t *testing.T) {
+	for _, answerOnLast := range []bool{false, true} {
+		model, requests := script(t, calls("unoffered"))
+		res, err := (&Loop{Model: model, MaxTurns: 1, AnswerOnLastTurn: answerOnLast}).Run(t.Context(), nil)
+		if !errors.Is(err, ErrMaxTurns) || len(*requests) != 1 || (*requests)[0].NoToolCalls || res.ToolCalls != 1 {
+			t.Fatalf("last-turn=%v: result=%+v err=%v", answerOnLast, res, err)
+		}
+	}
+}
+
 func TestLoopConcurrentToolsKeepCallOrder(t *testing.T) {
 	model, _ := script(t, calls("slow", "fast", "mid"), Message{Content: "ok"})
 	var running, peak atomic.Int32

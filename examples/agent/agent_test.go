@@ -143,6 +143,19 @@ func TestGeneratedAgentDynamicToolsAreGated(t *testing.T) {
 	}
 }
 
+func TestGeneratedAgentRejectsMissingAdditionalDispatcher(t *testing.T) {
+	model, seen := script(t, afagent.Message{Content: "done"})
+	a := &SupportAgent{Model: model, Tools: &shop{}, AdditionalTools: []afagent.ToolSpec{{Name: "connected", Schema: []byte(`{}`)}}}
+	if _, err := a.Run(t.Context(), &Support{}); err == nil || len(*seen) != 0 {
+		t.Fatalf("missing dispatcher must fail before model call: %v", err)
+	}
+	// Denying the additional tool makes the missing dispatcher irrelevant.
+	a.Allow = func(_ context.Context, name string) bool { return name != "connected" }
+	if _, err := a.Run(t.Context(), &Support{}); err != nil || len(*seen) != 1 {
+		t.Fatalf("denied tool must not require a dispatcher: %v", err)
+	}
+}
+
 func TestSupportAgentMaxTurns(t *testing.T) {
 	loop := afagent.Message{ToolCalls: []afagent.ToolCall{call("x", "lookup_order", `{"order_id":"nope"}`)}}
 	turns := make([]afagent.Message, 6)

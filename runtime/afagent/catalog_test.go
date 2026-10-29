@@ -52,3 +52,10 @@ func TestToolCatalogRejectsCollisionsAndMalformedSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestToolCatalogDoesNotValidateDeniedToolSchema(t *testing.T) {
+	c, err := PrepareTools(t.Context(), nil, []ToolSpec{{Name: "denied", Schema: []byte(`bad`)}}, func(context.Context, string) bool { return false })
+	if err != nil || len(c.Tools) != 0 || c.HasAdditional() {
+		t.Fatalf("denied tool must not block catalog: %+v %v", c, err)
+	}
+}
