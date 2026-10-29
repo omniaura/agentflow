@@ -119,6 +119,30 @@ func TestGeneratedAgentInterruptsToolBatch(t *testing.T) {
 	}
 }
 
+func TestGeneratedAgentDynamicToolsAreGated(t *testing.T) {
+	model, seen := script(t, afagent.Message{ToolCalls: []afagent.ToolCall{
+		call("1", "connected", `{"query":"x"}`),
+		call("2", "denied", `{}`),
+	}}, afagent.Message{Content: "done"})
+	var dispatched []string
+	a := &SupportAgent{Model: model, Tools: &shop{}, AdditionalTools: []afagent.ToolSpec{
+		{Name: "connected", Schema: []byte(`{"type":"object"}`)}, {Name: "denied", Schema: []byte(`{"type":"object"}`)},
+	}, Allow: func(_ context.Context, name string) bool { return name != "denied" },
+		DispatchAdditional: func(_ context.Context, c afagent.ToolCall) (string, error) {
+			dispatched = append(dispatched, c.Name)
+			return "data", nil
+		},
+	}
+	res, err := a.Run(t.Context(), &Support{}, afagent.Message{Role: afagent.User, Content: "go"})
+	if err != nil || res.Final != "done" || strings.Join(dispatched, ",") != "connected" || len(*seen) != 2 {
+		t.Fatalf("result=%+v dispatched=%v err=%v", res, dispatched, err)
+	}
+	msgs := (*seen)[1].Messages
+	if len(msgs) != 4 || msgs[2].Content != "data" || !msgs[3].IsError {
+		t.Fatalf("tool results: %+v", msgs)
+	}
+}
+
 func TestSupportAgentMaxTurns(t *testing.T) {
 	loop := afagent.Message{ToolCalls: []afagent.ToolCall{call("x", "lookup_order", `{"order_id":"nope"}`)}}
 	turns := make([]afagent.Message, 6)

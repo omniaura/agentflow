@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/omniaura/agentflow/runtime/afagent"
@@ -120,10 +119,12 @@ type SupportAgent struct {
 	// InterruptTool ends a run on selected tool errors. Calls are sequential
 	// in this mode; the host must resolve outstanding calls before resuming.
 	InterruptTool func(error) bool
-	// Allow, when set, picks the tools of a run, such as the ones a
-	// workspace enabled: only tools it allows are offered to the model,
-	// and a call to another is refused. Nil allows every tool.
+	// Allow selects the tools offered in a run. Nil allows every tool.
 	Allow func(ctx context.Context, tool string) bool
+	// AdditionalTools and DispatchAdditional supply per-run host tools.
+	// Names must be unique; DispatchAdditional must enforce the host's gate.
+	AdditionalTools    []afagent.ToolSpec
+	DispatchAdditional func(context.Context, afagent.ToolCall) (string, error)
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -146,41 +147,26 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 		maxTurns = 6
 	}
 	maxToolCalls := a.MaxToolCalls
-	tools := a.tools(ctx)
+	catalog, err := afagent.PrepareTools(ctx, SupportAgentTools, a.AdditionalTools, a.Allow)
+	if err != nil {
+		return afagent.Result{}, err
+	}
 	loop := afagent.Loop{
 		Model:         a.Model,
 		System:        system.String(),
-		Tools:         tools,
+		Tools:         catalog.Tools,
 		MaxTurns:      maxTurns,
+		MaxToolCalls:  maxToolCalls,
 		Concurrency:   a.Concurrency,
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
-		MaxToolCalls:  maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
-				// The model may name a tool it wasn't offered.
-				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-			}
-			return a.dispatch(ctx, call)
+			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
-		AnswerOnLastTurn: true,
+		AnswerOnLastTurn: len(catalog.Tools) > 0,
 	}
 	return loop.Run(ctx, messages)
-}
-
-// tools are the tools offered in a run: those Allow allows.
-func (a *SupportAgent) tools(ctx context.Context) []afagent.ToolSpec {
-	if a.Allow == nil {
-		return SupportAgentTools
-	}
-	var out []afagent.ToolSpec
-	for _, t := range SupportAgentTools {
-		if a.Allow(ctx, t.Name) {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func (a *SupportAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
@@ -273,10 +259,12 @@ type TriagerAgent struct {
 	// InterruptTool ends a run on selected tool errors. Calls are sequential
 	// in this mode; the host must resolve outstanding calls before resuming.
 	InterruptTool func(error) bool
-	// Allow, when set, picks the tools of a run, such as the ones a
-	// workspace enabled: only tools it allows are offered to the model,
-	// and a call to another is refused. Nil allows every tool.
+	// Allow selects the tools offered in a run. Nil allows every tool.
 	Allow func(ctx context.Context, tool string) bool
+	// AdditionalTools and DispatchAdditional supply per-run host tools.
+	// Names must be unique; DispatchAdditional must enforce the host's gate.
+	AdditionalTools    []afagent.ToolSpec
+	DispatchAdditional func(context.Context, afagent.ToolCall) (string, error)
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -309,25 +297,24 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		maxTurns = 3
 	}
 	maxToolCalls := a.MaxToolCalls
-	tools := a.tools(ctx)
+	catalog, err := afagent.PrepareTools(ctx, TriagerAgentTools, a.AdditionalTools, a.Allow)
+	if err != nil {
+		return TriagerAgentResult{}, err
+	}
 	loop := afagent.Loop{
 		Model:         a.Model,
 		System:        system.String(),
-		Tools:         tools,
+		Tools:         catalog.Tools,
 		MaxTurns:      maxTurns,
+		MaxToolCalls:  maxToolCalls,
 		Concurrency:   a.Concurrency,
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
-		MaxToolCalls:  maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
-				// The model may name a tool it wasn't offered.
-				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-			}
-			return a.dispatch(ctx, call)
+			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
-		AnswerOnLastTurn: true,
+		AnswerOnLastTurn: len(catalog.Tools) > 0,
 		Output:           &afagent.OutputSpec{Name: TriageSchema.Name, Description: TriageSchema.Description, Schema: TriageSchema.Schema},
 		Check: func(answer string) error {
 			out, err := TriageSchema.Decode(answer)
@@ -344,20 +331,6 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	}
 	out.Output, err = TriageSchema.Decode(res.Final)
 	return out, err
-}
-
-// tools are the tools offered in a run: those Allow allows.
-func (a *TriagerAgent) tools(ctx context.Context) []afagent.ToolSpec {
-	if a.Allow == nil {
-		return TriagerAgentTools
-	}
-	var out []afagent.ToolSpec
-	for _, t := range TriagerAgentTools {
-		if a.Allow(ctx, t.Name) {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func (a *TriagerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
@@ -552,10 +525,12 @@ type TrackerAgent struct {
 	// InterruptTool ends a run on selected tool errors. Calls are sequential
 	// in this mode; the host must resolve outstanding calls before resuming.
 	InterruptTool func(error) bool
-	// Allow, when set, picks the tools of a run, such as the ones a
-	// workspace enabled: only tools it allows are offered to the model,
-	// and a call to another is refused. Nil allows every tool.
+	// Allow selects the tools offered in a run. Nil allows every tool.
 	Allow func(ctx context.Context, tool string) bool
+	// AdditionalTools and DispatchAdditional supply per-run host tools.
+	// Names must be unique; DispatchAdditional must enforce the host's gate.
+	AdditionalTools    []afagent.ToolSpec
+	DispatchAdditional func(context.Context, afagent.ToolCall) (string, error)
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -581,41 +556,26 @@ func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	if maxToolCalls <= 0 {
 		maxToolCalls = 3
 	}
-	tools := a.tools(ctx)
+	catalog, err := afagent.PrepareTools(ctx, TrackerAgentTools, a.AdditionalTools, a.Allow)
+	if err != nil {
+		return afagent.Result{}, err
+	}
 	loop := afagent.Loop{
 		Model:         a.Model,
 		System:        system.String(),
-		Tools:         tools,
+		Tools:         catalog.Tools,
 		MaxTurns:      maxTurns,
+		MaxToolCalls:  maxToolCalls,
 		Concurrency:   a.Concurrency,
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
-		MaxToolCalls:  maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
-				// The model may name a tool it wasn't offered.
-				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-			}
-			return a.dispatch(ctx, call)
+			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
-		AnswerOnLastTurn: true,
+		AnswerOnLastTurn: len(catalog.Tools) > 0,
 	}
 	return loop.Run(ctx, messages)
-}
-
-// tools are the tools offered in a run: those Allow allows.
-func (a *TrackerAgent) tools(ctx context.Context) []afagent.ToolSpec {
-	if a.Allow == nil {
-		return TrackerAgentTools
-	}
-	var out []afagent.ToolSpec
-	for _, t := range TrackerAgentTools {
-		if a.Allow(ctx, t.Name) {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func (a *TrackerAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
@@ -713,10 +673,12 @@ type ConciergeAgent struct {
 	// InterruptTool ends a run on selected tool errors. Calls are sequential
 	// in this mode; the host must resolve outstanding calls before resuming.
 	InterruptTool func(error) bool
-	// Allow, when set, picks the tools of a run, such as the ones a
-	// workspace enabled: only tools it allows are offered to the model,
-	// and a call to another is refused. Nil allows every tool.
+	// Allow selects the tools offered in a run. Nil allows every tool.
 	Allow func(ctx context.Context, tool string) bool
+	// AdditionalTools and DispatchAdditional supply per-run host tools.
+	// Names must be unique; DispatchAdditional must enforce the host's gate.
+	AdditionalTools    []afagent.ToolSpec
+	DispatchAdditional func(context.Context, afagent.ToolCall) (string, error)
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -739,41 +701,26 @@ func (a *ConciergeAgent) Run(ctx context.Context, system *Support, messages ...a
 		maxTurns = 4
 	}
 	maxToolCalls := a.MaxToolCalls
-	tools := a.tools(ctx)
+	catalog, err := afagent.PrepareTools(ctx, ConciergeAgentTools, a.AdditionalTools, a.Allow)
+	if err != nil {
+		return afagent.Result{}, err
+	}
 	loop := afagent.Loop{
 		Model:         a.Model,
 		System:        system.String(),
-		Tools:         tools,
+		Tools:         catalog.Tools,
 		MaxTurns:      maxTurns,
+		MaxToolCalls:  maxToolCalls,
 		Concurrency:   a.Concurrency,
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
-		MaxToolCalls:  maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
-				// The model may name a tool it wasn't offered.
-				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-			}
-			return a.dispatch(ctx, call)
+			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
-		AnswerOnLastTurn: true,
+		AnswerOnLastTurn: len(catalog.Tools) > 0,
 	}
 	return loop.Run(ctx, messages)
-}
-
-// tools are the tools offered in a run: those Allow allows.
-func (a *ConciergeAgent) tools(ctx context.Context) []afagent.ToolSpec {
-	if a.Allow == nil {
-		return ConciergeAgentTools
-	}
-	var out []afagent.ToolSpec
-	for _, t := range ConciergeAgentTools {
-		if a.Allow(ctx, t.Name) {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func (a *ConciergeAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
@@ -866,10 +813,12 @@ type CoordinatorAgent struct {
 	// InterruptTool ends a run on selected tool errors. Calls are sequential
 	// in this mode; the host must resolve outstanding calls before resuming.
 	InterruptTool func(error) bool
-	// Allow, when set, picks the tools of a run, such as the ones a
-	// workspace enabled: only tools it allows are offered to the model,
-	// and a call to another is refused. Nil allows every tool.
+	// Allow selects the tools offered in a run. Nil allows every tool.
 	Allow func(ctx context.Context, tool string) bool
+	// AdditionalTools and DispatchAdditional supply per-run host tools.
+	// Names must be unique; DispatchAdditional must enforce the host's gate.
+	AdditionalTools    []afagent.ToolSpec
+	DispatchAdditional func(context.Context, afagent.ToolCall) (string, error)
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -892,41 +841,26 @@ func (a *CoordinatorAgent) Run(ctx context.Context, system *Support, messages ..
 		maxTurns = 4
 	}
 	maxToolCalls := a.MaxToolCalls
-	tools := a.tools(ctx)
+	catalog, err := afagent.PrepareTools(ctx, CoordinatorAgentTools, a.AdditionalTools, a.Allow)
+	if err != nil {
+		return afagent.Result{}, err
+	}
 	loop := afagent.Loop{
 		Model:         a.Model,
 		System:        system.String(),
-		Tools:         tools,
+		Tools:         catalog.Tools,
 		MaxTurns:      maxTurns,
+		MaxToolCalls:  maxToolCalls,
 		Concurrency:   a.Concurrency,
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
-		MaxToolCalls:  maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
-				// The model may name a tool it wasn't offered.
-				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-			}
-			return a.dispatch(ctx, call)
+			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
-		AnswerOnLastTurn: true,
+		AnswerOnLastTurn: len(catalog.Tools) > 0,
 	}
 	return loop.Run(ctx, messages)
-}
-
-// tools are the tools offered in a run: those Allow allows.
-func (a *CoordinatorAgent) tools(ctx context.Context) []afagent.ToolSpec {
-	if a.Allow == nil {
-		return CoordinatorAgentTools
-	}
-	var out []afagent.ToolSpec
-	for _, t := range CoordinatorAgentTools {
-		if a.Allow(ctx, t.Name) {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func (a *CoordinatorAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {

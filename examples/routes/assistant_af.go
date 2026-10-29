@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -262,10 +261,12 @@ type NotesAgent struct {
 	// InterruptTool ends a run on selected tool errors. Calls are sequential
 	// in this mode; the host must resolve outstanding calls before resuming.
 	InterruptTool func(error) bool
-	// Allow, when set, picks the tools of a run, such as the ones a
-	// workspace enabled: only tools it allows are offered to the model,
-	// and a call to another is refused. Nil allows every tool.
+	// Allow selects the tools offered in a run. Nil allows every tool.
 	Allow func(ctx context.Context, tool string) bool
+	// AdditionalTools and DispatchAdditional supply per-run host tools.
+	// Names must be unique; DispatchAdditional must enforce the host's gate.
+	AdditionalTools    []afagent.ToolSpec
+	DispatchAdditional func(context.Context, afagent.ToolCall) (string, error)
 	// OnEvent, when set, sees each model response and tool call. With
 	// Concurrency above 1 it is called concurrently.
 	OnEvent func(afagent.Event)
@@ -291,41 +292,26 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 		maxTurns = 6
 	}
 	maxToolCalls := a.MaxToolCalls
-	tools := a.tools(ctx)
+	catalog, err := afagent.PrepareTools(ctx, NotesAgentTools, a.AdditionalTools, a.Allow)
+	if err != nil {
+		return afagent.Result{}, err
+	}
 	loop := afagent.Loop{
 		Model:         a.Model,
 		System:        system.String(),
-		Tools:         tools,
+		Tools:         catalog.Tools,
 		MaxTurns:      maxTurns,
+		MaxToolCalls:  maxToolCalls,
 		Concurrency:   a.Concurrency,
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
-		MaxToolCalls:  maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
-			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
-				// The model may name a tool it wasn't offered.
-				return "", fmt.Errorf("tool %s is not available in this conversation", call.Name)
-			}
-			return a.dispatch(ctx, call)
+			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
-		AnswerOnLastTurn: true,
+		AnswerOnLastTurn: len(catalog.Tools) > 0,
 	}
 	return loop.Run(ctx, messages)
-}
-
-// tools are the tools offered in a run: those Allow allows.
-func (a *NotesAgent) tools(ctx context.Context) []afagent.ToolSpec {
-	if a.Allow == nil {
-		return NotesAgentTools
-	}
-	var out []afagent.ToolSpec
-	for _, t := range NotesAgentTools {
-		if a.Allow(ctx, t.Name) {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func (a *NotesAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {
