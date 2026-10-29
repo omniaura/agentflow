@@ -8,8 +8,8 @@ import (
 	"sort"
 )
 
-// ToolCatalog is the immutable, per-run set of declared and host-provided
-// tools. Dispatch uses exactly the names offered to the model.
+// ToolCatalog is the per-run snapshot of declared and host-provided tools.
+// Dispatch uses the names selected when the catalog was prepared.
 type ToolCatalog struct {
 	Tools      []ToolSpec
 	declared   map[string]bool
