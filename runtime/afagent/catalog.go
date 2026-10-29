@@ -28,14 +28,14 @@ func PrepareTools(ctx context.Context, declared, additional []ToolSpec, allow fu
 			return fmt.Errorf("duplicate or empty tool name %q", t.Name)
 		}
 		seen[t.Name] = true
+		if allow != nil && !allow(ctx, t.Name) {
+			return nil
+		}
 		if dynamic {
 			trimmed := bytes.TrimSpace(t.Schema)
 			if len(trimmed) == 0 || trimmed[0] != '{' || !json.Valid(trimmed) {
 				return fmt.Errorf("tool %q has an invalid JSON object schema", t.Name)
 			}
-		}
-		if allow != nil && !allow(ctx, t.Name) {
-			return nil
 		}
 		t.Schema = bytes.Clone(t.Schema)
 		c.Tools = append(c.Tools, t)
@@ -60,6 +60,9 @@ func PrepareTools(ctx context.Context, declared, additional []ToolSpec, allow fu
 	}
 	return c, nil
 }
+
+// HasAdditional reports whether an allowed host-provided tool is offered.
+func (c *ToolCatalog) HasAdditional() bool { return len(c.additional) > 0 }
 
 // Dispatch rejects any name that was not offered before reaching either host
 // callback. The host callbacks remain responsible for their authorization and

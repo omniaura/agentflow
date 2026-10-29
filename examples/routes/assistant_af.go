@@ -296,6 +296,9 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 	if err != nil {
 		return afagent.Result{}, err
 	}
+	if catalog.HasAdditional() && a.DispatchAdditional == nil {
+		return afagent.Result{}, errors.New("additional tools need a dispatcher")
+	}
 	loop := afagent.Loop{
 		Model:         a.Model,
 		System:        system.String(),

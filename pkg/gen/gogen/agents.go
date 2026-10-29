@@ -157,6 +157,8 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		} else {
 			fmt.Fprintf(buf, "if err != nil { return %s{}, err }\n", result)
 		}
+		imports["errors"] = true
+		fmt.Fprintf(buf, "if catalog.HasAdditional() && a.DispatchAdditional == nil { return %s{}, errors.New(\"additional tools need a dispatcher\") }\n", result)
 		declaredDispatch := "nil"
 		if len(tools) > 0 {
 			declaredDispatch = "a.dispatch"
