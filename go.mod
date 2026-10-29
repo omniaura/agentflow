@@ -5,7 +5,7 @@ go 1.27
 require (
 	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/omniaura/go-kit/errs v0.0.0-20261024021028-d0a008fba30c
-	github.com/openai/openai-go/v3 v3.86.0
+	github.com/openai/openai-go/v3 v3.87.0
 	github.com/peyton-spencer/caseconv v0.2.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0

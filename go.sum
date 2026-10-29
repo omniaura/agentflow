@@ -142,8 +142,8 @@ github.com/muesli/termenv v0.16.0/go.mod h1:ZRfOIKPFDYQoDFF4Olj7/QJbW60Ol/kL1pU3
 github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e/go.mod h1:zD1mROLANZcx1PVRCS0qkT7pwLkGfwJo4zjcN/Tysno=
 github.com/omniaura/go-kit/errs v0.0.0-20261024021028-d0a008fba30c h1:5Ey9AGI+ONgTSbFdJXhmuyiw2iMPL2UzOTyd23VL+so=
 github.com/omniaura/go-kit/errs v0.0.0-20261024021028-d0a008fba30c/go.mod h1:9g2zYhdRaMLKV3lhL1LTFsTEbJnRHo+7nX7vwxGKJY8=
-github.com/openai/openai-go/v3 v3.86.0 h1:OBq62xi3tSI9zMTm++XifNnfHKMpWfPKomS+Butvxyg=
-github.com/openai/openai-go/v3 v3.86.0/go.mod h1:i+lM+NFmWP+Yd+fYKEaPxUINBx+vZtRmY5gaszSfsiQ=
+github.com/openai/openai-go/v3 v3.87.0 h1:eMxuFUuS/lKbi5pKv2c22KLKXuPju/TZNmA0HGVxhiY=
+github.com/openai/openai-go/v3 v3.87.0/go.mod h1:i+lM+NFmWP+Yd+fYKEaPxUINBx+vZtRmY5gaszSfsiQ=
 github.com/pb33f/ordered-map/v2 v2.3.1 h1:5319HDO0aw4DA4gzi+zv4FXU9UlSs3xGZ40wcP1nBjY=
 github.com/pb33f/ordered-map/v2 v2.3.1/go.mod h1:qxFQgd0PkVUtOMCkTapqotNgzRhMPL7VvaHKbd1HnmQ=
 github.com/pelletier/go-toml/v2 v2.2.4 h1:mye9XuhQ6gvn5h28+VilKrrPoQVanw5PMw/TB0t5Ec4=
