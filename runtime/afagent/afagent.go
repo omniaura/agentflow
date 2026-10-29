@@ -341,6 +341,14 @@ type Loop struct {
 	// Dispatch runs one tool call. An error goes back to the model as a
 	// failed result, so it can recover; it does not stop the loop.
 	Dispatch func(ctx context.Context, call ToolCall) (string, error)
+	// InterruptTool, when set, classifies a dispatch error that must end the
+	// run instead of becoming a tool result. Calls run sequentially in this
+	// mode, even when Concurrency is higher: no later call may start after an
+	// interruption. The returned conversation retains the assistant's full
+	// call batch and completed results, but has no result for the interrupted
+	// or unstarted calls. The host must resolve all outstanding calls before
+	// passing that conversation to a provider again.
+	InterruptTool func(error) bool
 	// Output, when set, asks the model for a structured final answer.
 	Output *OutputSpec
 	// Check, when set, vets a final answer. If it fails, the error goes
@@ -500,8 +508,12 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		if l.MaxToolCalls > 0 {
 			allowed = min(allowed, l.MaxToolCalls-res.ToolCalls)
 		}
-		res.Messages = append(res.Messages, l.runTools(ctx, res.Turns, calls[:allowed])...)
-		res.ToolCalls += allowed
+		results, attempted, interrupt := l.runTools(ctx, res.Turns, calls[:allowed])
+		res.Messages = append(res.Messages, results...)
+		res.ToolCalls += attempted
+		if interrupt != nil {
+			return res, interrupt
+		}
 		for _, call := range calls[allowed:] {
 			// Every call gets a result, as providers expect.
 			res.Messages = append(res.Messages, Message{Role: Tool, ToolCallID: call.ID, Content: fmt.Sprintf("not run: the limit of %d tool calls is reached; answer with what you have", l.MaxToolCalls), IsError: true})
@@ -518,9 +530,9 @@ func (l *Loop) emit(e Event) {
 
 // runTools runs the calls of one turn and returns their results in call
 // order, since providers expect them so.
-func (l *Loop) runTools(ctx context.Context, turn int, calls []ToolCall) []Message {
+func (l *Loop) runTools(ctx context.Context, turn int, calls []ToolCall) ([]Message, int, error) {
 	results := make([]Message, len(calls))
-	run := func(i int) {
+	run := func(i int) error {
 		call := calls[i]
 		l.emit(Event{Kind: ToolCalled, Turn: turn, Call: &call})
 		out, err := l.dispatch(ctx, call)
@@ -528,15 +540,24 @@ func (l *Loop) runTools(ctx context.Context, turn int, calls []ToolCall) []Messa
 		if err != nil {
 			msg.Content, msg.IsError = err.Error(), true
 		}
-		results[i] = msg
 		l.emit(Event{Kind: ToolReturned, Turn: turn, Call: &call, Result: msg.Content, Err: err})
+		if err != nil && l.InterruptTool != nil && l.InterruptTool(err) {
+			return err
+		}
+		results[i] = msg
+		return nil
 	}
 	n := l.Concurrency
-	if n <= 1 || len(calls) == 1 {
+	if l.InterruptTool != nil || n <= 1 || len(calls) == 1 {
 		for i := range calls {
-			run(i)
+			if l.InterruptTool != nil && ctx.Err() != nil {
+				return results[:i], i, ctx.Err()
+			}
+			if err := run(i); err != nil {
+				return results[:i], i + 1, err
+			}
 		}
-		return results
+		return results, len(calls), nil
 	}
 	sem := make(chan struct{}, n)
 	var wg sync.WaitGroup
@@ -546,11 +567,11 @@ func (l *Loop) runTools(ctx context.Context, turn int, calls []ToolCall) []Messa
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			run(i)
+			_ = run(i)
 		}()
 	}
 	wg.Wait()
-	return results
+	return results, len(calls), nil
 }
 
 func (l *Loop) dispatch(ctx context.Context, call ToolCall) (out string, err error) {

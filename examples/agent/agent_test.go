@@ -96,6 +96,29 @@ func TestSupportAgent(t *testing.T) {
 	}
 }
 
+type interruptedShop struct {
+	shop
+	stop error
+}
+
+func (s *interruptedShop) LookupOrder(context.Context, LookupOrderArgs) (string, error) {
+	return "", s.stop
+}
+
+func TestGeneratedAgentInterruptsToolBatch(t *testing.T) {
+	stop := errors.New("approval needed")
+	model, seen := script(t, afagent.Message{ToolCalls: []afagent.ToolCall{
+		call("1", "lookup_order", `{"order_id":"A-1"}`),
+		call("2", "offer_refund", `{"order_id":"A-1","reason":"late"}`),
+	}})
+	s := &interruptedShop{stop: stop}
+	a := &SupportAgent{Model: model, Tools: s, Concurrency: 2, InterruptTool: func(err error) bool { return errors.Is(err, stop) }}
+	res, err := a.Run(t.Context(), &Support{}, afagent.Message{Role: afagent.User, Content: "help"})
+	if !errors.Is(err, stop) || len(*seen) != 1 || len(s.refunds) != 0 || res.ToolCalls != 1 || len(res.Messages) != 2 {
+		t.Fatalf("generated agent did not preserve interrupted call: result=%+v refunds=%v err=%v", res, s.refunds, err)
+	}
+}
+
 func TestSupportAgentMaxTurns(t *testing.T) {
 	loop := afagent.Message{ToolCalls: []afagent.ToolCall{call("x", "lookup_order", `{"order_id":"nope"}`)}}
 	turns := make([]afagent.Message, 6)
