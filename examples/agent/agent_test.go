@@ -183,6 +183,43 @@ func TestGeneratedAgentRunSpecificOutputContract(t *testing.T) {
 	}
 }
 
+func TestGeneratedAgentDynamicApprovalAndOutputResume(t *testing.T) {
+	approval := errors.New("approval needed")
+	model, seen := script(t, afagent.Message{ToolCalls: []afagent.ToolCall{
+		call("read", "connected_read", `{}`), call("approval", "connected_write", `{}`), call("later", "connected_later", `{}`),
+	}})
+	var calls []string
+	schema := &afagent.OutputSpec{Name: "result", Schema: []byte(`{"type":"object"}`)}
+	a := &SupportAgent{Model: model, Tools: &shop{}, Concurrency: 3, Output: schema,
+		AdditionalTools: []afagent.ToolSpec{{Name: "connected_read", Schema: []byte(`{}`)}, {Name: "connected_write", Schema: []byte(`{}`)}, {Name: "connected_later", Schema: []byte(`{}`)}},
+		InterruptTool:   func(err error) bool { return errors.Is(err, approval) },
+		DispatchAdditional: func(_ context.Context, c afagent.ToolCall) (string, error) {
+			calls = append(calls, c.Name)
+			if c.Name == "connected_write" {
+				return "", approval
+			}
+			return "read data", nil
+		},
+		CheckOutput: func(answer string) error {
+			if !json.Valid([]byte(answer)) {
+				return errors.New("invalid JSON")
+			}
+			return nil
+		},
+	}
+	res, err := a.Run(t.Context(), &Support{}, afagent.Message{Role: afagent.User, Content: "go"})
+	if !errors.Is(err, approval) || strings.Join(calls, ",") != "connected_read,connected_write" || len(*seen) != 1 || len(res.Messages) != 3 {
+		t.Fatalf("parked run: result=%+v calls=%v err=%v", res, calls, err)
+	}
+	res.Messages = append(res.Messages, afagent.Message{Role: afagent.Tool, ToolCallID: "approval", Content: "approved"}, afagent.Message{Role: afagent.Tool, ToolCallID: "later", Content: "not run", IsError: true})
+	model, seen = script(t, afagent.Message{Content: `{"ok":true}`})
+	a.Model = model
+	res, err = a.Run(t.Context(), &Support{}, res.Messages...)
+	if err != nil || res.Final != `{"ok":true}` || len(*seen) != 1 || (*seen)[0].Output != schema || len(calls) != 2 {
+		t.Fatalf("resumed run: result=%+v calls=%v err=%v", res, calls, err)
+	}
+}
+
 func TestSupportAgentMaxTurns(t *testing.T) {
 	loop := afagent.Message{ToolCalls: []afagent.ToolCall{call("x", "lookup_order", `{"order_id":"nope"}`)}}
 	turns := make([]afagent.Message, 6)
