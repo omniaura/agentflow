@@ -131,6 +131,9 @@ type SupportAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// BeforeTools can stop a batch after a model response and before any
+	// tool starts, using the response and accumulated usage.
+	BeforeTools func(ctx context.Context, turn int, response afagent.Response, usage afagent.Usage) error
 	// Output and CheckOutput supply a run-specific output contract. The host
 	// validates the answer in CheckOutput; a schema alone is only a request.
 	Output      *afagent.OutputSpec
@@ -168,6 +171,7 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
+		BeforeTools:   a.BeforeTools,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
@@ -280,6 +284,9 @@ type TriagerAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// BeforeTools can stop a batch after a model response and before any
+	// tool starts, using the response and accumulated usage.
+	BeforeTools func(ctx context.Context, turn int, response afagent.Response, usage afagent.Usage) error
 	// Check, when set, vets a decoded answer beyond its schema, such as
 	// that it covers every input. Its error goes back to the model as
 	// written, and the model answers again within MaxTurns.
@@ -323,6 +330,7 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
+		BeforeTools:   a.BeforeTools,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
@@ -549,6 +557,9 @@ type TrackerAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// BeforeTools can stop a batch after a model response and before any
+	// tool starts, using the response and accumulated usage.
+	BeforeTools func(ctx context.Context, turn int, response afagent.Response, usage afagent.Usage) error
 	// Output and CheckOutput supply a run-specific output contract. The host
 	// validates the answer in CheckOutput; a schema alone is only a request.
 	Output      *afagent.OutputSpec
@@ -589,6 +600,7 @@ func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afa
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
+		BeforeTools:   a.BeforeTools,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
@@ -706,6 +718,9 @@ type ConciergeAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// BeforeTools can stop a batch after a model response and before any
+	// tool starts, using the response and accumulated usage.
+	BeforeTools func(ctx context.Context, turn int, response afagent.Response, usage afagent.Usage) error
 	// Output and CheckOutput supply a run-specific output contract. The host
 	// validates the answer in CheckOutput; a schema alone is only a request.
 	Output      *afagent.OutputSpec
@@ -743,6 +758,7 @@ func (a *ConciergeAgent) Run(ctx context.Context, system *Support, messages ...a
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
+		BeforeTools:   a.BeforeTools,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
@@ -855,6 +871,9 @@ type CoordinatorAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// BeforeTools can stop a batch after a model response and before any
+	// tool starts, using the response and accumulated usage.
+	BeforeTools func(ctx context.Context, turn int, response afagent.Response, usage afagent.Usage) error
 	// Output and CheckOutput supply a run-specific output contract. The host
 	// validates the answer in CheckOutput; a schema alone is only a request.
 	Output      *afagent.OutputSpec
@@ -892,6 +911,7 @@ func (a *CoordinatorAgent) Run(ctx context.Context, system *Support, messages ..
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
+		BeforeTools:   a.BeforeTools,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},

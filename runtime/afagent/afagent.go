@@ -363,6 +363,12 @@ type Loop struct {
 	// can compact a long one, or add messages that arrived during the run.
 	// Its error ends the run.
 	BeforeTurn func(ctx context.Context, turn int, messages []Message) ([]Message, error)
+	// BeforeTools can stop a tool batch after the model's response and usage
+	// have been recorded, before any call starts. It is not called for a final
+	// answer or for calls the loop has already refused. On error, Result keeps
+	// the response and usage; the host must resolve its unanswered calls before
+	// resuming the conversation.
+	BeforeTools func(ctx context.Context, turn int, response Response, usage Usage) error
 	// MaxToolCalls, when above 0, bounds the tool calls of a run. Calls a
 	// turn makes beyond it are refused, and later turns withhold the
 	// tools, so the model answers with what it has; Result.OutOfToolCalls
@@ -502,6 +508,11 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			// The model called tools it was told it couldn't; running them
 			// would leave their results unanswered.
 			return res, fmt.Errorf("%w: the model called tools on its last turn, when it was to answer", ErrMaxTurns)
+		}
+		if l.BeforeTools != nil {
+			if err := l.BeforeTools(ctx, res.Turns, resp, res.Usage); err != nil {
+				return res, err
+			}
 		}
 		calls := resp.Message.ToolCalls
 		allowed := len(calls)

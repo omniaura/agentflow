@@ -116,6 +116,44 @@ func TestLoopInterruptModeStillReturnsOrdinaryToolErrors(t *testing.T) {
 	}
 }
 
+func TestLoopBeforeToolsStopsBatchAndKeepsUsage(t *testing.T) {
+	budget := errors.New("budget exhausted")
+	model, reqs := script(t, calls("a", "b"))
+	dispatched := 0
+	l := Loop{Model: model, Tools: []ToolSpec{{Name: "a"}, {Name: "b"}}, Concurrency: 2,
+		BeforeTools: func(_ context.Context, turn int, response Response, usage Usage) error {
+			if turn != 1 || len(response.Message.ToolCalls) != 2 || usage.InputTokens != 10 || usage.OutputTokens != 2 {
+				t.Errorf("bad policy input: %d %+v %+v", turn, response, usage)
+			}
+			return budget
+		}, Dispatch: func(context.Context, ToolCall) (string, error) { dispatched++; return "", nil },
+	}
+	res, err := l.Run(t.Context(), []Message{{Role: User, Content: "go"}})
+	if !errors.Is(err, budget) || dispatched != 0 || len(*reqs) != 1 || res.Usage.InputTokens != 10 || len(res.Messages) != 2 || len(res.Messages[1].ToolCalls) != 2 {
+		t.Fatalf("budget gate: result=%+v calls=%d err=%v", res, dispatched, err)
+	}
+}
+
+func TestLoopBeforeToolsDoesNotRejectFinalAnswer(t *testing.T) {
+	model, _ := script(t, Message{Content: "complete"})
+	l := Loop{Model: model, BeforeTools: func(context.Context, int, Response, Usage) error { t.Fatal("no batch to admit"); return nil }}
+	res, err := l.Run(t.Context(), nil)
+	if err != nil || res.Final != "complete" || res.Usage.InputTokens != 10 {
+		t.Fatalf("final answer lost: %+v %v", res, err)
+	}
+}
+
+func TestLoopBeforeToolsCanPropagateCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	l := Loop{Model: ModelFunc(func(context.Context, Request) (Response, error) { cancel(); return Response{Message: calls("a")}, nil }),
+		BeforeTools: func(ctx context.Context, _ int, _ Response, _ Usage) error { return ctx.Err() },
+		Dispatch:    func(context.Context, ToolCall) (string, error) { t.Fatal("cancelled batch ran"); return "", nil },
+	}
+	if _, err := l.Run(ctx, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestLoopMaxTurns(t *testing.T) {
 	model, _ := script(t, calls("a"), calls("a"))
 	l := Loop{Model: model, MaxTurns: 2, Dispatch: func(context.Context, ToolCall) (string, error) { return "", nil }}
