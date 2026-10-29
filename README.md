@@ -716,6 +716,8 @@ For a tool error that must stop a run, such as a pending approval or revoked acc
 
 Generated agents can also receive a run's connected tools through `AdditionalTools` and `DispatchAdditional`. Their names must be unique across declared and connected tools, and their schemas must be JSON objects. Additional tools are sorted by name so their prompt order is stable. `Allow` is evaluated once per name, and calls to anything not offered are refused before either dispatcher runs. The host dispatcher remains responsible for validating arguments and enforcing approvals, billing, and authorization on each call.
 
+For an agent without `.returns`, `Output` can request a schema selected at run time, and `CheckOutput` can validate the final answer and ask the model to correct it. The schema is a provider request, not a guarantee: supply the validator when the caller depends on the shape. An agent with `.returns` retains its generated, typed contract.
+
 With `.returns`, the agent ends with structured data instead of text. The model can still call tools first:
 
 ```af
