@@ -131,6 +131,10 @@ type SupportAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// Output and CheckOutput supply a run-specific output contract. The host
+	// validates the answer in CheckOutput; a schema alone is only a request.
+	Output      *afagent.OutputSpec
+	CheckOutput func(answer string) error
 }
 
 // SupportAgentTools describes the tools of the support agent to the model.
@@ -168,6 +172,8 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
 		AnswerOnLastTurn: len(catalog.Tools) > 0,
+		Output:           a.Output,
+		Check:            a.CheckOutput,
 	}
 	return loop.Run(ctx, messages)
 }
@@ -543,6 +549,10 @@ type TrackerAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// Output and CheckOutput supply a run-specific output contract. The host
+	// validates the answer in CheckOutput; a schema alone is only a request.
+	Output      *afagent.OutputSpec
+	CheckOutput func(answer string) error
 }
 
 // TrackerAgentTools describes the tools of the tracker agent to the model.
@@ -583,6 +593,8 @@ func (a *TrackerAgent) Run(ctx context.Context, system *Support, messages ...afa
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
 		AnswerOnLastTurn: len(catalog.Tools) > 0,
+		Output:           a.Output,
+		Check:            a.CheckOutput,
 	}
 	return loop.Run(ctx, messages)
 }
@@ -694,6 +706,10 @@ type ConciergeAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// Output and CheckOutput supply a run-specific output contract. The host
+	// validates the answer in CheckOutput; a schema alone is only a request.
+	Output      *afagent.OutputSpec
+	CheckOutput func(answer string) error
 }
 
 // ConciergeAgentTools describes the tools of the concierge agent to the model.
@@ -731,6 +747,8 @@ func (a *ConciergeAgent) Run(ctx context.Context, system *Support, messages ...a
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
 		AnswerOnLastTurn: len(catalog.Tools) > 0,
+		Output:           a.Output,
+		Check:            a.CheckOutput,
 	}
 	return loop.Run(ctx, messages)
 }
@@ -837,6 +855,10 @@ type CoordinatorAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// Output and CheckOutput supply a run-specific output contract. The host
+	// validates the answer in CheckOutput; a schema alone is only a request.
+	Output      *afagent.OutputSpec
+	CheckOutput func(answer string) error
 }
 
 // CoordinatorAgentTools describes the tools of the coordinator agent to the model.
@@ -874,6 +896,8 @@ func (a *CoordinatorAgent) Run(ctx context.Context, system *Support, messages ..
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
 		AnswerOnLastTurn: len(catalog.Tools) > 0,
+		Output:           a.Output,
+		Check:            a.CheckOutput,
 	}
 	return loop.Run(ctx, messages)
 }

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -153,6 +154,32 @@ func TestGeneratedAgentRejectsMissingAdditionalDispatcher(t *testing.T) {
 	a.Allow = func(_ context.Context, name string) bool { return name != "connected" }
 	if _, err := a.Run(t.Context(), &Support{}); err != nil || len(*seen) != 1 {
 		t.Fatalf("denied tool must not require a dispatcher: %v", err)
+	}
+}
+
+func TestGeneratedAgentRunSpecificOutputContract(t *testing.T) {
+	model, seen := script(t, afagent.Message{Content: "not JSON"}, afagent.Message{Content: `{"ok":true}`})
+	schema := &afagent.OutputSpec{Name: "workflow_output", Schema: []byte(`{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}`)}
+	a := &SupportAgent{Model: model, Tools: &shop{}, Output: schema, CheckOutput: func(answer string) error {
+		if !json.Valid([]byte(answer)) {
+			return errors.New("answer is not JSON")
+		}
+		return nil
+	}}
+	res, err := a.Run(t.Context(), &Support{}, afagent.Message{Role: afagent.User, Content: "go"})
+	if err != nil || res.Final != `{"ok":true}` || len(*seen) != 2 || (*seen)[0].Output != schema || (*seen)[1].Output != schema {
+		t.Fatalf("output contract: result=%+v calls=%d err=%v", res, len(*seen), err)
+	}
+	last := (*seen)[1].Messages[len((*seen)[1].Messages)-1]
+	if !strings.Contains(last.Content, "answer is not JSON") {
+		t.Fatalf("missing rejection: %+v", last)
+	}
+	model, seen = script(t, afagent.Message{Content: `{"name":"Ada"}`})
+	second := &afagent.OutputSpec{Name: "another_workflow", Schema: []byte(`{"type":"object","properties":{"name":{"type":"string"}}}`)}
+	a.Model, a.Output = model, second
+	res, err = a.Run(t.Context(), &Support{}, afagent.Message{Role: afagent.User, Content: "go again"})
+	if err != nil || res.Final != `{"name":"Ada"}` || len(*seen) != 1 || (*seen)[0].Output != second {
+		t.Fatalf("second output contract: result=%+v err=%v", res, err)
 	}
 }
 

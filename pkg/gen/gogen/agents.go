@@ -115,6 +115,8 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		buf.WriteString("// BeforeTurn, when set, may replace the conversation before each model\n// call: to compact a long one, or add messages that arrived meanwhile.\nBeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)\n")
 		if returns != nil {
 			fmt.Fprintf(buf, "// Check, when set, vets a decoded answer beyond its schema, such as\n// that it covers every input. Its error goes back to the model as\n// written, and the model answers again within MaxTurns.\nCheck func(ctx context.Context, out %sOutput) error\n", camel(returns.Name))
+		} else {
+			buf.WriteString("// Output and CheckOutput supply a run-specific output contract. The host\n// validates the answer in CheckOutput; a schema alone is only a request.\nOutput *afagent.OutputSpec\nCheckOutput func(answer string) error\n")
 		}
 		buf.WriteString("}\n\n")
 
@@ -165,7 +167,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		}
 		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: catalog.Tools,\nMaxTurns: maxTurns,\nMaxToolCalls: maxToolCalls,\nConcurrency: a.Concurrency,\nInterruptTool: a.InterruptTool,\nOnEvent: a.OnEvent,\nBeforeTurn: a.BeforeTurn,\nDispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) { return catalog.Dispatch(ctx, call, %s, a.DispatchAdditional) },\nAnswerOnLastTurn: len(catalog.Tools) > 0,\n", systemExpr, declaredDispatch)
 		if returns == nil {
-			buf.WriteString("}\nreturn loop.Run(ctx, messages)\n}\n\n")
+			buf.WriteString("Output: a.Output,\nCheck: a.CheckOutput,\n}\nreturn loop.Run(ctx, messages)\n}\n\n")
 		} else {
 			schema := camel(returns.Name) + "Schema"
 			fmt.Fprintf(buf, "Output: &afagent.OutputSpec{Name: %s.Name, Description: %s.Description, Schema: %s.Schema},\n", schema, schema, schema)
