@@ -220,6 +220,22 @@ func TestGeneratedAgentDynamicApprovalAndOutputResume(t *testing.T) {
 	}
 }
 
+func TestGeneratedAgentBeforeToolsBlocksSpend(t *testing.T) {
+	budget := errors.New("budget exhausted")
+	model, seen := script(t, afagent.Message{ToolCalls: []afagent.ToolCall{call("1", "offer_refund", `{"order_id":"A-1","reason":"late"}`)}})
+	s := &shop{}
+	a := &SupportAgent{Model: model, Tools: s, BeforeTools: func(_ context.Context, _ int, _ afagent.Response, usage afagent.Usage) error {
+		if usage.InputTokens != 10 {
+			t.Errorf("usage = %+v", usage)
+		}
+		return budget
+	}}
+	res, err := a.Run(t.Context(), &Support{}, afagent.Message{Role: afagent.User, Content: "go"})
+	if !errors.Is(err, budget) || len(*seen) != 1 || len(s.refunds) != 0 || res.Usage.InputTokens != 10 {
+		t.Fatalf("budget: result=%+v refunds=%v err=%v", res, s.refunds, err)
+	}
+}
+
 func TestSupportAgentMaxTurns(t *testing.T) {
 	loop := afagent.Message{ToolCalls: []afagent.ToolCall{call("x", "lookup_order", `{"order_id":"nope"}`)}}
 	turns := make([]afagent.Message, 6)

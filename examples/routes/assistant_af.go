@@ -273,6 +273,9 @@ type NotesAgent struct {
 	// BeforeTurn, when set, may replace the conversation before each model
 	// call: to compact a long one, or add messages that arrived meanwhile.
 	BeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)
+	// BeforeTools can stop a batch after a model response and before any
+	// tool starts, using the response and accumulated usage.
+	BeforeTools func(ctx context.Context, turn int, response afagent.Response, usage afagent.Usage) error
 	// Output and CheckOutput supply a run-specific output contract. The host
 	// validates the answer in CheckOutput; a schema alone is only a request.
 	Output      *afagent.OutputSpec
@@ -313,6 +316,7 @@ func (a *NotesAgent) Run(ctx context.Context, system *NotesAssistant, messages .
 		InterruptTool: a.InterruptTool,
 		OnEvent:       a.OnEvent,
 		BeforeTurn:    a.BeforeTurn,
+		BeforeTools:   a.BeforeTools,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			return catalog.Dispatch(ctx, call, a.dispatch, a.DispatchAdditional)
 		},
