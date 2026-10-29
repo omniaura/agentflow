@@ -714,6 +714,8 @@ Arguments that fail validation, unknown tools, tool errors and panics go back to
 
 For a tool error that must stop a run, such as a pending approval or revoked access, set `InterruptTool` to classify it. The error is returned to the host, not sent as a tool result. Calls in that turn run sequentially when this is set, even if `Concurrency` is higher, so a later action does not start after the interruption. `Result.Messages` retains the assistant's call batch and results of earlier calls. Before resuming, the host must persist the outcome and add a result for every outstanding call, including calls that were never started; never run a provider with unanswered tool calls. The interrupted call is counted in `ToolCalls`.
 
+Generated agents can also receive a run's connected tools through `AdditionalTools` and `DispatchAdditional`. Their names must be unique across declared and connected tools, and their schemas must be JSON objects. Additional tools are sorted by name so their prompt order is stable. `Allow` is evaluated once per name, and calls to anything not offered are refused before either dispatcher runs. The host dispatcher remains responsible for validating arguments and enforcing approvals, billing, and authorization on each call.
+
 With `.returns`, the agent ends with structured data instead of text. The model can still call tools first:
 
 ```af

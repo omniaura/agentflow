@@ -100,20 +100,17 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			buf.WriteString("; 0 or less means afagent.DefaultMaxTurns.\n")
 		}
 		buf.WriteString("MaxTurns int\n")
-		if len(tools) > 0 {
-			buf.WriteString("// MaxToolCalls bounds the tool calls of a run; once they have run, the\n// model answers without tools")
-			if a.MaxToolCalls > 0 {
-				fmt.Fprintf(buf, ". 0 or less means %d.\n", a.MaxToolCalls)
-			} else {
-				buf.WriteString(". 0 or less means no bound.\n")
-			}
-			buf.WriteString("MaxToolCalls int\n")
+		buf.WriteString("// MaxToolCalls bounds the tool calls of a run; once they have run, the\n// model answers without tools")
+		if a.MaxToolCalls > 0 {
+			fmt.Fprintf(buf, ". 0 or less means %d.\n", a.MaxToolCalls)
+		} else {
+			buf.WriteString(". 0 or less means no bound.\n")
 		}
+		buf.WriteString("MaxToolCalls int\n")
 		buf.WriteString("// Concurrency is how many tool calls of a turn run at once.\nConcurrency int\n")
 		buf.WriteString("// InterruptTool ends a run on selected tool errors. Calls are sequential\n// in this mode; the host must resolve outstanding calls before resuming.\nInterruptTool func(error) bool\n")
-		if len(tools) > 0 {
-			buf.WriteString("// Allow, when set, picks the tools of a run, such as the ones a\n// workspace enabled: only tools it allows are offered to the model,\n// and a call to another is refused. Nil allows every tool.\nAllow func(ctx context.Context, tool string) bool\n")
-		}
+		buf.WriteString("// Allow selects the tools offered in a run. Nil allows every tool.\nAllow func(ctx context.Context, tool string) bool\n")
+		buf.WriteString("// AdditionalTools and DispatchAdditional supply per-run host tools.\n// Names must be unique; DispatchAdditional must enforce the host's gate.\nAdditionalTools []afagent.ToolSpec\nDispatchAdditional func(context.Context, afagent.ToolCall) (string, error)\n")
 		buf.WriteString("// OnEvent, when set, sees each model response and tool call. With\n// Concurrency above 1 it is called concurrently.\nOnEvent func(afagent.Event)\n")
 		buf.WriteString("// BeforeTurn, when set, may replace the conversation before each model\n// call: to compact a long one, or add messages that arrived meanwhile.\nBeforeTurn func(ctx context.Context, turn int, messages []afagent.Message) ([]afagent.Message, error)\n")
 		if returns != nil {
@@ -150,27 +147,21 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 		if a.MaxTurns > 0 {
 			fmt.Fprintf(buf, "if maxTurns <= 0 {\nmaxTurns = %d\n}\n", a.MaxTurns)
 		}
-		if len(tools) > 0 {
-			buf.WriteString("maxToolCalls := a.MaxToolCalls\n")
-			if a.MaxToolCalls > 0 {
-				fmt.Fprintf(buf, "if maxToolCalls <= 0 {\nmaxToolCalls = %d\n}\n", a.MaxToolCalls)
-			}
+		buf.WriteString("maxToolCalls := a.MaxToolCalls\n")
+		if a.MaxToolCalls > 0 {
+			fmt.Fprintf(buf, "if maxToolCalls <= 0 {\nmaxToolCalls = %d\n}\n", a.MaxToolCalls)
 		}
-		toolsExpr := name + "AgentTools"
-		if len(tools) > 0 {
-			// Allow is asked once per run: dispatch then enforces the very
-			// tools offered, even if Allow would answer differently later.
-			buf.WriteString("tools := a.tools(ctx)\n")
-			toolsExpr = "tools"
+		fmt.Fprintf(buf, "catalog, err := afagent.PrepareTools(ctx, %sAgentTools, a.AdditionalTools, a.Allow)\n", name)
+		if returns == nil {
+			buf.WriteString("if err != nil { return afagent.Result{}, err }\n")
+		} else {
+			fmt.Fprintf(buf, "if err != nil { return %s{}, err }\n", result)
 		}
-		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %s,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nInterruptTool: a.InterruptTool,\nOnEvent: a.OnEvent,\nBeforeTurn: a.BeforeTurn,\n", systemExpr, toolsExpr)
+		declaredDispatch := "nil"
 		if len(tools) > 0 {
-			// The last turn answers with what the tools found, rather than
-			// failing with ErrMaxTurns.
-			imports["slices"] = true
-			buf.WriteString("MaxToolCalls: maxToolCalls,\n")
-			buf.WriteString("Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {\nif !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {\n// The model may name a tool it wasn't offered.\nreturn \"\", fmt.Errorf(\"tool %s is not available in this conversation\", call.Name)\n}\nreturn a.dispatch(ctx, call)\n},\nAnswerOnLastTurn: true,\n")
+			declaredDispatch = "a.dispatch"
 		}
+		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: catalog.Tools,\nMaxTurns: maxTurns,\nMaxToolCalls: maxToolCalls,\nConcurrency: a.Concurrency,\nInterruptTool: a.InterruptTool,\nOnEvent: a.OnEvent,\nBeforeTurn: a.BeforeTurn,\nDispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) { return catalog.Dispatch(ctx, call, %s, a.DispatchAdditional) },\nAnswerOnLastTurn: len(catalog.Tools) > 0,\n", systemExpr, declaredDispatch)
 		if returns == nil {
 			buf.WriteString("}\nreturn loop.Run(ctx, messages)\n}\n\n")
 		} else {
@@ -182,7 +173,6 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 
 		if len(tools) > 0 {
 			imports["fmt"] = true
-			fmt.Fprintf(buf, "// tools are the tools offered in a run: those Allow allows.\nfunc (a *%sAgent) tools(ctx context.Context) []afagent.ToolSpec {\nif a.Allow == nil {\nreturn %sAgentTools\n}\nvar out []afagent.ToolSpec\nfor _, t := range %sAgentTools {\nif a.Allow(ctx, t.Name) {\nout = append(out, t)\n}\n}\nreturn out\n}\n\n", name, name, name)
 			fmt.Fprintf(buf, "func (a *%sAgent) dispatch(ctx context.Context, call afagent.ToolCall) (string, error) {\n", name)
 			buf.WriteString("switch call.Name {\n")
 			for _, r := range tools {
