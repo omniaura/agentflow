@@ -117,6 +117,9 @@ type SupportAgent struct {
 	MaxToolCalls int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
+	// InterruptTool ends a run on selected tool errors. Calls are sequential
+	// in this mode; the host must resolve outstanding calls before resuming.
+	InterruptTool func(error) bool
 	// Allow, when set, picks the tools of a run, such as the ones a
 	// workspace enabled: only tools it allows are offered to the model,
 	// and a call to another is refused. Nil allows every tool.
@@ -145,14 +148,15 @@ func (a *SupportAgent) Run(ctx context.Context, system *Support, messages ...afa
 	maxToolCalls := a.MaxToolCalls
 	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:        a.Model,
-		System:       system.String(),
-		Tools:        tools,
-		MaxTurns:     maxTurns,
-		Concurrency:  a.Concurrency,
-		OnEvent:      a.OnEvent,
-		BeforeTurn:   a.BeforeTurn,
-		MaxToolCalls: maxToolCalls,
+		Model:         a.Model,
+		System:        system.String(),
+		Tools:         tools,
+		MaxTurns:      maxTurns,
+		Concurrency:   a.Concurrency,
+		InterruptTool: a.InterruptTool,
+		OnEvent:       a.OnEvent,
+		BeforeTurn:    a.BeforeTurn,
+		MaxToolCalls:  maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.
@@ -266,6 +270,9 @@ type TriagerAgent struct {
 	MaxToolCalls int
 	// Concurrency is how many tool calls of a turn run at once.
 	Concurrency int
+	// InterruptTool ends a run on selected tool errors. Calls are sequential
+	// in this mode; the host must resolve outstanding calls before resuming.
+	InterruptTool func(error) bool
 	// Allow, when set, picks the tools of a run, such as the ones a
 	// workspace enabled: only tools it allows are offered to the model,
 	// and a call to another is refused. Nil allows every tool.
@@ -304,14 +311,15 @@ func (a *TriagerAgent) Run(ctx context.Context, system *Support, messages ...afa
 	maxToolCalls := a.MaxToolCalls
 	tools := a.tools(ctx)
 	loop := afagent.Loop{
-		Model:        a.Model,
-		System:       system.String(),
-		Tools:        tools,
-		MaxTurns:     maxTurns,
-		Concurrency:  a.Concurrency,
-		OnEvent:      a.OnEvent,
-		BeforeTurn:   a.BeforeTurn,
-		MaxToolCalls: maxToolCalls,
+		Model:         a.Model,
+		System:        system.String(),
+		Tools:         tools,
+		MaxTurns:      maxTurns,
+		Concurrency:   a.Concurrency,
+		InterruptTool: a.InterruptTool,
+		OnEvent:       a.OnEvent,
+		BeforeTurn:    a.BeforeTurn,
+		MaxToolCalls:  maxToolCalls,
 		Dispatch: func(ctx context.Context, call afagent.ToolCall) (string, error) {
 			if !slices.ContainsFunc(tools, func(t afagent.ToolSpec) bool { return t.Name == call.Name }) {
 				// The model may name a tool it wasn't offered.

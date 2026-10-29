@@ -75,6 +75,47 @@ func TestLoopRunsToolsUntilAnswer(t *testing.T) {
 	}
 }
 
+func TestLoopInterruptPreservesOutstandingCallsForResume(t *testing.T) {
+	parked := errors.New("approval required")
+	model, requests := script(t, calls("read", "approve", "later"))
+	var called []string
+	l := Loop{Model: model, Concurrency: 4,
+		InterruptTool: func(err error) bool { return errors.Is(err, parked) },
+		Dispatch: func(_ context.Context, c ToolCall) (string, error) {
+			called = append(called, c.Name)
+			if c.Name == "approve" {
+				return "", parked
+			}
+			return c.Name + " result", nil
+		},
+	}
+	res, err := l.Run(t.Context(), []Message{{Role: User, Content: "start"}})
+	if !errors.Is(err, parked) || len(*requests) != 1 || strings.Join(called, ",") != "read,approve" || res.ToolCalls != 2 {
+		t.Fatalf("interruption: calls=%v requests=%d result=%+v err=%v", called, len(*requests), res, err)
+	}
+	if len(res.Messages) != 3 || len(res.Messages[1].ToolCalls) != 3 || res.Messages[2].ToolCallID != "c0" || res.Messages[2].Content != "read result" {
+		t.Fatalf("conversation lost calls or completed result: %+v", res.Messages)
+	}
+	// The host resolves the parked and unstarted calls before another provider
+	// turn. The loop must not dispatch either a second time on resume.
+	messages := append(res.Messages, Message{Role: Tool, ToolCallID: "c1", Content: "approved result"}, Message{Role: Tool, ToolCallID: "c2", Content: "not run", IsError: true})
+	model, requests = script(t, Message{Content: "done"})
+	l.Model = model
+	res, err = l.Run(t.Context(), messages)
+	if err != nil || res.Final != "done" || len(*requests) != 1 || len((*requests)[0].Messages) != 5 || len(called) != 2 {
+		t.Fatalf("resume: result=%+v calls=%v err=%v", res, called, err)
+	}
+}
+
+func TestLoopInterruptModeStillReturnsOrdinaryToolErrors(t *testing.T) {
+	model, _ := script(t, calls("bad"), Message{Content: "recovered"})
+	l := Loop{Model: model, InterruptTool: func(error) bool { return false }, Dispatch: func(context.Context, ToolCall) (string, error) { return "", errors.New("bad input") }}
+	res, err := l.Run(t.Context(), nil)
+	if err != nil || res.Final != "recovered" || len(res.Messages) != 3 || !res.Messages[1].IsError || res.Messages[1].Content != "bad input" {
+		t.Fatalf("ordinary errors must remain recoverable: %+v %v", res, err)
+	}
+}
+
 func TestLoopMaxTurns(t *testing.T) {
 	model, _ := script(t, calls("a"), calls("a"))
 	l := Loop{Model: model, MaxTurns: 2, Dispatch: func(context.Context, ToolCall) (string, error) { return "", nil }}

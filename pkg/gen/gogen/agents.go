@@ -110,6 +110,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			buf.WriteString("MaxToolCalls int\n")
 		}
 		buf.WriteString("// Concurrency is how many tool calls of a turn run at once.\nConcurrency int\n")
+		buf.WriteString("// InterruptTool ends a run on selected tool errors. Calls are sequential\n// in this mode; the host must resolve outstanding calls before resuming.\nInterruptTool func(error) bool\n")
 		if len(tools) > 0 {
 			buf.WriteString("// Allow, when set, picks the tools of a run, such as the ones a\n// workspace enabled: only tools it allows are offered to the model,\n// and a call to another is refused. Nil allows every tool.\nAllow func(ctx context.Context, tool string) bool\n")
 		}
@@ -162,7 +163,7 @@ func genAgents(buf *bytes.Buffer, f ast.File, siblings []ast.SiblingTool, import
 			buf.WriteString("tools := a.tools(ctx)\n")
 			toolsExpr = "tools"
 		}
-		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %s,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nOnEvent: a.OnEvent,\nBeforeTurn: a.BeforeTurn,\n", systemExpr, toolsExpr)
+		fmt.Fprintf(buf, "loop := afagent.Loop{\nModel: a.Model,\nSystem: %s,\nTools: %s,\nMaxTurns: maxTurns,\nConcurrency: a.Concurrency,\nInterruptTool: a.InterruptTool,\nOnEvent: a.OnEvent,\nBeforeTurn: a.BeforeTurn,\n", systemExpr, toolsExpr)
 		if len(tools) > 0 {
 			// The last turn answers with what the tools found, rather than
 			// failing with ErrMaxTurns.
