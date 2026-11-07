@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.14.0](https://github.com/omniaura/agentflow/compare/v0.13.0...v0.14.0) (2026-10-29)
+
+
+### Features
+
+* **adapters:** afthreadpg, a Postgres afthread store built on sqlc ([#149](https://github.com/omniaura/agentflow/issues/149)) ([b84e1e3](https://github.com/omniaura/agentflow/commit/b84e1e33ecdf15afae4d17e828f9ced18e66be54))
+* add .af line comments ([#80](https://github.com/omniaura/agentflow/issues/80)) ([4e081f7](https://github.com/omniaura/agentflow/commit/4e081f70028fa7b50e6778ed5d0c8688f15af952))
+* **af:** af new scaffolds an agent backend ([#162](https://github.com/omniaura/agentflow/issues/162)) ([16079bf](https://github.com/omniaura/agentflow/commit/16079bf4111961dfc9fe3ddef5ed3367ef9d6060))
+* **afcompact:** Digest condenses large tool results in parallel chunks ([#147](https://github.com/omniaura/agentflow/issues/147)) ([1ac21fa](https://github.com/omniaura/agentflow/commit/1ac21fa8436e21dc02b4ebed219375f2fc71dc94))
+* **afhttp:** schema constraints validate input as 400s; SQL tools say what to fix ([#157](https://github.com/omniaura/agentflow/issues/157)) ([71dbc1e](https://github.com/omniaura/agentflow/commit/71dbc1e25e761b80ceb7adbe18a1d7473b56c8e3))
+* **afopenai:** ResponsesModel runs agents on OpenAI's Responses API ([#153](https://github.com/omniaura/agentflow/issues/153)) ([bd6ceed](https://github.com/omniaura/agentflow/commit/bd6ceed67206b9deeabaeb11f967688a825744fe))
+* **afthread:** follow a thread's runs over HTTP ([#160](https://github.com/omniaura/agentflow/issues/160)) ([ac72456](https://github.com/omniaura/agentflow/commit/ac7245665a5fc872900a9b7279f1241c76ecf142))
+* **afthread:** Messenger lets an owner's agents message each other ([#150](https://github.com/omniaura/agentflow/issues/150)) ([09dd6b9](https://github.com/omniaura/agentflow/commit/09dd6b9dfcb2dc5883606fb1561af64d42b8f580))
+* **afthreadpg:** Directory, so agents message each other on Postgres ([#152](https://github.com/omniaura/agentflow/issues/152)) ([c6ebcb7](https://github.com/omniaura/agentflow/commit/c6ebcb773c7c87a78d1e5dd22d5448536ef4ddb4))
+* **afthreadpg:** Migrate applies the embedded migrations once ([#158](https://github.com/omniaura/agentflow/issues/158)) ([a8bed77](https://github.com/omniaura/agentflow/commit/a8bed77ab3f78b42886dae5af2b25302bc34d280))
+* **afthread:** record runs and their events in the database ([#148](https://github.com/omniaura/agentflow/issues/148)) ([e897268](https://github.com/omniaura/agentflow/commit/e897268691773b6f5edb03ea2a02f5cd1c0d61e2))
+* **afthread:** Server, the HTTP side of a chat backend ([#156](https://github.com/omniaura/agentflow/issues/156)) ([a1c5b02](https://github.com/omniaura/agentflow/commit/a1c5b026a92f86e9a735045c3244faadea8d8325))
+* **afthread:** Worker runs one agent per thread across servers ([#154](https://github.com/omniaura/agentflow/issues/154)) ([ad1935e](https://github.com/omniaura/agentflow/commit/ad1935eb18bdeb215ab07acaa2d77faea00af16a))
+* **agent:** .maxcalls bounds a run's tool calls ([#141](https://github.com/omniaura/agentflow/issues/141)) ([5ec48f6](https://github.com/omniaura/agentflow/commit/5ec48f64e4ffb40390c185b530f92e6d5eaea4f3))
+* **agent:** .tools may name tools of other .af files in the package ([#137](https://github.com/omniaura/agentflow/issues/137)) ([7d26a2f](https://github.com/omniaura/agentflow/commit/7d26a2f6469a5a0704fd8614bec51d49533e560e))
+* **agent:** admit tool batches after model responses [OSS-10] ([98b963c](https://github.com/omniaura/agentflow/commit/98b963c73c5645503d067a07b1b74d44cb1fad99))
+* **agent:** Allow picks a run's tools ([#140](https://github.com/omniaura/agentflow/issues/140)) ([ef05599](https://github.com/omniaura/agentflow/commit/ef055995e73647bbd4cdad08ac2e97ae74995f3c))
+* **agent:** BeforeTurn replaces the conversation before each model call ([#144](https://github.com/omniaura/agentflow/issues/144)) ([200ae89](https://github.com/omniaura/agentflow/commit/200ae899b7423c523a5c95edf8763eeadbb0e69b))
+* **agent:** ForThread runs a generated agent on a thread; runs record themselves ([#155](https://github.com/omniaura/agentflow/issues/155)) ([e9469a8](https://github.com/omniaura/agentflow/commit/e9469a8d634a75f068092757b920722acea23b0f))
+* **agent:** interrupt and resume tool batches [OSS-6] ([8e4c081](https://github.com/omniaura/agentflow/commit/8e4c08164df02c112bd032f2c5af8965ac8c4f87))
+* **agent:** send_message and list_agents are built-in tools ([#151](https://github.com/omniaura/agentflow/issues/151)) ([aee812d](https://github.com/omniaura/agentflow/commit/aee812d1b4949b36eea39048f705f218b71c80c8))
+* **agent:** subagents: .tools may name another agent ([#142](https://github.com/omniaura/agentflow/issues/142)) ([8326e27](https://github.com/omniaura/agentflow/commit/8326e27bb73fcdf67c2bfbf9700544f9e90d9cd9))
+* **agent:** support dynamic tool catalogs [OSS-7] ([c00db85](https://github.com/omniaura/agentflow/commit/c00db85a43e8a0eea2f4215da5b3e75f40b2c0ff))
+* **agent:** support run-specific output schemas [OSS-9] ([aedee5a](https://github.com/omniaura/agentflow/commit/aedee5ac494266635386cc552072b9404b157b8f))
+* **route:** .bind reads a query argument from a request name of its own ([#163](https://github.com/omniaura/agentflow/issues/163)) ([af007ad](https://github.com/omniaura/agentflow/commit/af007ad0e20b758816f7528a78d3ce4f0ebd7683))
+* **route:** .empty with a 2xx status responds with a success when no row is found ([#166](https://github.com/omniaura/agentflow/issues/166)) ([4ed33cf](https://github.com/omniaura/agentflow/commit/4ed33cf76616125b3c919531886ad5a9c8234031))
+* **route:** .map funcs take all the rows, the caller or the request, and can fail ([#164](https://github.com/omniaura/agentflow/issues/164)) ([bb1acab](https://github.com/omniaura/agentflow/commit/bb1acab7f64d4c1e5fa36c82f3cd69bd7095a810))
+* **route:** .prepare passes the decoded arguments to a Go func before the query ([#165](https://github.com/omniaura/agentflow/issues/165)) ([2b090fe](https://github.com/omniaura/agentflow/commit/2b090fe771f8595584c411bc15008c3a57259f7f))
+* **route:** swag annotations on generated handlers ([#143](https://github.com/omniaura/agentflow/issues/143)) ([0d02b73](https://github.com/omniaura/agentflow/commit/0d02b7376081d7fbe8323521cbe0f4d48d8bc043))
+* **runtime:** afcompact keeps conversations within the context window ([#146](https://github.com/omniaura/agentflow/issues/146)) ([edbe48b](https://github.com/omniaura/agentflow/commit/edbe48bb5ec011c05d6b1b1725da68c0017fa398))
+* **runtime:** afthread keeps threads and inboxes in your database ([#145](https://github.com/omniaura/agentflow/issues/145)) ([93a4883](https://github.com/omniaura/agentflow/commit/93a4883a251b3bba45b1abe8c2291774b850174f))
+* **survey:** count LLM gateway code that afmodel replaces ([#139](https://github.com/omniaura/agentflow/issues/139)) ([be14ef2](https://github.com/omniaura/agentflow/commit/be14ef2088a5841bc0299080a2929316e7b3a92e))
+
+
+### Bug Fixes
+
+* **agent:** validate usable dynamic tools [OSS-7] ([49b1247](https://github.com/omniaura/agentflow/commit/49b124752e979b5f67900e9b322d60c7b4d1c657))
+* **swag:** describe shared-status empty response variants [DITTO-1544] ([#167](https://github.com/omniaura/agentflow/issues/167)) ([4fa5f3e](https://github.com/omniaura/agentflow/commit/4fa5f3e439619c378673973bc5844e5cc91fd7f2))
+
 ## [0.13.0](https://github.com/omniaura/agentflow/compare/v0.12.1...v0.13.0) (2026-10-24)
 
 
