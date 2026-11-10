@@ -12,7 +12,7 @@ require (
 	github.com/swaggo/swag v1.16.6
 	github.com/tliron/glsp v0.2.2
 	go.yaml.in/yaml/v3 v3.0.4
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	golang.org/x/term v0.46.0
 )
 
