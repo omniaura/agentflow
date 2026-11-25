@@ -84,6 +84,7 @@ SELECT * FROM af_run_events WHERE run_id = @run_id AND seq > @after ORDER BY seq
 -- name: EndRun :exec
 UPDATE af_runs SET status = @status, ended_at = now(), turns = @turns, tool_calls = @tool_calls,
     input_tokens = @input_tokens, cached_input_tokens = @cached_input_tokens,
+    cache_creation_input_tokens = @cache_creation_input_tokens,
     output_tokens = @output_tokens, error = @error
 WHERE id = @id AND status = 'running';
 

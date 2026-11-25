@@ -12,10 +12,12 @@ package afanthropic
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -162,7 +164,11 @@ func messages(in []afagent.Message) ([]anthropic.MessageParam, error) {
 	for i, m := range in {
 		switch m.Role {
 		case afagent.User:
-			out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Content)))
+			blocks, err := userBlocks(m)
+			if err != nil {
+				return nil, fmt.Errorf("afanthropic: message %d: %w", i, err)
+			}
+			out = append(out, anthropic.NewUserMessage(blocks...))
 		case afagent.Assistant:
 			msg, err := assistant(m)
 			if err != nil {
@@ -170,7 +176,10 @@ func messages(in []afagent.Message) ([]anthropic.MessageParam, error) {
 			}
 			out = append(out, msg)
 		case afagent.Tool:
-			block := anthropic.NewToolResultBlock(m.ToolCallID, m.Content, m.IsError)
+			block, err := toolResultBlock(m)
+			if err != nil {
+				return nil, fmt.Errorf("afanthropic: message %d: %w", i, err)
+			}
 			if n := len(out); n > 0 && i > 0 && in[i-1].Role == afagent.Tool {
 				out[n-1].Content = append(out[n-1].Content, block)
 				continue
@@ -181,6 +190,215 @@ func messages(in []afagent.Message) ([]anthropic.MessageParam, error) {
 		}
 	}
 	return out, nil
+}
+
+func userBlocks(m afagent.Message) ([]anthropic.ContentBlockParamUnion, error) {
+	if len(m.Parts) == 0 {
+		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(m.Content)}, nil
+	}
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(m.Parts)+1)
+	if m.Content != "" {
+		blocks = append(blocks, anthropic.NewTextBlock(m.Content))
+	}
+	for _, part := range m.Parts {
+		block, err := partBlock(part)
+		if err != nil {
+			return nil, err
+		}
+		if block != nil {
+			blocks = append(blocks, *block)
+		}
+	}
+	if len(blocks) == 0 {
+		return nil, errors.New("user message has no content")
+	}
+	return blocks, nil
+}
+
+func toolResultBlock(m afagent.Message) (anthropic.ContentBlockParamUnion, error) {
+	if len(m.Parts) == 0 {
+		return anthropic.NewToolResultBlock(m.ToolCallID, m.Content, m.IsError), nil
+	}
+	var content []anthropic.ToolResultBlockParamContentUnion
+	if m.Content != "" {
+		content = append(content, anthropic.ToolResultBlockParamContentUnion{OfText: &anthropic.TextBlockParam{Text: m.Content}})
+	}
+	for _, part := range m.Parts {
+		block, err := partBlock(part)
+		if err != nil {
+			return anthropic.ContentBlockParamUnion{}, err
+		}
+		if block == nil {
+			continue
+		}
+		switch {
+		case block.OfText != nil:
+			content = append(content, anthropic.ToolResultBlockParamContentUnion{OfText: block.OfText})
+		case block.OfImage != nil && block.OfImage.Source.OfURL != nil:
+			content = append(content, anthropic.ToolResultBlockParamContentUnion{OfText: &anthropic.TextBlockParam{
+				Text: "[tool returned a URL image; tool-result images must be base64-encoded]",
+			}})
+		case block.OfImage != nil:
+			content = append(content, anthropic.ToolResultBlockParamContentUnion{OfImage: block.OfImage})
+		case block.OfDocument != nil:
+			var meta []string
+			if part.MIMEType != "" {
+				meta = append(meta, part.MIMEType)
+			}
+			if len(part.Data) > 0 {
+				meta = append(meta, fmt.Sprintf("%d bytes", len(part.Data)))
+			}
+			desc := fmt.Sprintf("%q", part.Filename)
+			if len(meta) > 0 {
+				desc += " (" + strings.Join(meta, ", ") + ")"
+			}
+			content = append(content, anthropic.ToolResultBlockParamContentUnion{OfText: &anthropic.TextBlockParam{
+				Text: fmt.Sprintf("[tool returned document %s; documents cannot be included in tool results]", desc),
+			}})
+		}
+	}
+	if len(content) == 0 {
+		return anthropic.ContentBlockParamUnion{}, errors.New("tool result has no content")
+	}
+	return anthropic.ContentBlockParamUnion{OfToolResult: &anthropic.ToolResultBlockParam{
+		ToolUseID: m.ToolCallID,
+		IsError:   anthropic.Bool(m.IsError),
+		Content:   content,
+	}}, nil
+}
+
+func partBlock(part afagent.Part) (*anthropic.ContentBlockParamUnion, error) {
+	switch part.Kind {
+	case afagent.PartText:
+		if part.Text == "" {
+			return nil, nil
+		}
+		b := anthropic.NewTextBlock(part.Text)
+		return &b, nil
+	case afagent.PartImage:
+		if len(part.Data) > 0 {
+			mime := part.MIMEType
+			if mime == "" {
+				mime = "image/png"
+			}
+			normalized, err := normalizeImageMIME(mime)
+			if err != nil {
+				return nil, fmt.Errorf("image part: %w", err)
+			}
+			b := anthropic.NewImageBlockBase64(normalized, base64.StdEncoding.EncodeToString(part.Data))
+			return &b, nil
+		}
+		if part.URL != "" {
+			if mime, data, ok := parseDataURI(part.URL); ok {
+				normalized, err := normalizeImageMIME(mime)
+				if err != nil {
+					return nil, fmt.Errorf("image part: data uri: %w", err)
+				}
+				b := anthropic.NewImageBlockBase64(normalized, data)
+				return &b, nil
+			}
+			if strings.HasPrefix(part.URL, "data:") {
+				return nil, errors.New("image part: unsupported data uri (must be base64-encoded)")
+			}
+			b := anthropic.NewImageBlock(anthropic.URLImageSourceParam{URL: part.URL})
+			return &b, nil
+		}
+		return nil, errors.New("image part has neither url nor data")
+	case afagent.PartFile:
+		if len(part.Data) > 0 {
+			mime := strings.ToLower(strings.TrimSpace(part.MIMEType))
+			if mime == "" {
+				if strings.HasPrefix(string(part.Data), "%PDF-") {
+					mime = "application/pdf"
+				} else {
+					return plainTextDocumentBlock(part.Data, part.Filename, "text/plain")
+				}
+			}
+			if mime == "application/pdf" {
+				b := anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: base64.StdEncoding.EncodeToString(part.Data)})
+				if part.Filename != "" {
+					b.OfDocument.Title = anthropic.String(part.Filename)
+				}
+				return &b, nil
+			}
+			return plainTextDocumentBlock(part.Data, part.Filename, mime)
+		}
+		if part.URL != "" {
+			if mime, data, ok := parseDataURI(part.URL); ok {
+				mime = strings.ToLower(strings.TrimSpace(mime))
+				if mime == "" || mime == "application/pdf" {
+					b := anthropic.NewDocumentBlock(anthropic.Base64PDFSourceParam{Data: data})
+					if part.Filename != "" {
+						b.OfDocument.Title = anthropic.String(part.Filename)
+					}
+					return &b, nil
+				}
+				raw, err := base64.StdEncoding.DecodeString(data)
+				if err != nil {
+					return nil, fmt.Errorf("file part: data uri %s: %w", mime, err)
+				}
+				return plainTextDocumentBlock(raw, part.Filename, mime)
+			}
+			if strings.HasPrefix(part.URL, "data:") {
+				return nil, errors.New("file part: unsupported data uri (must be base64-encoded)")
+			}
+			b := anthropic.NewDocumentBlock(anthropic.URLPDFSourceParam{URL: part.URL})
+			if part.Filename != "" {
+				b.OfDocument.Title = anthropic.String(part.Filename)
+			}
+			return &b, nil
+		}
+		return nil, errors.New("file part has neither url nor data")
+	default:
+		return nil, fmt.Errorf("unknown content part kind %q", part.Kind)
+	}
+}
+
+func plainTextDocumentBlock(raw []byte, filename, mime string) (*anthropic.ContentBlockParamUnion, error) {
+	if !utf8.Valid(raw) {
+		return nil, fmt.Errorf("file part: non-PDF content (%s) is not valid UTF-8", mime)
+	}
+	b := anthropic.NewDocumentBlock(anthropic.PlainTextSourceParam{Data: string(raw)})
+	if filename != "" {
+		b.OfDocument.Title = anthropic.String(filename)
+	}
+	return &b, nil
+}
+
+func normalizeImageMIME(mime string) (string, error) {
+	mime = strings.ToLower(strings.TrimSpace(mime))
+	if mime == "image/jpg" {
+		mime = "image/jpeg"
+	}
+	switch mime {
+	case "image/jpeg", "image/png", "image/gif", "image/webp":
+		return mime, nil
+	default:
+		return "", fmt.Errorf("unsupported image MIME type %q", mime)
+	}
+}
+
+func parseDataURI(raw string) (mime, b64 string, ok bool) {
+	rest, found := strings.CutPrefix(raw, "data:")
+	if !found {
+		return "", "", false
+	}
+	meta, data, found := strings.Cut(rest, ",")
+	if !found {
+		return "", "", false
+	}
+	media, found := strings.CutSuffix(meta, ";base64")
+	if !found {
+		return "", "", false
+	}
+	if semi := strings.IndexByte(media, ';'); semi >= 0 {
+		media = media[:semi]
+	}
+	media = strings.TrimSpace(media)
+	if media == "" {
+		return "", "", false
+	}
+	return media, data, true
 }
 
 func assistant(m afagent.Message) (anthropic.MessageParam, error) {
@@ -207,11 +425,15 @@ func assistant(m afagent.Message) (anthropic.MessageParam, error) {
 
 func response(msg anthropic.Message) (afagent.Response, error) {
 	u := msg.Usage
-	resp := afagent.Response{Usage: afagent.Usage{
-		InputTokens:       int(u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens),
-		CachedInputTokens: int(u.CacheReadInputTokens),
-		OutputTokens:      int(u.OutputTokens),
-	}}
+	resp := afagent.Response{
+		FinishReason: string(msg.StopReason),
+		Usage: afagent.Usage{
+			InputTokens:              int(u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens),
+			CachedInputTokens:        int(u.CacheReadInputTokens),
+			CacheCreationInputTokens: int(u.CacheCreationInputTokens),
+			OutputTokens:             int(u.OutputTokens),
+		},
+	}
 	switch msg.StopReason {
 	case anthropic.StopReasonMaxTokens, anthropic.StopReasonModelContextWindowExceeded:
 		return resp, fmt.Errorf("afanthropic: stop reason %s: %w", msg.StopReason, afagent.ErrTruncated)

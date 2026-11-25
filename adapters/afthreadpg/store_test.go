@@ -297,3 +297,33 @@ func TestServer(t *testing.T) {
 		t.Errorf("events = %s", events)
 	}
 }
+
+func TestRunPersistsCacheCreationInputTokens(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	s := afthreadpg.New(pool)
+	th, err := s.Create(ctx, afthread.Thread{Owner: "ann"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := s.StartRun(ctx, "ann", th.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := afagent.Usage{
+		InputTokens:              320,
+		CachedInputTokens:        80,
+		CacheCreationInputTokens: 45,
+		OutputTokens:             60,
+	}
+	if err := s.EndRun(ctx, "ann", run.ID, afthread.RunEnd{Turns: 2, ToolCalls: 1, Usage: want}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetRun(ctx, "ann", run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Usage != want {
+		t.Fatalf("Usage = %+v, want %+v", got.Usage, want)
+	}
+}

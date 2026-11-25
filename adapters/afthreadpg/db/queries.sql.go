@@ -231,19 +231,21 @@ func (q *Queries) DeleteMessages(ctx context.Context, threadID pgtype.UUID) erro
 const endRun = `-- name: EndRun :exec
 UPDATE af_runs SET status = $1, ended_at = now(), turns = $2, tool_calls = $3,
     input_tokens = $4, cached_input_tokens = $5,
-    output_tokens = $6, error = $7
-WHERE id = $8 AND status = 'running'
+    cache_creation_input_tokens = $6,
+    output_tokens = $7, error = $8
+WHERE id = $9 AND status = 'running'
 `
 
 type EndRunParams struct {
-	Status            string
-	Turns             int64
-	ToolCalls         int64
-	InputTokens       int64
-	CachedInputTokens int64
-	OutputTokens      int64
-	Error             string
-	ID                pgtype.UUID
+	Status                   string
+	Turns                    int64
+	ToolCalls                int64
+	InputTokens              int64
+	CachedInputTokens        int64
+	CacheCreationInputTokens int64
+	OutputTokens             int64
+	Error                    string
+	ID                       pgtype.UUID
 }
 
 func (q *Queries) EndRun(ctx context.Context, arg EndRunParams) error {
@@ -253,6 +255,7 @@ func (q *Queries) EndRun(ctx context.Context, arg EndRunParams) error {
 		arg.ToolCalls,
 		arg.InputTokens,
 		arg.CachedInputTokens,
+		arg.CacheCreationInputTokens,
 		arg.OutputTokens,
 		arg.Error,
 		arg.ID,
@@ -318,7 +321,7 @@ func (q *Queries) Finish(ctx context.Context, arg FinishParams) error {
 }
 
 const getRun = `-- name: GetRun :one
-SELECT r.id, r.thread_id, r.status, r.started_at, r.ended_at, r.turns, r.tool_calls, r.input_tokens, r.cached_input_tokens, r.output_tokens, r.error FROM af_runs r JOIN af_threads t ON t.id = r.thread_id
+SELECT r.id, r.thread_id, r.status, r.started_at, r.ended_at, r.turns, r.tool_calls, r.input_tokens, r.cached_input_tokens, r.output_tokens, r.error, r.cache_creation_input_tokens FROM af_runs r JOIN af_threads t ON t.id = r.thread_id
 WHERE r.id = $1 AND t.owner = $2
 `
 
@@ -342,6 +345,7 @@ func (q *Queries) GetRun(ctx context.Context, arg GetRunParams) (AfRun, error) {
 		&i.CachedInputTokens,
 		&i.OutputTokens,
 		&i.Error,
+		&i.CacheCreationInputTokens,
 	)
 	return i, err
 }
@@ -567,7 +571,7 @@ func (q *Queries) Send(ctx context.Context, arg SendParams) (AfInbox, error) {
 }
 
 const startRun = `-- name: StartRun :one
-INSERT INTO af_runs (thread_id) VALUES ($1) RETURNING id, thread_id, status, started_at, ended_at, turns, tool_calls, input_tokens, cached_input_tokens, output_tokens, error
+INSERT INTO af_runs (thread_id) VALUES ($1) RETURNING id, thread_id, status, started_at, ended_at, turns, tool_calls, input_tokens, cached_input_tokens, output_tokens, error, cache_creation_input_tokens
 `
 
 func (q *Queries) StartRun(ctx context.Context, threadID pgtype.UUID) (AfRun, error) {
@@ -585,12 +589,13 @@ func (q *Queries) StartRun(ctx context.Context, threadID pgtype.UUID) (AfRun, er
 		&i.CachedInputTokens,
 		&i.OutputTokens,
 		&i.Error,
+		&i.CacheCreationInputTokens,
 	)
 	return i, err
 }
 
 const threadRuns = `-- name: ThreadRuns :many
-SELECT r.id, r.thread_id, r.status, r.started_at, r.ended_at, r.turns, r.tool_calls, r.input_tokens, r.cached_input_tokens, r.output_tokens, r.error FROM af_runs r JOIN af_threads t ON t.id = r.thread_id
+SELECT r.id, r.thread_id, r.status, r.started_at, r.ended_at, r.turns, r.tool_calls, r.input_tokens, r.cached_input_tokens, r.output_tokens, r.error, r.cache_creation_input_tokens FROM af_runs r JOIN af_threads t ON t.id = r.thread_id
 WHERE r.thread_id = $1 AND t.owner = $2
 ORDER BY r.started_at DESC, r.id DESC
 LIMIT $3
@@ -623,6 +628,7 @@ func (q *Queries) ThreadRuns(ctx context.Context, arg ThreadRunsParams) ([]AfRun
 			&i.CachedInputTokens,
 			&i.OutputTokens,
 			&i.Error,
+			&i.CacheCreationInputTokens,
 		); err != nil {
 			return nil, err
 		}

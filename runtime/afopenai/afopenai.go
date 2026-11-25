@@ -14,9 +14,11 @@ package afopenai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -92,13 +94,20 @@ func (m *Model) params(req afagent.Request) (openai.ChatCompletionNewParams, err
 	if m.MaxCompletionTokens > 0 {
 		p.MaxCompletionTokens = openai.Int(m.MaxCompletionTokens)
 	}
+	if req.PromptCacheKey != "" {
+		p.PromptCacheKey = openai.String(req.PromptCacheKey)
+	}
 	if req.System != "" {
 		p.Messages = append(p.Messages, openai.SystemMessage(req.System))
 	}
 	for i, msg := range req.Messages {
 		switch msg.Role {
 		case afagent.User:
-			p.Messages = append(p.Messages, openai.UserMessage(msg.Content))
+			u, err := userMessage(msg)
+			if err != nil {
+				return p, fmt.Errorf("afopenai: message %d: %w", i, err)
+			}
+			p.Messages = append(p.Messages, u)
 		case afagent.Assistant:
 			p.Messages = append(p.Messages, assistant(msg))
 		case afagent.Tool:
@@ -130,7 +139,7 @@ func (m *Model) params(req afagent.Request) (openai.ChatCompletionNewParams, err
 		if err := json.Unmarshal(req.Output.Schema, &schema); err != nil {
 			return p, fmt.Errorf("afopenai: output %s: schema: %w", req.Output.Name, err)
 		}
-		format := shared.ResponseFormatJSONSchemaJSONSchemaParam{Name: req.Output.Name, Schema: schema, Strict: openai.Bool(true)}
+		format := shared.ResponseFormatJSONSchemaJSONSchemaParam{Name: req.Output.Name, Schema: schema, Strict: openai.Bool(!req.Output.NonStrict)}
 		if req.Output.Description != "" {
 			format.Description = openai.String(req.Output.Description)
 		}
@@ -140,6 +149,67 @@ func (m *Model) params(req afagent.Request) (openai.ChatCompletionNewParams, err
 		m.Params(&p)
 	}
 	return p, nil
+}
+
+func userMessage(msg afagent.Message) (openai.ChatCompletionMessageParamUnion, error) {
+	if len(msg.Parts) == 0 {
+		return openai.UserMessage(msg.Content), nil
+	}
+	parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(msg.Parts)+1)
+	if msg.Content != "" {
+		parts = append(parts, openai.TextContentPart(msg.Content))
+	}
+	for _, part := range msg.Parts {
+		switch part.Kind {
+		case afagent.PartText:
+			if part.Text != "" {
+				parts = append(parts, openai.TextContentPart(part.Text))
+			}
+		case afagent.PartImage:
+			url := part.URL
+			if url == "" && len(part.Data) > 0 {
+				mime := part.MIMEType
+				if mime == "" {
+					mime = "image/png"
+				}
+				url = "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(part.Data)
+			}
+			if url == "" {
+				return openai.ChatCompletionMessageParamUnion{}, errors.New("image part has neither url nor data")
+			}
+			parts = append(parts, openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{URL: url}))
+		case afagent.PartFile:
+			var fp openai.ChatCompletionContentPartFileFileParam
+			switch {
+			case len(part.Data) > 0:
+				fp.FileData = openai.String(fileDataURI(part.Data, part.MIMEType))
+			case strings.HasPrefix(part.URL, "data:"):
+				fp.FileData = openai.String(part.URL)
+			case part.URL != "":
+				return openai.ChatCompletionMessageParamUnion{}, errors.New("file part url is not supported by chat completions; provide data or a data: URI instead")
+			default:
+				return openai.ChatCompletionMessageParamUnion{}, errors.New("file part has neither url nor data")
+			}
+			if part.Filename != "" {
+				fp.Filename = openai.String(part.Filename)
+			}
+			parts = append(parts, openai.FileContentPart(fp))
+		default:
+			return openai.ChatCompletionMessageParamUnion{}, fmt.Errorf("unknown content part kind %q", part.Kind)
+		}
+	}
+	if len(parts) == 0 {
+		return openai.ChatCompletionMessageParamUnion{}, errors.New("user message has no content")
+	}
+	return openai.UserMessage(parts), nil
+}
+
+func fileDataURI(data []byte, mime string) string {
+	mime = strings.TrimSpace(mime)
+	if mime == "" {
+		mime = "application/pdf"
+	}
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(data)
 }
 
 func assistant(msg afagent.Message) openai.ChatCompletionMessageParamUnion {
@@ -173,6 +243,7 @@ func response(cc *openai.ChatCompletion) (afagent.Response, error) {
 		return resp, errors.New("afopenai: the response has no choices")
 	}
 	choice := cc.Choices[0]
+	resp.FinishReason = choice.FinishReason
 	switch {
 	case choice.FinishReason == "length":
 		return resp, fmt.Errorf("afopenai: finish reason length: %w", afagent.ErrTruncated)
