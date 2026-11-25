@@ -17,9 +17,15 @@
 package afcompact
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -34,14 +40,61 @@ var ErrOverBudget = errors.New("afcompact: the conversation is over its context 
 // CharsPerToken is how Estimate turns characters into tokens.
 const CharsPerToken = 4
 
-// Estimate returns the approximate tokens of msgs: their text, or their
-// provider-native payload when that is larger (it holds the text, and may
-// hold more, such as thinking blocks), and tool call names and arguments,
-// by CharsPerToken.
+// ImageTokens and FileTokens are the conservative token estimates Estimate
+// assigns to multimodal image and file parts when counting prompt size.
+const (
+	ImageTokens = 1000
+	FileTokens  = 2000
+)
+
+// DefaultStripEncodedMin is the shortest run of encoded data StripEncoded
+// replaces when minChars is <= 0.
+const DefaultStripEncodedMin = 1024
+
+// encodedRun matches candidate base64/encoded runs (including MIME line-wrapped
+// base64 blocks of >= 60 chars per line); the exact minChars floor is enforced
+// in StripEncoded.
+var encodedRun = regexp.MustCompile(`[A-Za-z0-9+/_=-]{60,}(?:\r?\n[A-Za-z0-9+/_=-]{60,})*|[A-Za-z0-9+/_=-]+`)
+
+// pdfPagePattern matches PDF page object dictionaries (`/Type /Page`
+// but not `/Type /Pages`) for multi-page PDF token estimation.
+var pdfPagePattern = regexp.MustCompile(`/Type\s*/Page\b`)
+
+// pdfPagesCountPattern matches `/Type /Pages` dictionaries carrying a `/Count N`
+// entry (in either field order) to recover total pages even when individual page
+// objects are compressed or split across object streams.
+var (
+	pdfPagesCountAfter  = regexp.MustCompile(`/Type\s*/Pages\b[^<>]{0,256}/Count\s+(\d+)`)
+	pdfPagesCountBefore = regexp.MustCompile(`/Count\s+(\d+)[^<>]{0,256}/Type\s*/Pages\b`)
+)
+
+const (
+	maxPDFInflateBytes  = 16 << 20
+	maxPDFPagesEstimate = 10_000
+)
+
+// Estimate returns the approximate tokens of msgs: their text, multimodal
+// parts, or their provider-native payload when that is larger (it holds the
+// text, and may hold more, such as thinking blocks), and tool call names and
+// arguments, by CharsPerToken.
 func Estimate(msgs []afagent.Message) int {
 	chars := 0
 	for _, m := range msgs {
 		text := utf8.RuneCountInString(m.Content)
+		for _, p := range m.Parts {
+			switch p.Kind {
+			case afagent.PartText:
+				text += utf8.RuneCountInString(p.Text)
+			case afagent.PartImage:
+				if p.EstimatedTokens > 0 {
+					text += p.EstimatedTokens * CharsPerToken
+				} else {
+					text += ImageTokens * CharsPerToken
+				}
+			case afagent.PartFile:
+				text += filePartChars(p)
+			}
+		}
 		if m.Native != nil {
 			text = max(text, utf8.RuneCount(m.Native.Data))
 		}
@@ -51,6 +104,135 @@ func Estimate(msgs []afagent.Message) int {
 		}
 	}
 	return (chars + CharsPerToken - 1) / CharsPerToken
+}
+
+func filePartChars(p afagent.Part) int {
+	if p.EstimatedTokens > 0 {
+		return p.EstimatedTokens * CharsPerToken
+	}
+	raw := p.Data
+	mime := strings.ToLower(strings.TrimSpace(p.MIMEType))
+	if len(raw) == 0 && strings.HasPrefix(p.URL, "data:") {
+		if rest, ok := strings.CutPrefix(p.URL, "data:"); ok {
+			if meta, b64, ok := strings.Cut(rest, ","); ok {
+				if media, ok := strings.CutSuffix(meta, ";base64"); ok {
+					if semi := strings.IndexByte(media, ';'); semi >= 0 {
+						media = media[:semi]
+					}
+					if mime == "" {
+						mime = strings.ToLower(strings.TrimSpace(media))
+					}
+					if decoded, err := base64.StdEncoding.DecodeString(b64); err == nil {
+						raw = decoded
+					}
+				}
+			}
+		}
+	}
+	if len(raw) == 0 {
+		return FileTokens * CharsPerToken
+	}
+	isPDF := mime == "application/pdf" || bytes.HasPrefix(raw, []byte("%PDF-"))
+	if isPDF {
+		if pages := estimatePDFPages(raw); pages > 0 {
+			return pages * FileTokens * CharsPerToken
+		}
+		return FileTokens * CharsPerToken
+	}
+	// Non-PDF text files are passed to the model as text, so count their runes.
+	if utf8.Valid(raw) {
+		return max(utf8.RuneCount(raw), FileTokens*CharsPerToken)
+	}
+	return FileTokens * CharsPerToken
+}
+
+func estimatePDFPages(raw []byte) int {
+	pageCount := len(pdfPagePattern.FindAll(raw, -1))
+	maxTreeCount := scanPDFPagesCount(raw)
+
+	// Inflate FlateDecode / ObjStm streams within a strict byte budget so PDFs
+	// with compressed page objects or page trees are counted accurately.
+	remaining := maxPDFInflateBytes
+	pos := 0
+	for remaining > 0 && pos < len(raw) {
+		idx := bytes.Index(raw[pos:], []byte("stream"))
+		if idx < 0 {
+			break
+		}
+		start := pos + idx + len("stream")
+		if start < len(raw) && raw[start] == '\r' {
+			start++
+		}
+		if start >= len(raw) || raw[start] != '\n' {
+			pos += idx + len("stream")
+			continue
+		}
+		start++
+		endIdx := bytes.Index(raw[start:], []byte("endstream"))
+		if endIdx < 0 {
+			break
+		}
+		streamData := bytes.TrimRight(raw[start:start+endIdx], "\r\n")
+		pos = start + endIdx + len("endstream")
+		if zr, err := zlib.NewReader(bytes.NewReader(streamData)); err == nil {
+			inflated, _ := io.ReadAll(io.LimitReader(zr, int64(remaining)))
+			_ = zr.Close()
+			remaining -= len(inflated)
+			if len(inflated) > 0 {
+				pageCount += len(pdfPagePattern.FindAll(inflated, -1))
+				if c := scanPDFPagesCount(inflated); c > maxTreeCount {
+					maxTreeCount = c
+				}
+			}
+		}
+	}
+
+	pages := max(pageCount, maxTreeCount)
+	return min(pages, maxPDFPagesEstimate)
+}
+
+func scanPDFPagesCount(b []byte) int {
+	best := 0
+	for _, pat := range []*regexp.Regexp{pdfPagesCountAfter, pdfPagesCountBefore} {
+		for _, m := range pat.FindAllSubmatch(b, -1) {
+			if len(m) < 2 {
+				continue
+			}
+			if n, err := strconv.Atoi(string(m[1])); err == nil && n > best {
+				best = n
+			}
+		}
+	}
+	return best
+}
+
+func truncateToolMessage(m afagent.Message, head int) (afagent.Message, bool) {
+	changed := false
+	if r := []rune(m.Content); len(r) > head {
+		m.Content = string(r[:head]) + fmt.Sprintf(" … [%d characters cleared to save context]", len(r)-head)
+		changed = true
+	}
+	if len(m.Parts) > 0 {
+		parts := m.Parts
+		partsCopied := false
+		for j, p := range m.Parts {
+			if p.Kind != afagent.PartText {
+				continue
+			}
+			if r := []rune(p.Text); len(r) > head {
+				if !partsCopied {
+					parts = append([]afagent.Part(nil), m.Parts...)
+					partsCopied = true
+				}
+				parts[j].Text = string(r[:head]) + fmt.Sprintf(" … [%d characters cleared to save context]", len(r)-head)
+				changed = true
+			}
+		}
+		if partsCopied {
+			m.Parts = parts
+		}
+	}
+	return m, changed
 }
 
 // Microcompact returns msgs with the bodies of tool results cleared down to
@@ -66,11 +248,107 @@ func Microcompact(msgs []afagent.Message, keep, head int) []afagent.Message {
 		if seen++; seen <= keep {
 			continue
 		}
-		if r := []rune(out[i].Content); len(r) > head {
-			out[i].Content = string(r[:head]) + fmt.Sprintf(" … [%d characters cleared to save context]", len(r)-head)
+		if next, changed := truncateToolMessage(out[i], head); changed {
+			out[i] = next
 		}
 	}
 	return out
+}
+
+// MicrocompactRounds clears tool results older than the newest keepRounds
+// assistant tool-call rounds down to their first head characters, keeping
+// complete recent parallel rounds intact. It never mutates msgs.
+func MicrocompactRounds(msgs []afagent.Message, keepRounds, head int) []afagent.Message {
+	if keepRounds <= 0 {
+		return Microcompact(msgs, 0, head)
+	}
+	rounds := 0
+	keepFrom := len(msgs)
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == afagent.Assistant && len(msgs[i].ToolCalls) > 0 {
+			rounds++
+			if rounds == keepRounds {
+				keepFrom = i
+				break
+			}
+		}
+	}
+	if rounds < keepRounds {
+		return msgs
+	}
+	out := append([]afagent.Message(nil), msgs...)
+	changed := false
+	for i := range keepFrom {
+		if out[i].Role != afagent.Tool {
+			continue
+		}
+		if next, did := truncateToolMessage(out[i], head); did {
+			out[i] = next
+			changed = true
+		}
+	}
+	if !changed {
+		return msgs
+	}
+	return out
+}
+
+// StripEncoded replaces long runs of encoded data (such as base64 attachments,
+// MIME bodies, or inline blobs) of at least minChars characters in User and
+// Tool messages (both Content and PartText Parts) with a short placeholder. It
+// never mutates msgs and reports whether any message changed.
+func StripEncoded(msgs []afagent.Message, minChars int) ([]afagent.Message, bool) {
+	if minChars <= 0 {
+		minChars = DefaultStripEncodedMin
+	}
+	replace := func(text string) string {
+		if len(text) < minChars {
+			return text
+		}
+		return encodedRun.ReplaceAllStringFunc(text, func(run string) string {
+			if len(run) < minChars {
+				return run
+			}
+			return fmt.Sprintf("[%d characters of encoded data omitted]", len(run))
+		})
+	}
+	out := msgs
+	copied := false
+	for i, m := range msgs {
+		if m.Role != afagent.User && m.Role != afagent.Tool {
+			continue
+		}
+		stripped := replace(m.Content)
+		parts := m.Parts
+		partsCopied := false
+		for j, p := range m.Parts {
+			if p.Kind != afagent.PartText {
+				continue
+			}
+			strippedPart := replace(p.Text)
+			if len(strippedPart) >= len(p.Text) {
+				continue
+			}
+			if !partsCopied {
+				parts = append([]afagent.Part(nil), m.Parts...)
+				partsCopied = true
+			}
+			parts[j].Text = strippedPart
+		}
+		contentChanged := len(stripped) < len(m.Content)
+		if contentChanged || partsCopied {
+			if !copied {
+				out, copied = append([]afagent.Message(nil), msgs...), true
+			}
+			if contentChanged {
+				out[i].Content = stripped
+			}
+			if partsCopied {
+				out[i].Parts = parts
+			}
+		}
+	}
+	return out, copied
 }
 
 // Summarizer writes the summary Fold folds older messages into. Summarize
@@ -286,12 +564,23 @@ type Compactor struct {
 	// At is the share of Budget past which it compacts; 0 means 0.8, and
 	// it is at most 1.
 	At float64
+	// Estimator, when set, replaces Estimate when measuring conversation size
+	// (for example, to include tool schemas or custom tokenization density).
+	Estimator func(msgs []afagent.Message) int
 	// KeepResults is how many tool results Microcompact leaves whole, and
 	// KeepMessages how many recent messages Fold keeps, at first; 0 means 4
 	// and 6. When that is not enough, they drop to the latest one.
 	KeepResults, KeepMessages int
+	// KeepRounds, when above 0, runs MicrocompactRounds keeping that many
+	// recent tool-call rounds intact as the first microcompact stage instead
+	// of Microcompact(KeepResults).
+	KeepRounds int
 	// Head is how much of a cleared tool result stays; 0 means 200.
 	Head int
+	// StripEncodedMin, when above 0, runs StripEncoded on runs of at least
+	// StripEncodedMin characters as a free deterministic stage ("strip")
+	// before any model-assisted compaction.
+	StripEncodedMin int
 	// Summarize writes Fold's summaries; nil skips Fold.
 	Summarize Summarizer
 	// SummarizeChunk condenses large tool results with Digest; nil skips
@@ -302,16 +591,31 @@ type Compactor struct {
 	SummarizeChunk    ChunkSummarizer
 	DigestOver, Chunk int
 	Concurrency       int
-	// OnCompact, when set, is told each stage that ran, as "microcompact"
-	// or "fold", with the estimate before and after.
+	// DigestUser, when true alongside SummarizeChunk, also digests oversized
+	// User messages (preserving their leading DigestHead characters verbatim,
+	// default 4000) so large inputs handed to a step fit the budget.
+	// MaxDigestRounds bounds re-digests of a single user message (default 1).
+	DigestUser      bool
+	DigestHead      int
+	MaxDigestRounds int
+	// OnCompact, when set, is told each stage that ran, as "microcompact",
+	// "strip", "digest", or "fold", with the estimate before and after.
 	OnCompact func(stage string, before, after int)
 }
 
+func (c *Compactor) estimate(msgs []afagent.Message) int {
+	if c.Estimator != nil {
+		return c.Estimator(msgs)
+	}
+	return Estimate(msgs)
+}
+
 // BeforeTurn compacts msgs if they are past the threshold, in stages that
-// each run only if the ones before were not enough: Microcompact keeping
-// KeepResults results whole; Digest of the results still large; Microcompact
-// keeping only the latest; Fold keeping KeepMessages messages, then only
-// the latest round. It returns
+// each run only if the ones before were not enough: Microcompact (or
+// MicrocompactRounds) keeping recent results whole; StripEncoded (when
+// StripEncodedMin > 0); Digest of results (and oversized user messages when
+// DigestUser is set); Microcompact keeping only the latest; Fold keeping
+// KeepMessages messages, then only the latest round. It returns
 // ErrOverBudget when the result still exceeds Budget.
 func (c *Compactor) BeforeTurn(ctx context.Context, turn int, msgs []afagent.Message) ([]afagent.Message, error) {
 	at := c.At
@@ -323,29 +627,46 @@ func (c *Compactor) BeforeTurn(ctx context.Context, turn int, msgs []afagent.Mes
 		at = 1
 	}
 	limit := int(float64(c.Budget) * at)
-	size := Estimate(msgs)
+	size := c.estimate(msgs)
 	if size <= limit {
 		return msgs, nil
 	}
 	keepResults, keepMessages, head := or(c.KeepResults, 4), or(c.KeepMessages, 6), or(c.Head, 200)
 	compacted := msgs
 	try := func(stage string, next []afagent.Message) {
-		if after := Estimate(next); after < size {
+		if after := c.estimate(next); after < size {
 			c.report(stage, size, after)
 			compacted, size = next, after
 		}
 	}
 	if size > limit {
-		try("microcompact", Microcompact(compacted, keepResults, head))
+		if c.KeepRounds > 0 {
+			try("microcompact", MicrocompactRounds(compacted, c.KeepRounds, head))
+		} else {
+			try("microcompact", Microcompact(compacted, keepResults, head))
+		}
+	}
+	if size > limit && c.StripEncodedMin > 0 {
+		if stripped, ok := StripEncoded(compacted, c.StripEncodedMin); ok {
+			try("strip", stripped)
+		}
 	}
 	// Large results the agent still needs, the latest included: condense
 	// them in parallel chunks rather than clearing them.
 	if size > limit && c.SummarizeChunk != nil {
-		digested, err := Digest(ctx, compacted, or(c.DigestOver, 8000), or(c.Chunk, 6000), or(c.Concurrency, 4), c.SummarizeChunk)
+		over, chunk, conc := or(c.DigestOver, 8000), or(c.Chunk, 6000), or(c.Concurrency, 4)
+		digested, err := Digest(ctx, compacted, over, chunk, conc, c.SummarizeChunk)
 		if err != nil {
 			return nil, err
 		}
 		try("digest", digested)
+		if size > limit && c.DigestUser {
+			digestedUser, err := c.digestUserMessages(ctx, compacted, over, chunk, conc, limit)
+			if err != nil {
+				return nil, err
+			}
+			try("digest", digestedUser)
+		}
 	}
 	if size > limit {
 		try("microcompact", Microcompact(compacted, 1, head))
@@ -366,6 +687,119 @@ func (c *Compactor) BeforeTurn(ctx context.Context, turn int, msgs []afagent.Mes
 		return nil, fmt.Errorf("%w: about %d tokens after compacting, budget %d", ErrOverBudget, size, c.Budget)
 	}
 	return compacted, nil
+}
+
+// digestUserMessages condenses oversized User messages while preserving their
+// leading DigestHead runes (the task instructions) verbatim.
+func (c *Compactor) digestUserMessages(ctx context.Context, msgs []afagent.Message, over, chunk, concurrency, limit int) ([]afagent.Message, error) {
+	headChars := or(c.DigestHead, 4000)
+	rounds := or(c.MaxDigestRounds, 1)
+	out := append([]afagent.Message(nil), msgs...)
+	changed := false
+	for i := range out {
+		if c.estimate(out) <= limit {
+			break
+		}
+		if out[i].Role != afagent.User || len(out[i].Parts) > 0 {
+			continue
+		}
+		r := []rune(out[i].Content)
+		if len(r) <= over || len(r) <= headChars {
+			continue
+		}
+		head := string(r[:headChars])
+		rest := string(r[headChars:])
+		origRestLen := len(r) - headChars
+		notes := rest
+		for range rounds {
+			if c.estimate(out) <= limit {
+				break
+			}
+			chunks := split(notes, chunk)
+			condensed, err := digestChunks(ctx, afagent.ToolCall{Name: "user_input"}, chunks, concurrency, c.SummarizeChunk)
+			if err != nil {
+				return nil, err
+			}
+			next := strings.Join(condensed, "\n")
+			if utf8.RuneCountInString(next) >= utf8.RuneCountInString(notes) {
+				break
+			}
+			notes = next
+			out[i].Content = head + "\n\n" + fmt.Sprintf(DigestPrefix, origRestLen, len(chunks)) + notes
+			changed = true
+		}
+	}
+	if !changed {
+		return msgs, nil
+	}
+	return out, nil
+}
+
+// digestChunks condenses chunks for a single message using concurrency workers.
+func digestChunks(ctx context.Context, call afagent.ToolCall, chunks []string, concurrency int, summarize ChunkSummarizer) ([]string, error) {
+	if len(chunks) == 0 {
+		return nil, nil
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var (
+		failed error
+		once   sync.Once
+		mu     sync.Mutex
+		wg     sync.WaitGroup
+	)
+	fail := func(err error) {
+		once.Do(func() {
+			failed = err
+			cancel()
+		})
+	}
+	type job struct {
+		part int
+		text string
+	}
+	results := make([]string, len(chunks))
+	queue := make(chan job)
+	for range min(max(1, concurrency), len(chunks)) {
+		wg.Go(func() {
+			for j := range queue {
+				if err := ctx.Err(); err != nil {
+					fail(err)
+					continue
+				}
+				out, err := summarize(ctx, call, j.part+1, len(chunks), j.text)
+				if err != nil {
+					fail(err)
+					continue
+				}
+				mu.Lock()
+				results[j.part] = out
+				mu.Unlock()
+			}
+		})
+	}
+feed:
+	for p, text := range chunks {
+		if ctx.Err() != nil {
+			fail(ctx.Err())
+			break
+		}
+		select {
+		case queue <- job{part: p, text: text}:
+		case <-ctx.Done():
+			fail(ctx.Err())
+			break feed
+		}
+	}
+	close(queue)
+	wg.Wait()
+	if failed != nil {
+		return nil, failed
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 func (c *Compactor) report(stage string, before, after int) {

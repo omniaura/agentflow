@@ -127,7 +127,7 @@ func TestAgentLoopOnClaude(t *testing.T) {
 	if res.Final != "A-1 is late; B-2 doesn't exist." {
 		t.Errorf("final = %q", res.Final)
 	}
-	if res.Usage != (afagent.Usage{InputTokens: 300, CachedInputTokens: 80, OutputTokens: 40}) {
+	if res.Usage != (afagent.Usage{InputTokens: 300, CachedInputTokens: 80, CacheCreationInputTokens: 20, OutputTokens: 40}) {
 		t.Errorf("usage = %+v", res.Usage)
 	}
 	first := res.Messages[1]

@@ -27,17 +27,18 @@ type AfMessage struct {
 }
 
 type AfRun struct {
-	ID                pgtype.UUID
-	ThreadID          pgtype.UUID
-	Status            string
-	StartedAt         pgtype.Timestamptz
-	EndedAt           pgtype.Timestamptz
-	Turns             int64
-	ToolCalls         int64
-	InputTokens       int64
-	CachedInputTokens int64
-	OutputTokens      int64
-	Error             string
+	ID                       pgtype.UUID
+	ThreadID                 pgtype.UUID
+	Status                   string
+	StartedAt                pgtype.Timestamptz
+	EndedAt                  pgtype.Timestamptz
+	Turns                    int64
+	ToolCalls                int64
+	InputTokens              int64
+	CachedInputTokens        int64
+	OutputTokens             int64
+	Error                    string
+	CacheCreationInputTokens int64
 }
 
 type AfRunEvent struct {

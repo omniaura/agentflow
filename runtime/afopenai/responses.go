@@ -2,6 +2,7 @@ package afopenai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -112,6 +113,9 @@ func (m *ResponsesModel) params(req afagent.Request) (responses.ResponseNewParam
 	if m.MaxOutputTokens > 0 {
 		p.MaxOutputTokens = openai.Int(m.MaxOutputTokens)
 	}
+	if req.PromptCacheKey != "" {
+		p.PromptCacheKey = openai.String(req.PromptCacheKey)
+	}
 	if req.System != "" {
 		p.Instructions = openai.String(req.System)
 	}
@@ -123,7 +127,11 @@ func (m *ResponsesModel) params(req afagent.Request) (responses.ResponseNewParam
 	for i, msg := range req.Messages {
 		switch msg.Role {
 		case afagent.User:
-			input = append(input, responses.ResponseInputItemParamOfMessage(msg.Content, responses.EasyInputMessageRoleUser))
+			item, err := responsesUserItem(msg)
+			if err != nil {
+				return p, fmt.Errorf("afopenai: message %d: %w", i, err)
+			}
+			input = append(input, item)
 		case afagent.Assistant:
 			items, err := assistantItems(msg)
 			if err != nil {
@@ -164,7 +172,7 @@ func (m *ResponsesModel) params(req afagent.Request) (responses.ResponseNewParam
 		if err := json.Unmarshal(req.Output.Schema, &schema); err != nil {
 			return p, fmt.Errorf("afopenai: output %s: schema: %w", req.Output.Name, err)
 		}
-		format := &responses.ResponseFormatTextJSONSchemaConfigParam{Name: req.Output.Name, Schema: schema, Strict: openai.Bool(true)}
+		format := &responses.ResponseFormatTextJSONSchemaConfigParam{Name: req.Output.Name, Schema: schema, Strict: openai.Bool(!req.Output.NonStrict)}
 		if req.Output.Description != "" {
 			format.Description = openai.String(req.Output.Description)
 		}
@@ -174,6 +182,61 @@ func (m *ResponsesModel) params(req afagent.Request) (responses.ResponseNewParam
 		m.Params(&p)
 	}
 	return p, nil
+}
+
+func responsesUserItem(msg afagent.Message) (responses.ResponseInputItemUnionParam, error) {
+	if len(msg.Parts) == 0 {
+		return responses.ResponseInputItemParamOfMessage(msg.Content, responses.EasyInputMessageRoleUser), nil
+	}
+	list := make(responses.ResponseInputMessageContentListParam, 0, len(msg.Parts)+1)
+	if msg.Content != "" {
+		list = append(list, responses.ResponseInputContentParamOfInputText(msg.Content))
+	}
+	for _, part := range msg.Parts {
+		switch part.Kind {
+		case afagent.PartText:
+			if part.Text != "" {
+				list = append(list, responses.ResponseInputContentParamOfInputText(part.Text))
+			}
+		case afagent.PartImage:
+			url := part.URL
+			if url == "" && len(part.Data) > 0 {
+				mime := part.MIMEType
+				if mime == "" {
+					mime = "image/png"
+				}
+				url = "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(part.Data)
+			}
+			if url == "" {
+				return responses.ResponseInputItemUnionParam{}, errors.New("image part has neither url nor data")
+			}
+			img := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+			img.OfInputImage.ImageURL = openai.String(url)
+			list = append(list, img)
+		case afagent.PartFile:
+			fp := &responses.ResponseInputFileParam{}
+			switch {
+			case len(part.Data) > 0:
+				fp.FileData = openai.String(fileDataURI(part.Data, part.MIMEType))
+			case strings.HasPrefix(part.URL, "data:"):
+				fp.FileData = openai.String(part.URL)
+			case part.URL != "":
+				fp.FileURL = openai.String(part.URL)
+			default:
+				return responses.ResponseInputItemUnionParam{}, errors.New("file part has neither url nor data")
+			}
+			if part.Filename != "" {
+				fp.Filename = openai.String(part.Filename)
+			}
+			list = append(list, responses.ResponseInputContentUnionParam{OfInputFile: fp})
+		default:
+			return responses.ResponseInputItemUnionParam{}, fmt.Errorf("unknown content part kind %q", part.Kind)
+		}
+	}
+	if len(list) == 0 {
+		return responses.ResponseInputItemUnionParam{}, errors.New("user message has no content")
+	}
+	return responses.ResponseInputItemParamOfMessage(list, responses.EasyInputMessageRoleUser), nil
 }
 
 // assistantItems are the input items of an assistant message: the output
@@ -218,11 +281,13 @@ func assistantItems(msg afagent.Message) ([]responses.ResponseInputItemUnionPara
 }
 
 func responsesResult(r *responses.Response) (afagent.Response, error) {
-	resp := afagent.Response{Usage: afagent.Usage{
-		InputTokens:       int(r.Usage.InputTokens),
-		CachedInputTokens: int(r.Usage.InputTokensDetails.CachedTokens),
-		OutputTokens:      int(r.Usage.OutputTokens),
-	}}
+	resp := afagent.Response{
+		Usage: afagent.Usage{
+			InputTokens:       int(r.Usage.InputTokens),
+			CachedInputTokens: int(r.Usage.InputTokensDetails.CachedTokens),
+			OutputTokens:      int(r.Usage.OutputTokens),
+		},
+	}
 	switch r.Status {
 	case responses.ResponseStatusIncomplete:
 		reason := r.IncompleteDetails.Reason
@@ -266,5 +331,10 @@ func responsesResult(r *responses.Response) (afagent.Response, error) {
 	}
 	msg.Native = &afagent.Native{Provider: NativeResponses, Data: data}
 	resp.Message = msg
+	if len(msg.ToolCalls) > 0 {
+		resp.FinishReason = "tool_calls"
+	} else {
+		resp.FinishReason = "stop"
+	}
 	return resp, nil
 }

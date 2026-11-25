@@ -29,10 +29,38 @@ const (
 	Tool Role = "tool"
 )
 
+// PartKind is the kind of content in a multimodal Part.
+type PartKind string
+
+const (
+	PartText  PartKind = "text"
+	PartImage PartKind = "image"
+	PartFile  PartKind = "file"
+)
+
+// Part is one piece of multimodal content in a Message: text, an image, or a
+// file such as a PDF. Messages that carry only text leave Parts nil and use
+// Content. EstimatedTokens, when positive, lets callers that know a file or
+// image's model-input size (such as a parsed PDF page count) override default
+// compaction heuristics.
+type Part struct {
+	Kind            PartKind `json:"kind"`
+	Text            string   `json:"text,omitempty"`
+	URL             string   `json:"url,omitempty"`
+	Data            []byte   `json:"data,omitempty"`
+	MIMEType        string   `json:"mime_type,omitempty"`
+	Filename        string   `json:"filename,omitempty"`
+	EstimatedTokens int      `json:"estimated_tokens,omitempty"`
+}
+
 // Message is one message of a conversation.
 type Message struct {
 	Role    Role   `json:"role"`
 	Content string `json:"content,omitempty"`
+	// Parts carries multimodal content (text, images, files) alongside or in
+	// place of Content. Providers that support multimodal messages send Parts;
+	// text-only messages leave Parts nil.
+	Parts []Part `json:"parts,omitempty"`
 	// ToolCalls are the calls an assistant message asks for.
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	// ToolCallID is the call a tool message answers, and IsError marks a
@@ -87,6 +115,10 @@ type Request struct {
 	// tool. Adapters still send Tools, with tool choice none: providers
 	// reject a conversation holding tool calls when no tools are defined.
 	NoToolCalls bool
+	// PromptCacheKey, when set, names a stable prompt-cache bucket for
+	// providers that route cache affinity by key. Providers that do not use
+	// cache keys ignore it.
+	PromptCacheKey string
 	// OnText, when set, receives the answer's text as the model writes
 	// it. Adapters that stream call it; others may never call it. Call it
 	// from one goroutine at a time, in the order of the text, and only
@@ -102,23 +134,28 @@ type Request struct {
 type OutputSpec struct {
 	Name        string
 	Description string
-	// Schema is a strict JSON Schema: every property required, optional
-	// ones nullable, no other properties allowed.
-	Schema json.RawMessage
+	// Schema is a JSON Schema for the final answer. By default adapters request
+	// strict adherence (every property required, additionalProperties false);
+	// set NonStrict for open schemas or schemas with optional fields.
+	Schema    json.RawMessage
+	NonStrict bool
 }
 
 // Usage counts the tokens of model calls.
 type Usage struct {
 	// InputTokens counts all input tokens, CachedInputTokens the ones
-	// read from the provider's prompt cache.
-	InputTokens       int `json:"input_tokens"`
-	CachedInputTokens int `json:"cached_input_tokens,omitempty"`
-	OutputTokens      int `json:"output_tokens"`
+	// read from the provider's prompt cache, and CacheCreationInputTokens the
+	// ones written to the prompt cache where reported by the provider.
+	InputTokens              int `json:"input_tokens"`
+	CachedInputTokens        int `json:"cached_input_tokens,omitempty"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	OutputTokens             int `json:"output_tokens"`
 }
 
 func (u *Usage) add(o Usage) {
 	u.InputTokens += o.InputTokens
 	u.CachedInputTokens += o.CachedInputTokens
+	u.CacheCreationInputTokens += o.CacheCreationInputTokens
 	u.OutputTokens += o.OutputTokens
 }
 
@@ -126,6 +163,9 @@ func (u *Usage) add(o Usage) {
 type Response struct {
 	Message Message
 	Usage   Usage
+	// FinishReason is the provider's stop/finish reason (such as "stop",
+	// "tool_calls", or "end_turn") when reported.
+	FinishReason string
 }
 
 // Model is a chat model that can call tools.
@@ -209,8 +249,11 @@ type Event struct {
 	Turn     int
 	Response *Response
 	Call     *ToolCall
-	// Result and Err are a tool's outcome.
-	Result string
+	// Result, Deferred, and Err are a tool's outcome. Deferred is true when
+	// DeferTool matched the call's error so the host can suspend and resume
+	// without presenting the call as failed.
+	Result   string
+	Deferred bool
 	// Text is a TextDelta's text.
 	Text string
 	Err  error
@@ -232,7 +275,30 @@ type Result struct {
 	// answer came with tools withheld because MaxToolCalls were run.
 	ToolCalls      int
 	OutOfToolCalls bool
+	// Deferred holds tool calls left unanswered because DeferTool matched
+	// their dispatch error. Result.Messages retains the assistant's call batch
+	// and all completed results; the host must supply tool messages for every
+	// deferred call before resuming the conversation.
+	Deferred []ToolCall
 }
+
+// ErrDeferred means one or more tool calls in the batch were deferred by
+// DeferTool. Result.Deferred lists the unanswered calls and Result.Messages
+// holds the conversation to resume once the host resolves them.
+var ErrDeferred = errors.New("afagent: one or more tool calls were deferred")
+
+// AnswerFeedback is an error Check may return to send a custom follow-up
+// message to the model instead of the default rejection wrapper. When
+// NoToolCalls is true, the retry turn withholds tools; when ExtraTurn is true
+// and the run is on its last turn, one extra turn is granted for that retry
+// (at most once per run).
+type AnswerFeedback struct {
+	Message     string
+	NoToolCalls bool
+	ExtraTurn   bool
+}
+
+func (f *AnswerFeedback) Error() string { return f.Message }
 
 // Model adapters wrap these errors for answers the loop can't use.
 var (
@@ -342,18 +408,35 @@ type Loop struct {
 	// failed result, so it can recover; it does not stop the loop.
 	Dispatch func(ctx context.Context, call ToolCall) (string, error)
 	// InterruptTool, when set, classifies a dispatch error that must end the
-	// run instead of becoming a tool result. Calls run sequentially in this
-	// mode, even when Concurrency is higher: no later call may start after an
-	// interruption. The returned conversation retains the assistant's full
-	// call batch and completed results, but has no result for the interrupted
-	// or unstarted calls. The host must resolve all outstanding calls before
-	// passing that conversation to a provider again.
+	// run immediately instead of becoming a tool result. Calls run sequentially
+	// in this mode, even when Concurrency is higher: no later call may start
+	// after an interruption. The returned conversation retains the assistant's
+	// full call batch and completed results, but has no result for the
+	// interrupted or unstarted calls. The host must resolve all outstanding
+	// calls before passing that conversation to a provider again.
 	InterruptTool func(error) bool
+	// DeferTool, when set, classifies a dispatch error that leaves the call
+	// unanswered for later resolution (such as human approval) while still
+	// processing the rest of the turn's batch so sibling calls can run or
+	// defer together. Calls run sequentially in this mode. After the batch
+	// finishes, if any call was deferred, Run stops without calling the model
+	// again and returns Result (with Deferred populated) and ErrDeferred.
+	DeferTool func(error) bool
+	// CountToolCall, when set, reports whether a call counts against
+	// MaxToolCalls. Calls returning false (such as internal workspace readers)
+	// are not refused when MaxToolCalls is reached and do not increment
+	// Result.ToolCalls. Nil counts every call.
+	CountToolCall func(ToolCall) bool
+	// FormatToolError, when set, formats recoverable tool dispatch errors into
+	// the Tool message content sent back to the model (default err.Error()).
+	// ToolReturned.Err and Message.IsError remain set.
+	FormatToolError func(error) string
 	// Output, when set, asks the model for a structured final answer.
 	Output *OutputSpec
 	// Check, when set, vets a final answer. If it fails, the error goes
 	// back to the model as a user message and the loop goes on, within
-	// MaxTurns.
+	// MaxTurns. Returning *AnswerFeedback sends its message verbatim and can
+	// optionally withhold tools or grant one extra turn for the retry.
 	Check func(answer string) error
 	// MaxTurns bounds the model calls; 0 means DefaultMaxTurns.
 	MaxTurns int
@@ -369,6 +452,11 @@ type Loop struct {
 	// the response and usage; the host must resolve its unanswered calls before
 	// resuming the conversation.
 	BeforeTools func(ctx context.Context, turn int, response Response, usage Usage) error
+	// AfterTools, when set, runs after a tool batch completes without
+	// interruption or deferral, before the next turn. It may append follow-up
+	// messages (such as attached files or screenshots produced by tools) or
+	// adjust the conversation. Its error ends the run.
+	AfterTools func(ctx context.Context, turn int, messages []Message) ([]Message, error)
 	// MaxToolCalls, when above 0, bounds the tool calls of a run. Calls a
 	// turn makes beyond it are refused, and later turns withhold the
 	// tools, so the model answers with what it has; Result.OutOfToolCalls
@@ -378,6 +466,14 @@ type Loop struct {
 	// answers with what it has instead of the loop ending in ErrMaxTurns.
 	// Result.OutOfTurns reports such an answer.
 	AnswerOnLastTurn bool
+	// LastTurnMessage, ToolLimitMessage, and ToolLimitResult optionally
+	// customize the SourceLoop messages appended when AnswerOnLastTurn or
+	// MaxToolCalls withholds tools and the error text for over-limit calls.
+	LastTurnMessage  string
+	ToolLimitMessage string
+	ToolLimitResult  string
+	// PromptCacheKey, when set, is passed on every Request.PromptCacheKey.
+	PromptCacheKey string
 	// Concurrency is how many tool calls of one turn run at once; 0 or 1
 	// runs them in order.
 	Concurrency int
@@ -387,8 +483,8 @@ type Loop struct {
 }
 
 // Run continues the conversation in messages until the model answers
-// without calling a tool. On ErrMaxTurns, a model error or a canceled
-// context, the Result holds the conversation so far.
+// without calling a tool. On ErrMaxTurns, ErrDeferred, a model error or a
+// canceled context, the Result holds the conversation so far.
 func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 	res := Result{Messages: append([]Message(nil), messages...)}
 	// Streamed text goes to OnEvent and WithStream funcs, not WithEvents
@@ -416,11 +512,26 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 	if maxTurns <= 0 {
 		maxTurns = DefaultMaxTurns
 	}
+	var (
+		forceNoTools    bool
+		extraTurnUsed   bool
+		lastTurnNudged  bool
+		toolLimitNudged bool
+	)
 	for res.Turns < maxTurns {
 		if err := ctx.Err(); err != nil {
 			return res, err
 		}
 		res.Turns++
+		spent := l.MaxToolCalls > 0 && res.ToolCalls >= l.MaxToolCalls
+		last := l.AnswerOnLastTurn && res.Turns == maxTurns
+		if spent && !toolLimitNudged && l.ToolLimitMessage != "" && len(l.Tools) > 0 {
+			toolLimitNudged = true
+			res.Messages = append(res.Messages, Message{Role: User, Content: l.ToolLimitMessage, Source: SourceLoop})
+		} else if last && !spent && !forceNoTools && !lastTurnNudged && l.LastTurnMessage != "" && len(l.Tools) > 0 && res.Turns > 1 && res.ToolCalls > 0 {
+			lastTurnNudged = true
+			res.Messages = append(res.Messages, Message{Role: User, Content: l.LastTurnMessage, Source: SourceLoop})
+		}
 		if l.BeforeTurn != nil {
 			msgs, err := l.BeforeTurn(ctx, res.Turns, res.Messages)
 			if err != nil {
@@ -428,10 +539,16 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			}
 			res.Messages = msgs
 		}
-		req := Request{System: l.System, Messages: res.Messages, Tools: l.Tools, Output: l.Output}
-		spent := l.MaxToolCalls > 0 && res.ToolCalls >= l.MaxToolCalls
-		last := l.AnswerOnLastTurn && res.Turns == maxTurns
-		req.NoToolCalls = len(l.Tools) > 0 && (spent || last)
+		req := Request{
+			System:         l.System,
+			Messages:       res.Messages,
+			Tools:          l.Tools,
+			Output:         l.Output,
+			PromptCacheKey: l.PromptCacheKey,
+		}
+		turnForcedNoTools := forceNoTools
+		forceNoTools = false
+		req.NoToolCalls = len(l.Tools) > 0 && (spent || last || turnForcedNoTools)
 		// held is the turn's text while Check may still reject it. The
 		// mutex keeps a Model that breaks OnText's contract from racing.
 		var (
@@ -478,6 +595,10 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		var rejected error
 		if final && l.Check != nil {
 			rejected = l.Check(resp.Message.Content)
+			var nilFB *AnswerFeedback
+			if errors.As(rejected, &nilFB) && nilFB == nil {
+				rejected = errors.New("afagent: answer rejected")
+			}
 		}
 		if rejected == nil {
 			for _, e := range held {
@@ -488,11 +609,28 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		if final {
 			if rejected != nil {
 				l.emit(Event{Kind: AnswerRejected, Turn: res.Turns, Err: rejected})
+				var fb *AnswerFeedback
+				isFB := errors.As(rejected, &fb)
+				if isFB && fb.ExtraTurn && res.Turns == maxTurns && !extraTurnUsed {
+					maxTurns++
+					extraTurnUsed = true
+				}
 				if res.Turns == maxTurns {
 					// No turn is left to ask again: end on the rejected answer.
 					return res, fmt.Errorf("%w: the last answer was rejected: %w", ErrMaxTurns, rejected)
 				}
-				res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected), Source: SourceLoop})
+				if isFB {
+					message := fb.Message
+					if message == "" {
+						message = fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected)
+					}
+					res.Messages = append(res.Messages, Message{Role: User, Content: message, Source: SourceLoop})
+					if fb.NoToolCalls {
+						forceNoTools = true
+					}
+				} else {
+					res.Messages = append(res.Messages, Message{Role: User, Content: fmt.Sprintf("Your answer was rejected: %v. Answer again.", rejected), Source: SourceLoop})
+				}
 				continue
 			}
 			res.Final = resp.Message.Content
@@ -504,10 +642,13 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 		if req.NoToolCalls && spent {
 			return res, fmt.Errorf("%w: the model called tools after running %d", ErrMaxToolCalls, res.ToolCalls)
 		}
-		if req.NoToolCalls {
+		if req.NoToolCalls && last {
 			// The model called tools it was told it couldn't; running them
 			// would leave their results unanswered.
 			return res, fmt.Errorf("%w: the model called tools on its last turn, when it was to answer", ErrMaxTurns)
+		}
+		if req.NoToolCalls {
+			return res, errors.New("afagent: the model called tools when it was told not to")
 		}
 		if l.BeforeTools != nil {
 			if err := l.BeforeTools(ctx, res.Turns, resp, res.Usage); err != nil {
@@ -515,19 +656,44 @@ func (l *Loop) Run(ctx context.Context, messages []Message) (Result, error) {
 			}
 		}
 		calls := resp.Message.ToolCalls
-		allowed := len(calls)
+		limitRefused := make([]bool, len(calls))
+		limitHit := false
 		if l.MaxToolCalls > 0 {
-			allowed = min(allowed, l.MaxToolCalls-res.ToolCalls)
+			remaining := max(0, l.MaxToolCalls-res.ToolCalls)
+			for i, call := range calls {
+				if l.CountToolCall != nil && !l.CountToolCall(call) {
+					continue
+				}
+				if remaining > 0 {
+					remaining--
+				} else {
+					limitRefused[i] = true
+					limitHit = true
+				}
+			}
 		}
-		results, attempted, interrupt := l.runTools(ctx, res.Turns, calls[:allowed])
+		results, attempted, deferred, interrupt := l.runTools(ctx, res.Turns, calls, limitRefused)
 		res.Messages = append(res.Messages, results...)
 		res.ToolCalls += attempted
+		if len(deferred) > 0 {
+			res.Deferred = deferred
+		}
 		if interrupt != nil {
 			return res, interrupt
 		}
-		for _, call := range calls[allowed:] {
-			// Every call gets a result, as providers expect.
-			res.Messages = append(res.Messages, Message{Role: Tool, ToolCallID: call.ID, Content: fmt.Sprintf("not run: the limit of %d tool calls is reached; answer with what you have", l.MaxToolCalls), IsError: true})
+		if len(deferred) > 0 {
+			return res, ErrDeferred
+		}
+		if l.AfterTools != nil {
+			msgs, err := l.AfterTools(ctx, res.Turns, res.Messages)
+			if err != nil {
+				return res, err
+			}
+			res.Messages = msgs
+		}
+		if limitHit && res.Turns < maxTurns && len(l.Tools) > 0 && l.ToolLimitMessage != "" && !toolLimitNudged {
+			toolLimitNudged = true
+			res.Messages = append(res.Messages, Message{Role: User, Content: l.ToolLimitMessage, Source: SourceLoop})
 		}
 	}
 	return res, ErrMaxTurns
@@ -539,50 +705,93 @@ func (l *Loop) emit(e Event) {
 	}
 }
 
+func (l *Loop) limitResultText() string {
+	if l.ToolLimitResult != "" {
+		return l.ToolLimitResult
+	}
+	return fmt.Sprintf("not run: the limit of %d tool calls is reached; answer with what you have", l.MaxToolCalls)
+}
+
+func (l *Loop) formatToolErr(err error) string {
+	if l.FormatToolError != nil {
+		return l.FormatToolError(err)
+	}
+	return err.Error()
+}
+
 // runTools runs the calls of one turn and returns their results in call
 // order, since providers expect them so.
-func (l *Loop) runTools(ctx context.Context, turn int, calls []ToolCall) ([]Message, int, error) {
+func (l *Loop) runTools(ctx context.Context, turn int, calls []ToolCall, limitRefused []bool) ([]Message, int, []ToolCall, error) {
+	sequential := l.InterruptTool != nil || l.DeferTool != nil || l.Concurrency <= 1 || len(calls) == 1
+	if sequential {
+		results := make([]Message, 0, len(calls))
+		var deferred []ToolCall
+		counted := 0
+		for i, call := range calls {
+			if limitRefused[i] {
+				results = append(results, Message{Role: Tool, ToolCallID: call.ID, Content: l.limitResultText(), IsError: true})
+				continue
+			}
+			if (l.InterruptTool != nil || l.DeferTool != nil) && ctx.Err() != nil {
+				return results, counted, deferred, ctx.Err()
+			}
+			l.emit(Event{Kind: ToolCalled, Turn: turn, Call: &call})
+			out, err := l.dispatch(ctx, call)
+			interrupted := err != nil && l.InterruptTool != nil && l.InterruptTool(err)
+			isDeferred := !interrupted && err != nil && l.DeferTool != nil && l.DeferTool(err)
+			msg := Message{Role: Tool, ToolCallID: call.ID, Content: out}
+			if err != nil && !isDeferred {
+				msg.Content, msg.IsError = l.formatToolErr(err), true
+			}
+			if isDeferred {
+				l.emit(Event{Kind: ToolReturned, Turn: turn, Call: &call, Deferred: true, Err: err})
+			} else {
+				l.emit(Event{Kind: ToolReturned, Turn: turn, Call: &call, Result: msg.Content, Err: err})
+			}
+			if l.CountToolCall == nil || l.CountToolCall(call) {
+				counted++
+			}
+			if interrupted {
+				return results, counted, deferred, err
+			}
+			if isDeferred {
+				deferred = append(deferred, call)
+				continue
+			}
+			results = append(results, msg)
+		}
+		return results, counted, deferred, nil
+	}
+
 	results := make([]Message, len(calls))
-	run := func(i int) error {
-		call := calls[i]
-		l.emit(Event{Kind: ToolCalled, Turn: turn, Call: &call})
-		out, err := l.dispatch(ctx, call)
-		msg := Message{Role: Tool, ToolCallID: call.ID, Content: out}
-		if err != nil {
-			msg.Content, msg.IsError = err.Error(), true
-		}
-		l.emit(Event{Kind: ToolReturned, Turn: turn, Call: &call, Result: msg.Content, Err: err})
-		if err != nil && l.InterruptTool != nil && l.InterruptTool(err) {
-			return err
-		}
-		results[i] = msg
-		return nil
-	}
-	n := l.Concurrency
-	if l.InterruptTool != nil || n <= 1 || len(calls) == 1 {
-		for i := range calls {
-			if l.InterruptTool != nil && ctx.Err() != nil {
-				return results[:i], i, ctx.Err()
-			}
-			if err := run(i); err != nil {
-				return results[:i], i + 1, err
-			}
-		}
-		return results, len(calls), nil
-	}
-	sem := make(chan struct{}, n)
+	counted := 0
+	sem := make(chan struct{}, l.Concurrency)
 	var wg sync.WaitGroup
-	for i := range calls {
+	for i, call := range calls {
+		if limitRefused[i] {
+			results[i] = Message{Role: Tool, ToolCallID: call.ID, Content: l.limitResultText(), IsError: true}
+			continue
+		}
+		if l.CountToolCall == nil || l.CountToolCall(call) {
+			counted++
+		}
 		wg.Add(1)
 		sem <- struct{}{}
-		go func() {
+		go func(i int, call ToolCall) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			_ = run(i)
-		}()
+			l.emit(Event{Kind: ToolCalled, Turn: turn, Call: &call})
+			out, err := l.dispatch(ctx, call)
+			msg := Message{Role: Tool, ToolCallID: call.ID, Content: out}
+			if err != nil {
+				msg.Content, msg.IsError = l.formatToolErr(err), true
+			}
+			l.emit(Event{Kind: ToolReturned, Turn: turn, Call: &call, Result: msg.Content, Err: err})
+			results[i] = msg
+		}(i, call)
 	}
 	wg.Wait()
-	return results, len(calls), nil
+	return results, counted, nil, nil
 }
 
 func (l *Loop) dispatch(ctx context.Context, call ToolCall) (out string, err error) {
@@ -621,6 +830,9 @@ func ClientEvent(e Event) (name string, data any, ok bool) {
 	case ToolReturned:
 		if e.Call == nil {
 			return "", nil, false
+		}
+		if e.Deferred {
+			return "tool_returned", map[string]any{"name": e.Call.Name, "failed": false, "deferred": true}, true
 		}
 		return "tool_returned", map[string]any{"name": e.Call.Name, "failed": e.Err != nil}, true
 	case AnswerRejected:

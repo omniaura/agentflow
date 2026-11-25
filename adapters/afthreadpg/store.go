@@ -299,7 +299,12 @@ func runRecord(owner string, r db.AfRun) afthread.RunRecord {
 		ID: r.ID.String(), Owner: owner, Thread: r.ThreadID.String(), Status: afthread.RunStatus(r.Status),
 		Started: r.StartedAt.Time, Ended: r.EndedAt.Time,
 		RunEnd: afthread.RunEnd{Turns: int(r.Turns), ToolCalls: int(r.ToolCalls), Error: r.Error,
-			Usage: afagent.Usage{InputTokens: int(r.InputTokens), CachedInputTokens: int(r.CachedInputTokens), OutputTokens: int(r.OutputTokens)}},
+			Usage: afagent.Usage{
+				InputTokens:              int(r.InputTokens),
+				CachedInputTokens:        int(r.CachedInputTokens),
+				CacheCreationInputTokens: int(r.CacheCreationInputTokens),
+				OutputTokens:             int(r.OutputTokens),
+			}},
 	}
 }
 
@@ -394,7 +399,8 @@ func (s *Store) EndRun(ctx context.Context, owner, run string, end afthread.RunE
 	u, _ := uuidOf(r.ID)
 	return s.q.EndRun(ctx, db.EndRunParams{
 		Status: string(status), Turns: int64(end.Turns), ToolCalls: int64(end.ToolCalls),
-		InputTokens: int64(end.Usage.InputTokens), CachedInputTokens: int64(end.Usage.CachedInputTokens), OutputTokens: int64(end.Usage.OutputTokens),
+		InputTokens: int64(end.Usage.InputTokens), CachedInputTokens: int64(end.Usage.CachedInputTokens),
+		CacheCreationInputTokens: int64(end.Usage.CacheCreationInputTokens), OutputTokens: int64(end.Usage.OutputTokens),
 		Error: end.Error, ID: u,
 	})
 }
