@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0](https://github.com/omniaura/agentflow/compare/v0.14.0...v0.15.0) (2026-11-25)
+
+
+### Features
+
+* **agent:** multimodal parts, batch deferral, hooks, and OSS-8 compaction workspace [OSS-8] ([#186](https://github.com/omniaura/agentflow/issues/186)) ([7edf0fc](https://github.com/omniaura/agentflow/commit/7edf0fcd98c6d624ac60fa4594a109e0ac8da57c))
+
 ## [0.14.0](https://github.com/omniaura/agentflow/compare/v0.13.0...v0.14.0) (2026-10-29)
 
 
